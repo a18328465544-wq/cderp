@@ -28,3 +28,15 @@ export interface FinanceDailyClosingCollection {
   items: FinanceDailyClosing[];
   source: "daily-closing-api";
 }
+
+export type FinanceAccountingPeriodStatus = "open" | "closed";
+
+export interface FinanceAccountingPeriod {
+  tenantId: string;
+  storeId: string;
+  period: string;
+  status: FinanceAccountingPeriodStatus;
+  closedAt?: string;
+  closedBy?: string;
+  remarks?: string;
+}

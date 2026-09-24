@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {navigationItems} from "@/src/config/navigation";
 import {dedupeWorkspaceTabItems} from "./workspaceTabItems";
-import {closeOtherWorkspaceTabs, closeWorkspaceTab, createWorkspaceState, openWorkspaceTab, restoreWorkspaceState, toggleWorkspaceTabPin, WORKSPACE_HOME_ID, WORKSPACE_MAX_TABS} from "./workspaceTabState";
+import {closeOtherWorkspaceTabs, closeWorkspaceTab, createWorkspaceState, openWorkspaceTab, restoreWorkspaceState, toggleWorkspaceTabPin, workspaceTabToEvict, WORKSPACE_HOME_ID, WORKSPACE_MAX_TABS} from "./workspaceTabState";
 
 const allowed = [WORKSPACE_HOME_ID, "inventory", "purchase", "sales", "crm", "finance", "settings", "quotes", "products", "inspections", "returns", "extra"];
 
@@ -33,6 +33,16 @@ test("workspace tabs evict the oldest non-pinned page at capacity", () => {
   assert.equal(state.openIds.length, WORKSPACE_MAX_TABS);
   assert.equal(state.openIds.includes("inventory"), false);
   assert.equal(state.openIds.at(-1), "extra");
+});
+
+test("workspace tab eviction never targets the home or pinned pages", () => {
+  const state = {
+    openIds: [WORKSPACE_HOME_ID, "pinned", ...Array.from({length: WORKSPACE_MAX_TABS - 2}, (_, index) => `tab-${index}`)],
+    pinnedIds: [WORKSPACE_HOME_ID, "pinned"],
+    recentIds: [WORKSPACE_HOME_ID, "pinned", ...Array.from({length: WORKSPACE_MAX_TABS - 2}, (_, index) => `tab-${index}`)],
+    activeId: "tab-0",
+  };
+  assert.equal(workspaceTabToEvict(state, "new-tab"), "tab-0");
 });
 
 test("restoring workspace tabs also enforces the ten-tab ceiling", () => {

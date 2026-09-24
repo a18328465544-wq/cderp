@@ -40,11 +40,14 @@ test("finance payment and transfer routes are registered in the finance route mo
     {method: "POST", path: "/api/gpu_erp/finance/payment-in/create", middlewareCount: 2},
     {method: "PUT", path: "/api/gpu_erp/finance/payment-in/:id", middlewareCount: 2},
     {method: "DELETE", path: "/api/gpu_erp/finance/payment-in/:id", middlewareCount: 3},
+    {method: "POST", path: "/api/gpu_erp/finance/payment-in/:id/reverse", middlewareCount: 3},
     {method: "POST", path: "/api/gpu_erp/finance/payment-out/create", middlewareCount: 2},
     {method: "PUT", path: "/api/gpu_erp/finance/payment-out/:id", middlewareCount: 2},
     {method: "DELETE", path: "/api/gpu_erp/finance/payment-out/:id", middlewareCount: 3},
+    {method: "POST", path: "/api/gpu_erp/finance/payment-out/:id/reverse", middlewareCount: 3},
     {method: "POST", path: "/api/gpu_erp/finance/account-transfer/create", middlewareCount: 2},
     {method: "PUT", path: "/api/gpu_erp/finance/account-transfer/:id", middlewareCount: 2},
     {method: "DELETE", path: "/api/gpu_erp/finance/account-transfer/:id", middlewareCount: 3},
+    {method: "POST", path: "/api/gpu_erp/finance/account-transfer/:id/reverse", middlewareCount: 3},
   ]);
 });

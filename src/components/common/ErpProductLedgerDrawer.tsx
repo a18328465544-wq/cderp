@@ -12,6 +12,7 @@ import {ErpDateRangePicker} from "./ErpDateRangePicker";
 import {ErpDetailDrawer} from "./ErpDetailDrawer";
 import {ErpStatusBadge} from "./ErpStatusBadge";
 import {formatStoreDateTime} from "@/src/utils/storeTime";
+import {productDisplayName, productIdentityParts} from "@/src/lib/productName";
 
 export interface ProductLedgerSubject {
   key: string;
@@ -85,7 +86,7 @@ export function mergeProductLedgerSubjects(subject: ProductLedgerSubject | null,
 }
 
 function subjectIdentity(subject: ProductLedgerSubject) {
-  return [subject.category, subject.brand, subject.model, subject.version, subject.vram].filter(Boolean).join(" · ");
+  return [subject.category, ...productIdentityParts(subject)].filter(Boolean).join(" · ");
 }
 
 function rowParty(row: ProductLedgerRow) {
@@ -117,11 +118,12 @@ export function ErpProductLedgerDrawer({open, subject, subjects = [], filters, p
   const columns = useMemo(() => createColumns(onOpenDocument), [onOpenDocument]);
   const range: DateRangeValue = {startDate: filters.startDate, endDate: filters.endDate};
   const identity = subject ? subjectIdentity(subject) : "";
+  const subjectLabel = subject ? productDisplayName({name: subject.productName, ...subject}) : "";
   const subjectOptions = useMemo(() => mergeProductLedgerSubjects(subject, subjects), [subject, subjects]);
   const rows = page?.rows || [];
   const hasActiveFilters = Boolean(filters.documentNo || filters.createdBy || filters.documentType || filters.startDate || filters.endDate);
 
-  return <ErpDetailDrawer open={open} onOpenChange={onOpenChange} modal={false} title={subject?.productName || "型号出入库明细"} description={identity || "按型号汇总查看库存单据"} resizable allowFullWidth drawerKey="product-ledger" defaultWidth={820} minWidth={640} maxWidth={1100}>
+  return <ErpDetailDrawer open={open} onOpenChange={onOpenChange} modal={false} title={subjectLabel || "型号出入库明细"} description={identity || "按型号汇总查看库存单据"} resizable allowFullWidth drawerKey="product-ledger" defaultWidth={820} minWidth={640} maxWidth={1100}>
     {!subject ? <div className="p-2 text-sm text-[var(--erp-color-text-secondary)]">未选择商品型号</div> : <div className="space-y-4">
       {subjectOptions.length > 1 && onSubjectChange ? <section className="rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] p-3">
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -132,7 +134,7 @@ export function ErpProductLedgerDrawer({open, subject, subjects = [], filters, p
           id="product-ledger-subject"
           searchable
           value={subject.key}
-          options={subjectOptions.map((option) => ({value: option.key, label: option.productName, labelText: option.productName, searchText: subjectIdentity(option), description: subjectIdentity(option) || undefined}))}
+          options={subjectOptions.map((option) => { const label = productDisplayName({name: option.productName, ...option}); return {value: option.key, label, labelText: label, searchText: subjectIdentity(option), description: subjectIdentity(option) || undefined}; })}
           onValueChange={(value) => {
             const next = subjectOptions.find((option) => option.key === value);
             if (next && next.key !== subject.key) onSubjectChange(next);
@@ -148,7 +150,7 @@ export function ErpProductLedgerDrawer({open, subject, subjects = [], filters, p
           {subject.imageUrl ? <img src={subject.imageUrl} alt="" className="h-full w-full object-contain" /> : <PackageSearch className="h-6 w-6 text-[var(--erp-color-text-muted)]" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-[var(--erp-color-text)]">{subject.productName}</p>
+          <p className="truncate text-sm font-semibold text-[var(--erp-color-text)]">{subjectLabel}</p>
           <p className="mt-1 truncate text-xs text-[var(--erp-color-text-muted)]">{identity || "型号信息待补充"}</p>
         </div>
         <div className="shrink-0 text-right">
@@ -195,7 +197,7 @@ export function ErpProductLedgerDrawer({open, subject, subjects = [], filters, p
         mobileMode="cards"
         mobileFields={5}
         surface="plain"
-        ariaLabel={`${subject.productName}型号出入库单据`}
+        ariaLabel={`${subjectLabel}型号出入库单据`}
       />
     </div>}
   </ErpDetailDrawer>;

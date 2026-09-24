@@ -29,6 +29,8 @@ export interface FinanceTransferFilters {
   endDate: string;
   page: number;
   pageSize: number;
+  sortKey?: string;
+  sortDirection?: "asc" | "desc";
 }
 
 export interface FinanceTransferCollection {

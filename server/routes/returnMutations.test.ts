@@ -39,6 +39,7 @@ test("return mutation routes keep type guard before destructive actions", () => 
     {method: "POST", path: "/api/returns/:id/complete", middlewareCount: 3},
     {method: "POST", path: "/api/returns/:id/void", middlewareCount: 4},
     {method: "PATCH", path: "/api/returns/:id", middlewareCount: 3},
+    {method: "POST", path: "/api/returns/:id/reverse", middlewareCount: 4},
     {method: "DELETE", path: "/api/returns/:id", middlewareCount: 4},
   ]);
 });

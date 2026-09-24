@@ -51,7 +51,7 @@ export function FinanceEntryDetailDrawer({item, kind, subject, canEdit, canDelet
       footer={
         item && (
           <div className="flex justify-end gap-2">
-            {canDelete && item.deletable && <Button size="sm" variant="danger" onClick={onDelete}>删除</Button>}
+            {canDelete && item.deletable && <Button size="sm" variant="danger" onClick={onDelete}>冲销</Button>}
             {canEdit && item.editable && <Button size="sm" variant="primary" onClick={onEdit}>编辑</Button>}
           </div>
         )
@@ -108,17 +108,17 @@ export function FinanceEntryDeleteDrawer({item, kind, subject, pending, onClose,
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
-      title={`删除${noun}记录`}
+      title={`冲销${noun}记录`}
       description="服务端将同时回滚账户余额和关联流水"
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={pending}>取消</Button>
-          <Button variant="danger" onClick={onConfirm} disabled={pending}>{pending ? "删除中…" : "确认删除"}</Button>
+          <Button variant="danger" onClick={onConfirm} disabled={pending}>{pending ? "冲销中…" : "确认冲销"}</Button>
         </div>
       }
     >
       <p className="text-sm leading-6 text-[var(--erp-color-text-secondary)]">
-        确认删除 {item?.businessType}「{resolvedSubject}」的 {formatCurrency(item?.amount || 0)} {noun}？该操作最终仍由服务端校验。
+        确认冲销 {item?.businessType}「{resolvedSubject}」的 {formatCurrency(item?.amount || 0)} {noun}？系统会反向修正账户、业务余额和账务流水，并保留操作记录。
       </p>
     </ErpDetailDrawer>
   );

@@ -93,7 +93,7 @@ export interface FinanceAccountFilters {
   owner: string;
   platform: string;
   type: FinanceAccountType | "all";
-  status: "all" | "enabled" | "disabled" | "difference";
+  status: "all" | "enabled" | "disabled" | "pending" | "difference";
   page: number;
   pageSize: number;
 }

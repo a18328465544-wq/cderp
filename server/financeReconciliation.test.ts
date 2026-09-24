@@ -186,3 +186,21 @@ test("return invariants are part of the same report instead of a separate silent
   const report = inspectFinanceReconciliation(state);
   assert.ok(report.issues.some((issue) => issue.domain === "returns" && issue.code === "RETURN_LINKED_PAYMENT_WRONG_TYPE"));
 });
+
+test("voided payment documents are excluded from reconciliation counts and invoice linkage", () => {
+  const state = cleanState();
+  state.paymentInRecords = [{...state.paymentInRecords[0], accountingStatus: "作废"}];
+  const report = inspectFinanceReconciliation(state);
+  assert.equal(report.summary.paymentCount, 1);
+  assert.equal(report.checks.paymentLedgerLinks, 1);
+  assert.equal(report.healthy, true);
+});
+
+test("audit persistence can receive the complete issue set while the UI remains bounded", () => {
+  const state = cleanState();
+  state.paymentInRecords = [{...state.paymentInRecords[0], amount: 0}, {...state.paymentInRecords[0], id: "SK-2", amount: -1}];
+  const report = inspectFinanceReconciliation(state, {limit: 1, includeAllIssues: true});
+  assert.equal(report.truncated, true);
+  assert.equal(report.issues.length, 1);
+  assert.ok((report.allIssues?.length || 0) > report.issues.length);
+});

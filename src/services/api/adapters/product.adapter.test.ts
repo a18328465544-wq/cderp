@@ -12,7 +12,7 @@ test("product adapter masks prices according to server-derived permissions", () 
 
 test("product request is generated only by the request adapter", () => {
   const request = toProductTemplateRequest({category: "显卡", brand: " 华硕 ", model: " RTX 4090 ", version: "", vram: "24G", refBuyPrice: 100, refSellPrice: 200, remarks: " 重点检查 ", imageUrls: ["/api/media/assets/1", ""]});
-  assert.equal(request.name, "华硕 RTX 4090 - 24G");
+  assert.equal(request.name, "华硕 RTX 4090 24G");
   assert.equal(request.version, "-");
   assert.deepEqual(request.imageUrls, ["/api/media/assets/1"]);
   assert.equal(request.remarks, "重点检查");

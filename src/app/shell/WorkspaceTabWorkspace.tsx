@@ -6,7 +6,7 @@ import {isMenuAllowed} from "@/src/utils/menu";
 import {useWorkspaceTabRuntime} from "@/src/hooks/useWorkspaceTabRuntime";
 import {dedupeWorkspaceTabItems} from "./workspaceTabItems";
 import {readStoredWorkspaceState, writeStoredWorkspaceState} from "./workspaceTabStorage";
-import {closeWorkspaceTab, filterWorkspaceStateByPermissions, openWorkspaceTab, type WorkspaceTabState, WORKSPACE_HOME_ID} from "./workspaceTabState";
+import {closeWorkspaceTab, filterWorkspaceStateByPermissions, openWorkspaceTab, type WorkspaceTabState, workspaceTabToEvict, WORKSPACE_HOME_ID} from "./workspaceTabState";
 import {searchForTabRoute} from "./navigationSearch";
 
 type WorkspaceTabRoute = {pathname: string; search: Record<string, string>};
@@ -22,6 +22,9 @@ type WorkspaceTabWorkspaceValue = {
   pendingDirtyClose: string | null;
   cancelDirtyClose: () => void;
   confirmDirtyClose: () => void;
+  pendingDirtySwitch: {targetId: string; evictedId: string} | null;
+  cancelDirtySwitch: () => void;
+  confirmDirtySwitch: () => void;
   navigateToTab: (item: NavigationItem, event: MouseEvent<HTMLAnchorElement>) => void;
   closeTab: (id: string) => void;
 };
@@ -58,6 +61,7 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
   const [routeByTab, setRouteByTab] = useState<WorkspaceTabRouteMap>({});
   const [pendingClose, setPendingClose] = useState<{id: string; targetId: string; startPathname: string} | null>(null);
   const [pendingDirtyClose, setPendingDirtyClose] = useState<string | null>(null);
+  const [pendingDirtySwitch, setPendingDirtySwitch] = useState<{targetId: string; evictedId: string} | null>(null);
   const {isTabDirty, releaseTab, setNavigationIntent} = useWorkspaceTabRuntime();
 
   stateRef.current = state;
@@ -110,15 +114,21 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
     setRouteByTab({});
     setPendingClose(null);
     setPendingDirtyClose(null);
+    setPendingDirtySwitch(null);
   }, [allowedIds, userId]);
 
   useEffect(() => {
     if (!currentItem) return;
+    const evictedId = workspaceTabToEvict(stateRef.current, currentItem.id);
+    if (evictedId && isTabDirty(evictedId)) {
+      setPendingDirtySwitch({targetId: currentItem.id, evictedId});
+      return;
+    }
     const next = openWorkspaceTab(stateRef.current, currentItem.id);
     if (JSON.stringify(next) === JSON.stringify(stateRef.current)) return;
     stateRef.current = next;
     setState(next);
-  }, [currentItem?.id]);
+  }, [currentItem?.id, isTabDirty]);
 
   useEffect(() => {
     if (currentItem) recordRoute(currentItem.id, pathname, searchStr);
@@ -148,10 +158,17 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
 
   const activate = useCallback((id: string) => {
     const item = itemById(id);
-    if (!item || !allowedIds.includes(id)) return;
+    if (!item || !allowedIds.includes(id)) return false;
+    const evictedId = workspaceTabToEvict(stateRef.current, id);
+    if (evictedId && isTabDirty(evictedId)) {
+      setPendingDirtySwitch({targetId: id, evictedId});
+      return false;
+    }
     setPendingClose(null);
+    setPendingDirtySwitch(null);
     transition((previous) => openWorkspaceTab(previous, id));
-  }, [allowedIds, transition]);
+    return true;
+  }, [allowedIds, isTabDirty, transition]);
 
   const navigateToTab = useCallback((item: NavigationItem, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -159,7 +176,11 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
     const current = currentItem?.id === item.id;
     setNavigationIntent(current ? null : "switch");
     if (currentItem) recordRoute(currentItem.id, pathname, searchStr);
-    activate(item.id);
+    const activated = activate(item.id);
+    if (!activated) {
+      setNavigationIntent(null);
+      return;
+    }
     if (!current) {
       const targetRoute = routeByTabRef.current[item.id] || {pathname: item.path, search: {}};
       void navigate({to: targetRoute.pathname, search: targetRoute.search});
@@ -195,6 +216,22 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
     transition((value) => closeWorkspaceTab(value, id));
   }, [pendingDirtyClose, transition]);
   const cancelDirtyClose = useCallback(() => setPendingDirtyClose(null), []);
+  const confirmDirtySwitch = useCallback(() => {
+    if (!pendingDirtySwitch) return;
+    const {targetId} = pendingDirtySwitch;
+    const target = itemById(targetId);
+    setPendingDirtySwitch(null);
+    setPendingClose(null);
+    if (!target) return;
+    transition((previous) => openWorkspaceTab(previous, targetId));
+    setNavigationIntent("switch");
+    const targetRoute = routeByTabRef.current[targetId] || {pathname: target.path, search: {}};
+    void navigate({to: targetRoute.pathname, search: targetRoute.search});
+  }, [navigate, pendingDirtySwitch, setNavigationIntent, transition]);
+  const cancelDirtySwitch = useCallback(() => {
+    setPendingDirtySwitch(null);
+    setNavigationIntent(null);
+  }, [setNavigationIntent]);
 
   const tabs = useMemo(() => {
     const pinned = state.pinnedIds.filter((id) => state.openIds.includes(id));
@@ -215,9 +252,12 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
     pendingDirtyClose,
     cancelDirtyClose,
     confirmDirtyClose,
+    pendingDirtySwitch,
+    cancelDirtySwitch,
+    confirmDirtySwitch,
     navigateToTab,
     closeTab,
-  }), [activeTab, allowedIds, cancelDirtyClose, closeTab, confirmDirtyClose, navigateToTab, pathname, pendingDirtyClose, routeByTab, state, tabs]);
+  }), [activeTab, allowedIds, cancelDirtyClose, cancelDirtySwitch, closeTab, confirmDirtyClose, confirmDirtySwitch, navigateToTab, pathname, pendingDirtyClose, pendingDirtySwitch, routeByTab, state, tabs]);
 
   return <WorkspaceTabWorkspaceContext.Provider value={value}>{children}</WorkspaceTabWorkspaceContext.Provider>;
 }

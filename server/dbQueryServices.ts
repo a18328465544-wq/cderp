@@ -143,10 +143,10 @@ export function createDatabaseQueryServices({initializePostgres, getPool}: Datab
 
   async function queryFinanceRecordPage<T>(kind: FinanceRecordKind, filters: FinanceRecordPageFilters): Promise<FinanceRecordPage<T>> {
     await initializePostgres();
-    const {table, page, pageSize, offset, values, where} = buildFinanceRecordPageQuery(kind, filters);
+    const {table, page, pageSize, offset, values, where, orderBy} = buildFinanceRecordPageQuery(kind, filters);
     const [rows, aggregate] = await Promise.all([
       getPool().query<{data: T}>(
-        `SELECT data FROM ${table} ${where} ORDER BY data->>'time' DESC NULLS LAST, id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+        `SELECT data FROM ${table} ${where} ${orderBy} LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
         [...values, pageSize, offset],
       ),
       getPool().query<{total: string; total_amount: string}>(

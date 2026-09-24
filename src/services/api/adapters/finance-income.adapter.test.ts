@@ -11,7 +11,7 @@ test("non-operating adapter excludes sales receipts and keeps standalone income"
   assert.equal(isNonOperatingIncomeDto({relatedDocType: "退货单", businessType: "其他收入"}), false);
   assert.equal(isNonOperatingIncomeDto({relatedDocNo: "JHTH-1", businessType: "其他收入"}), false);
   assert.equal(isNonOperatingIncomeDto({businessType: "返点收入"}), true);
-  const rows = adaptFinanceIncomeSnapshot({data: {paymentInRecords: [{id: "I-1", customerName: "平台", accountId: "A-1", accountName: "微信", amount: 100, handler: "郭鑫", paymentMethod: "微信", businessType: "返点收入", time: "2026-08-11 10:00:00"}, {id: "S-1", businessType: "销售收款", time: "2026-08-11"}]}});
+  const rows = adaptFinanceIncomeSnapshot({data: {paymentInRecords: [{id: "I-1", customerName: "平台", accountId: "A-1", accountName: "微信", amount: 100, handler: "郭鑫", paymentMethod: "微信", businessType: "返点收入", time: "2026-08-11 10:00:00"}, {id: "I-VOID", customerName: "平台", accountId: "A-1", accountName: "微信", amount: 999, handler: "郭鑫", paymentMethod: "微信", businessType: "返点收入", accountingStatus: "作废", time: "2026-08-11"}, {id: "S-1", businessType: "销售收款", time: "2026-08-11"}]}});
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.source, "平台");
 });

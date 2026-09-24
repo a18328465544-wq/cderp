@@ -1,15 +1,28 @@
 import type {Express, RequestHandler} from "express";
-import {saveStateRecords} from "../db.ts";
-import {stateMergeRecords, statePatchResponse, type StateMergePatch} from "../statePatch.ts";
+import {runStateCommand, type StateCommandTransactionHook} from "../stateCommand.ts";
+import {statePatchResponse, type StateMergePatch} from "../statePatch.ts";
 import type {AppState, createStoreActions} from "../store.ts";
 import type {Request as ExpressRequest} from "express";
 import {aftersalesCreateDto, aftersalesUpdateDto, parseHttpDto} from "../httpDto.ts";
+
+type IdempotencyContext = {
+  request: {
+    tenantId: string;
+    route: string;
+    key: string;
+    requestHash: string;
+  };
+  replay?: {statusCode: number; response: unknown};
+};
 
 type AftersalesMutationDependencies = {
   requireMenu: (menuId: string) => RequestHandler;
   asyncRoute: (handler: RequestHandler) => RequestHandler;
   getState: () => AppState;
   actions: (req: ExpressRequest) => ReturnType<typeof createStoreActions>;
+  claimMutationIdempotency: (req: ExpressRequest) => Promise<IdempotencyContext | null>;
+  releaseMutationIdempotency: (context: IdempotencyContext | null) => Promise<void>;
+  transactionHookWithIdempotency: <T>(context: IdempotencyContext | null, statusCode: number) => StateCommandTransactionHook<T> | undefined;
 };
 
 function okMerge(data: unknown, stateMerge: StateMergePatch) {
@@ -38,11 +51,24 @@ export function registerAftersalesMutationRoutes(app: Express, dependencies: Aft
     "/api/aftersales",
     dependencies.requireMenu("aftersales"),
     dependencies.asyncRoute(async (req, res) => {
-      const command = parseHttpDto(aftersalesCreateDto, req.body);
-      const created = dependencies.actions(req).addAftersalesClaim(command);
-      const stateMerge = aftersalesMerge(dependencies.getState(), created);
-      await saveStateRecords(stateMergeRecords(stateMerge));
-      res.status(201).json(okMerge(created, stateMerge));
+      const idempotency = await dependencies.claimMutationIdempotency(req);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const command = parseHttpDto(aftersalesCreateDto, req.body);
+        const {data: created, stateMerge} = await runStateCommand(
+          () => dependencies.actions(req).addAftersalesClaim(command),
+          (record) => aftersalesMerge(dependencies.getState(), record),
+          undefined,
+          dependencies.transactionHookWithIdempotency(idempotency, 201),
+        );
+        res.status(201).json(okMerge(created, stateMerge));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -50,11 +76,24 @@ export function registerAftersalesMutationRoutes(app: Express, dependencies: Aft
     "/api/aftersales/:id",
     dependencies.requireMenu("aftersales"),
     dependencies.asyncRoute(async (req, res) => {
-      const command = parseHttpDto(aftersalesUpdateDto, req.body);
-      const updated = dependencies.actions(req).updateAftersalesStatus(req.params.id!, command);
-      const stateMerge = aftersalesMerge(dependencies.getState(), updated);
-      await saveStateRecords(stateMergeRecords(stateMerge));
-      res.status(updated ? 200 : 404).json(okMerge(updated, stateMerge));
+      const idempotency = await dependencies.claimMutationIdempotency(req);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const command = parseHttpDto(aftersalesUpdateDto, req.body);
+        const {data: updated, stateMerge} = await runStateCommand(
+          () => dependencies.actions(req).updateAftersalesStatus(req.params.id!, command),
+          (record) => aftersalesMerge(dependencies.getState(), record),
+          undefined,
+          dependencies.transactionHookWithIdempotency(idempotency, 200),
+        );
+        res.status(updated ? 200 : 404).json(okMerge(updated, stateMerge));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 }

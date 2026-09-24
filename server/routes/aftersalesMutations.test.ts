@@ -21,6 +21,9 @@ test("aftersales mutations keep the compact two-route surface", () => {
     asyncRoute: (handler) => handler,
     getState: () => ({}) as never,
     actions: () => ({}) as never,
+    claimMutationIdempotency: async () => null,
+    releaseMutationIdempotency: async () => undefined,
+    transactionHookWithIdempotency: () => undefined,
   });
 
   assert.deepEqual(registered, [

@@ -6,7 +6,7 @@ import {ErpSearchInput} from "@/src/components/common";
 import {useMemo, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, Select} from "@/src/components/ui";
-import {ErpColumnVisibilityMenu, ErpDataTable, ErpDateRangePicker, ErpDocumentDeleteDialog, ErpFilterBar, ErpListPageFrame, ErpLoadingState, ErpMetricCard, ErpOutstandingSettlementDialog, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
+import {ErpColumnVisibilityMenu, ErpDataTable, ErpDateRangePicker, ErpDocumentDeleteDialog, ErpFilterBar, ErpListPageFrame, ErpLoadingState, ErpMetricCard, ErpOutstandingSettlementDialog, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpTableResultsBar, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
 import {ApiError, financeAccountsApi, financeSettlementApi, purchaseApi, queryKeys} from "@/src/services/api";
 import {invalidateErpDomains} from "@/src/services/api";
 import {createCapabilities, useAuth} from "@/src/app/auth";
@@ -144,13 +144,10 @@ function PurchaseListContent({filters, commitFilters, session, query, onDetail, 
     </ErpFilterBar></ErpPageToolbar>
 
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-2 text-xs text-[var(--erp-color-text-secondary)]"><Filter className="h-4 w-4 text-[var(--erp-color-primary)]" /><span>共 {selection.meta.total} 条</span></div>
-      <div className="flex items-center gap-2">
+    <ErpTableResultsBar summary={<span className="flex items-center gap-2"><Filter className="h-4 w-4 text-[var(--erp-color-primary)]" />共 {selection.meta.total} 条</span>} actions={<>
         <ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} />
         <div className="inline-flex rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-0.5"><Button type="button" size="sm" variant={density === "comfortable" ? "secondary" : "ghost"} onClick={() => setDensity("comfortable")}>舒适</Button><Button type="button" size="sm" variant={density === "compact" ? "secondary" : "ghost"} onClick={() => setDensity("compact")}>紧凑</Button></div>
-      </div>
-    </div>
+    </>} />
 
     <ErpDataTable
       columns={columns}

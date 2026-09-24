@@ -83,6 +83,7 @@ function adaptCandidate(dto: Record<string, unknown>): InspectionCandidate {
   const id = text(dto.id);
   const serialNumber = text(dto.sn);
   const supplierName = text(dto.supplierName);
+  const purchaseHandler = text(dto.purchaseHandler);
   const purchaseInvoiceNo = text(dto.purchaseInvoiceNo);
   const entryTime = text(dto.entryTime);
   return {
@@ -97,6 +98,7 @@ function adaptCandidate(dto: Record<string, unknown>): InspectionCandidate {
     serialNumber,
     expressNo: text(dto.expressNo),
     supplierName,
+    purchaseHandler,
     purchaseInvoiceNo,
     status: text(dto.status),
     condition: conditionValue(dto.condition),
@@ -108,7 +110,7 @@ function adaptCandidate(dto: Record<string, unknown>): InspectionCandidate {
     entryTime,
     inventoryDays: entryTime ? storeDateDiffDays(entryTime) : Math.max(0, Math.floor(numberValue(dto.storageDays))),
     isGpu: category === "显卡",
-    searchText: [id, serialNumber, productName, category, dto.brand, dto.model, dto.version, dto.vram, supplierName, purchaseInvoiceNo, dto.expressNo]
+    searchText: [id, serialNumber, productName, category, dto.brand, dto.model, dto.version, dto.vram, supplierName, purchaseHandler, purchaseInvoiceNo, dto.expressNo]
       .filter(Boolean)
       .join(" ")
       .toLocaleLowerCase("zh-CN"),

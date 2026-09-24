@@ -7,3 +7,7 @@ test("transfer URL filters round-trip and reject unsupported pagination", () => 
   assert.deepEqual(parseFinanceTransferFilters(`?${financeTransferFiltersToSearch(filters)}`), filters);
   assert.deepEqual(parseFinanceTransferFilters("?page=-1&pageSize=33"), defaultFinanceTransferFilters);
 });
+
+test("transfer URL filters discard sort fields that the server cannot order", () => {
+  assert.deepEqual(parseFinanceTransferFilters("?sortKey=not-a-column&sortDirection=asc"), defaultFinanceTransferFilters);
+});

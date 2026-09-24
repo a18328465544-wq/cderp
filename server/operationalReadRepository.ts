@@ -135,7 +135,7 @@ export async function getAssemblyReference(scope: Scope, visibility: FinancialVi
   });
 }
 
-export async function listReturnOrders(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; type?: string; status?: string; allowedTypes: string[]}) {
+export async function listReturnOrders(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; type?: string; status?: string; allowedTypes: string[]; sortKey?: string; sortDirection?: "asc" | "desc"}) {
   return withDatabaseTransaction(async (client) => {
     const query = scoped(scope);
     query.values.push(filters.allowedTypes);
@@ -151,8 +151,23 @@ export async function listReturnOrders(scope: Scope, filters: {page?: number; pa
     }
     const page = boundedInteger(filters.page, 1, 100_000);
     const pageSize = boundedInteger(filters.pageSize, 20, 100);
+    const amountExpression = "COALESCE(NULLIF(data->>'amount', '')::numeric, 0)";
+    const sortExpressions: Record<string, string> = {
+      date: "COALESCE(data->>'date','')",
+      returnNo: "COALESCE(data->>'returnNo', id)",
+      relatedDocNo: "data->>'relatedDocNo'",
+      partyName: "data->>'partyName'",
+      productName: "data->>'productName'",
+      amount: amountExpression,
+      settlementMode: "data->>'settlementMode'",
+      inventoryAction: "data->>'inventoryAction'",
+      status: "data->>'status'",
+      handler: "data->>'handler'",
+    };
+    const sortExpression = sortExpressions[filters.sortKey || "date"] || sortExpressions.date;
+    const sortDirection = filters.sortDirection === "asc" ? "ASC" : "DESC";
     const where = `WHERE ${query.clauses.join(" AND ")}`;
-    const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_return_orders ${where} ORDER BY COALESCE(data->>'date','') DESC, COALESCE(data->>'returnNo', id) DESC LIMIT $${query.values.length + 1} OFFSET $${query.values.length + 2}`, [...query.values, pageSize, (page - 1) * pageSize]);
+    const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_return_orders ${where} ORDER BY ${sortExpression} ${sortDirection} NULLS LAST, COALESCE(data->>'returnNo', id) DESC, id DESC LIMIT $${query.values.length + 1} OFFSET $${query.values.length + 2}`, [...query.values, pageSize, (page - 1) * pageSize]);
     const total = await client.query<{count: string}>(`SELECT COUNT(*)::text count FROM gpu_return_orders ${where}`, query.values);
     return {data: {data: rows.rows.map((row) => ({...row.data, id: row.id})), meta: {page, pageSize, total: Number(total.rows[0]?.count || 0)}}, meta: {source: "database-page"}};
   });

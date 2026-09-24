@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
 import {renderToStaticMarkup} from "react-dom/server";
-import {ErpPageActions, ErpPageContent, ErpPageContext, ErpPageFrame, ErpPageIdentity, ErpPageTabs, ErpPageToolbar, ErpPageTopbar} from "./ErpPageFrame";
+import {ErpPageActions, ErpPageContent, ErpPageContext, ErpPageFrame, ErpPageIdentity, ErpPageTabs, ErpPageToolbar, ErpPageTopbar, ErpTableResultsBar} from "./ErpPageFrame";
 
 test("ErpPageFrame provides a stable first-level region contract", () => {
   const markup = renderToStaticMarkup(
@@ -30,6 +30,19 @@ test("optional page regions do not reserve empty containers", () => {
   assert.doesNotMatch(markup, /data-erp-region="page-context"/);
   assert.doesNotMatch(markup, /data-erp-region="page-toolbar"/);
   assert.match(markup, /data-erp-region="page-tabs"/);
+});
+
+test("desktop page rhythm and table results share the same alignment contract", () => {
+  const markup = renderToStaticMarkup(<ErpPageFrame>
+    <ErpPageTopbar><ErpPageIdentity title="销售单据" /><ErpPageActions><button type="button">新建</button></ErpPageActions></ErpPageTopbar>
+    <ErpPageToolbar>筛选</ErpPageToolbar>
+    <ErpPageContent><ErpTableResultsBar summary="共 12 条" actions={<button type="button">列显示</button>} /><div>表格</div></ErpPageContent>
+  </ErpPageFrame>);
+  assert.match(markup, /xl:space-y-\[var\(--erp-page-gap-comfortable\)\]/);
+  assert.match(markup, /xl:items-center/);
+  assert.match(markup, /data-erp-region="table-results"/);
+  assert.match(markup, /data-erp-region="table-results-summary"[^>]*>共 12 条/);
+  assert.match(markup, /data-erp-region="table-results-actions"/);
 });
 
 test("page architecture keeps one frame boundary and canonical QuickStatus API", () => {

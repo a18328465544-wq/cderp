@@ -142,22 +142,32 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
     dependencies.requireHistoryEditPermission,
     dependencies.asyncRoute(async (req, res) => {
       const authRequest = req as PurchaseRequest;
-      const {expectedRecordVersion, ...updates} = parseHttpDto(purchaseInvoiceUpdateDto, dependencies.withoutImagePayload(req.body));
-      assertPurchaseUpdateScope(dependencies.permissionsForRequest(authRequest), updates);
-      const state = dependencies.getState();
-      const existing = state.purchaseInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
-      const paymentsBeforeUpdate = existing ? relatedPurchasePayments(state, existing) : [];
-      const financeBeforeUpdate = existing ? relatedPurchaseFinanceLedger(state, existing) : [];
-      const {data: updated, stateMerge, stateDelete} = await runStateCommand(
-        () => dependencies.actions(authRequest).updatePurchaseInvoice(req.params.id!, updates, {expectedRecordVersion}),
-        (invoice) => purchaseInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
-        async (invoice) => {
-          const urls = await dependencies.persistEntityImages(authRequest, "purchase_invoice", invoice.id, "purchase-evidence");
-          if (urls) invoice.images = urls;
-        },
-        (client, invoice) => syncCrmPurchaseInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest)),
-      );
-      res.json(okMerge(updated, stateMerge, stateDelete));
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const {expectedRecordVersion, ...updates} = parseHttpDto(purchaseInvoiceUpdateDto, dependencies.withoutImagePayload(req.body));
+        assertPurchaseUpdateScope(dependencies.permissionsForRequest(authRequest), updates);
+        const state = dependencies.getState();
+        const existing = state.purchaseInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
+        const paymentsBeforeUpdate = existing ? relatedPurchasePayments(state, existing) : [];
+        const financeBeforeUpdate = existing ? relatedPurchaseFinanceLedger(state, existing) : [];
+        const {data: updated, stateMerge, stateDelete} = await runStateCommand(
+          () => dependencies.actions(authRequest).updatePurchaseInvoice(req.params.id!, updates, {expectedRecordVersion}),
+          (invoice) => purchaseInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
+          async (invoice) => {
+            const urls = await dependencies.persistEntityImages(authRequest, "purchase_invoice", invoice.id, "purchase-evidence");
+            if (urls) invoice.images = urls;
+          },
+          dependencies.transactionHookWithIdempotency(idempotency, 200, (client, invoice) => syncCrmPurchaseInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest))),
+        );
+        res.json(okMerge(updated, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -166,6 +176,13 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
     dependencies.requireMenu("purchase_list"),
     dependencies.requireDeletePermission,
     dependencies.asyncRoute(async (req, res) => {
+      const authRequest = req as PurchaseRequest;
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
       const state = dependencies.getState();
       const existing = state.purchaseInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
       const relatedCards = existing ? state.inventory.filter((card) => isInventoryLinkedToPurchase(card, existing)) : [];
@@ -187,8 +204,18 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
         settlementLedger: relatedPayments.map((payment) => payment.settlementLedgerId).filter(Boolean) as string[],
         financeLedger: [...relatedPayments.map((payment) => payment.financeLedgerId).filter(Boolean), ...relatedFinanceIds] as string[],
       };
-      await saveStateRecords([...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)]);
+      await saveStateRecords(
+        [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
+        dependencies.transactionHookWithIdempotency(idempotency, 200)
+          ? (client) => dependencies.transactionHookWithIdempotency(idempotency, 200)!(client, deleted, {stateMerge, stateDelete})
+          : undefined,
+        authRequest.tenantId,
+      );
       res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 }

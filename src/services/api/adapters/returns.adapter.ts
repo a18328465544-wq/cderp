@@ -1,4 +1,4 @@
-import type {SalesReturnCompleteResult, SalesReturnListDataset, SalesReturnListItem, SalesReturnStatus} from "@/src/types/returns";
+import type {ReturnOrderLineSummary, SalesReturnCompleteResult, SalesReturnListDataset, SalesReturnListItem, SalesReturnStatus} from "@/src/types/returns";
 import type {PurchaseReturnFormValues} from "@/src/types/returns";
 import type {PurchaseReturnCreateRequestDto, ReturnBatchItemRequestDto, SalesReturnUpdateRequestDto} from "../dto/returns.dto";
 
@@ -21,12 +21,28 @@ function statusValue(value: unknown): SalesReturnStatus {
 
 export function adaptSalesReturnListItem(value: unknown): SalesReturnListItem {
   const dto = record(value);
-  const nestedSourceInventoryIds = Array.isArray(dto.items)
+  const nestedItems: ReturnOrderLineSummary[] = Array.isArray(dto.items)
     ? dto.items
-      .map((item) => text(record(item).sourceInventoryId))
-      .filter(Boolean)
+      .map((item) => {
+        const line = record(item);
+        const sourceInventoryId = text(line.sourceInventoryId);
+        return sourceInventoryId ? {
+          sourceInventoryId,
+          ...(typeof line.sourceSalesItemIndex === "number" ? {sourceSalesItemIndex: line.sourceSalesItemIndex} : {}),
+          ...(typeof line.sourcePurchaseItemIndex === "number" ? {sourcePurchaseItemIndex: line.sourcePurchaseItemIndex} : {}),
+          ...(text(line.productId) ? {productId: text(line.productId)} : {}),
+          productName: text(line.productName, "未命名商品"),
+          sn: text(line.sn),
+          amount: numberValue(line.amount),
+        } : null;
+      })
+      .filter((item): item is ReturnOrderLineSummary => Boolean(item))
     : [];
+  const nestedSourceInventoryIds = nestedItems.map((item) => item.sourceInventoryId);
   const sourceInventoryId = text(dto.sourceInventoryId || nestedSourceInventoryIds[0]);
+  const rawBatchMode = dto.batchMode === "多件退货" || dto.batchMode === "整单退货" ? dto.batchMode : undefined;
+  const batchMode = rawBatchMode || (nestedItems.length > 1 ? "多件退货" : undefined);
+  const firstItem = nestedItems[0];
   return {
     id: text(dto.id || dto.returnNo),
     returnNo: text(dto.returnNo || dto.id),
@@ -36,9 +52,11 @@ export function adaptSalesReturnListItem(value: unknown): SalesReturnListItem {
     relatedDocNo: text(dto.relatedDocNo),
     sourceInventoryId,
     ...(nestedSourceInventoryIds.length ? {sourceInventoryIds: Array.from(new Set(nestedSourceInventoryIds))} : {}),
-    productId: text(dto.productId),
-    productName: text(dto.productName, "未命名商品"),
-    sn: text(dto.sn),
+    ...(batchMode ? {batchMode} : {}),
+    ...(nestedItems.length ? {returnItems: nestedItems} : {}),
+    productId: text(dto.productId || firstItem?.productId),
+    productName: text(dto.productName, firstItem?.productName || "未命名商品"),
+    sn: text(dto.sn, firstItem?.sn),
     partyId: text(dto.partyId),
     partyName: text(dto.partyName),
     contact: text(dto.contact),

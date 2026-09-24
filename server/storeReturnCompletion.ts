@@ -4,6 +4,7 @@ import type {
   PurchaseInvoice,
   PurchaseItem,
   ReturnOrder,
+  ReturnInventoryStateSnapshot,
 } from "../src/types.ts";
 import {ConflictError, NotFoundError} from "./errors.ts";
 import {findSalesReturnLine, type ReturnLineMatch} from "./storeReturnPlanning.ts";
@@ -12,10 +13,23 @@ import {hasUniqueLegacyName} from "./storePartnerIdentity.ts";
 import {isPersonalPurchaseSource} from "../src/utils/purchaseSources.ts";
 import type {ReturnOperationsDependencies} from "./storeReturnTypes.ts";
 
+function snapshotInventoryCard(card: CardInventory): ReturnInventoryStateSnapshot {
+  return {
+    status: card.status,
+    warehouseLocation: card.warehouseLocation,
+    ...(card.salesPrice !== undefined ? {salesPrice: card.salesPrice} : {}),
+    ...(card.salesTime !== undefined ? {salesTime: card.salesTime} : {}),
+    ...(card.salesInvoiceId !== undefined ? {salesInvoiceId: card.salesInvoiceId} : {}),
+    ...(card.buyerName !== undefined ? {buyerName: card.buyerName} : {}),
+    ...(card.remarks !== undefined ? {remarks: card.remarks} : {}),
+  };
+}
+
 export type ReturnCompletionDependencies = Pick<
   ReturnOperationsDependencies,
   | "state"
   | "nowStamp"
+  | "genId"
   | "systemActor"
   | "replaceState"
   | "purchaseInvoiceVendorId"
@@ -39,6 +53,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
   const {
     state,
     nowStamp,
+    genId,
     systemActor,
     replaceState,
     purchaseInvoiceVendorId,
@@ -54,6 +69,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
   } = dependencies;
 
   const reverseSalesReturnBatch = (order: ReturnOrder) => {
+    const accountingEventId = order.accountingEventId || genId("AE");
     const invoice = state.salesInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const batchItems = order.items || [];
     if (!invoice) throw new NotFoundError(`销售退货关联销售单不存在: ${order.relatedDocNo}`);
@@ -68,6 +84,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       return {batchItem, card, line};
     });
     if (new Set(matches.map((match) => match.line.index)).size !== matches.length) throw new ConflictError("整单销售退货包含重复商品明细");
+    const inventorySnapshots = matches.map((match) => ({inventoryId: match.card.id, snapshot: snapshotInventoryCard(match.card)}));
     const refundAmount = matches.reduce((sum, match) => sum + Number(match.line.item.sellPrice || match.batchItem.amount || 0), 0);
     if (Math.abs(refundAmount - Number(order.amount || 0)) > 0.009) throw new ConflictError("整单销售退货金额与明细合计不一致");
 
@@ -87,6 +104,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       const allocationTotal = allocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (Math.abs(allocationTotal - cashRefundAmount) > 0.009) throw new ConflictError("整单销售退货退款分摊与应退现金不一致");
       refundPaymentRecordIds = allocations.map((allocation) => createPaymentOut({
+        accountingEventId,
         customerName: invoice.customerName,
         accountId: allocation.accountId,
         amount: allocation.amount,
@@ -169,10 +187,12 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       cashReleasedAmount: undefined,
       reversedPaymentSnapshot: undefined,
       affectedAccountId: undefined,
+      inventorySnapshots,
     };
   };
 
   const reversePurchaseReturnBatch = (order: ReturnOrder) => {
+    const accountingEventId = order.accountingEventId || genId("AE");
     const invoice = state.purchaseInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const batchItems = order.items || [];
     if (!invoice) throw new NotFoundError(`进货退货关联采购单不存在: ${order.relatedDocNo}`);
@@ -185,6 +205,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       return {batchItem, card, line};
     });
     if (new Set(matches.map((match) => match.line.index)).size !== matches.length) throw new ConflictError("整单进货退货包含重复商品明细");
+    const inventorySnapshots = matches.map((match) => ({inventoryId: match.card.id, snapshot: snapshotInventoryCard(match.card)}));
     const amount = matches.reduce((sum, match) => sum + Number(match.line.item.buyPrice || match.batchItem.amount || match.card.costPrice || 0), 0);
     if (Math.abs(amount - Number(order.amount || 0)) > 0.009) throw new ConflictError("整单进货退货金额与明细合计不一致");
     const returnedIndices = new Set(matches.map((match) => match.line.index));
@@ -210,7 +231,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
     let reversedPaymentSnapshot: PaymentOutRecord | undefined;
     let affectedAccountId: string | undefined;
     if (order.settlementMode === "直接冲销") {
-      const linkedPayments = state.paymentOutRecords.filter((payment) => payment.relatedDocNo === invoice.invoiceNo || payment.relatedDocNo === invoice.id);
+      const linkedPayments = state.paymentOutRecords.filter((payment) => payment.accountingStatus !== "作废" && (payment.relatedDocNo === invoice.invoiceNo || payment.relatedDocNo === invoice.id));
       if (totalCost > 0 || originalVendorCredit > 0) throw new ConflictError("直接冲销仅支持未使用供应商抵扣余额的整张采购单全部退货");
       if (linkedPayments.length !== 1) throw new ConflictError("直接冲销要求原采购单恰好只有一笔付款；多笔付款请在付款流水中逐笔处理");
       const linkedPayment = linkedPayments[0];
@@ -224,6 +245,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       const allocationTotal = allocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (Math.abs(allocationTotal - cashRefundAmount) > 0.009) throw new ConflictError("整单进货退货退款分摊与应退现金不一致");
       refundPaymentRecordIds = allocations.map((allocation) => createPaymentIn({
+        accountingEventId,
         customerName: invoice.supplierName,
         supplierId: purchaseInvoiceVendorId(invoice),
         supplierName: invoice.supplierName,
@@ -283,10 +305,11 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       ? {...card, status: order.inventoryAction === "直接报废" ? "已报废" : "已退货", warehouseLocation: order.inventoryAction === "退回供应商" ? "已退回供应商" : card.warehouseLocation, remarks: `${card.remarks || ""}${card.remarks ? "；" : ""}${nowStamp()} 进货整单退货，退货单：${order.returnNo}`}
       : card);
     const vendorCreditAmount = order.settlementMode === "抵扣账款" ? releasedVendorCredit + cashRefundAmount : releasedVendorCredit || undefined;
-    return {paymentRecordId, refundPaymentRecordIds, reversedPaymentSnapshot, affectedAccountId, creditAmount: order.settlementMode === "抵扣账款" ? payableOffset : undefined, vendorCreditAmount, releasedVendorCreditAmount: releasedVendorCredit || undefined, cashReleasedAmount: cashRefundAmount || undefined};
+    return {paymentRecordId, refundPaymentRecordIds, reversedPaymentSnapshot, affectedAccountId, creditAmount: order.settlementMode === "抵扣账款" ? payableOffset : undefined, vendorCreditAmount, releasedVendorCreditAmount: releasedVendorCredit || undefined, cashReleasedAmount: cashRefundAmount || undefined, inventorySnapshots};
   };
 
   const reverseSalesReturn = (order: ReturnOrder) => {
+    const accountingEventId = order.accountingEventId || genId("AE");
     if (order.items?.length) return reverseSalesReturnBatch(order);
     const invoice = state.salesInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const returnedCard = findReturnInventory(order);
@@ -295,6 +318,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
     const returnedItem = returnedLine?.item;
     const refundAmount = Number(order.amount || returnedItem?.sellPrice || 0);
     if (!returnedLine || !returnedItem) throw new ConflictError("销售退货必须关联销售单中的商品");
+    const inventorySnapshots = [{inventoryId: returnedItem.inventoryId, snapshot: snapshotInventoryCard(returnedCard!)}];
 
     const remainingItems = invoice.items.filter((_, index) => index !== returnedLine.index);
     const totalCount = remainingItems.length;
@@ -311,6 +335,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       const allocationTotal = allocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (Math.abs(allocationTotal - cashRefundAmount) > 0.009) throw new ConflictError("销售退货退款分摊与应退现金不一致");
       refundPaymentRecordIds = allocations.map((allocation) => createPaymentOut({
+        accountingEventId,
         customerName: invoice.customerName,
         accountId: allocation.accountId,
         amount: allocation.amount,
@@ -391,10 +416,12 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       cashReleasedAmount: undefined,
       reversedPaymentSnapshot: undefined,
       affectedAccountId: undefined,
+      inventorySnapshots,
     };
   };
 
   const reversePurchaseReturn = (order: ReturnOrder) => {
+    const accountingEventId = order.accountingEventId || genId("AE");
     if (order.items?.length) return reversePurchaseReturnBatch(order);
     const invoice = state.purchaseInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const returnedCard = findReturnInventory(order);
@@ -402,6 +429,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
     if (!returnedCard) throw new NotFoundError("进货退货必须关联库存档案");
     const returnedLine = findPurchaseReturnLine(invoice, order, returnedCard);
     if (!returnedLine) throw new ConflictError("进货退货库存与采购明细不匹配");
+    const inventorySnapshots = [{inventoryId: returnedCard.id, snapshot: snapshotInventoryCard(returnedCard)}];
     const returnedItemIndex = returnedLine.index;
     const returnedItem = returnedLine.item;
     const amount = Number(order.amount || returnedItem.buyPrice || returnedCard.costPrice || 0);
@@ -431,7 +459,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
     let affectedAccountId: string | undefined;
     if (order.settlementMode === "直接冲销") {
       const linkedPayments = state.paymentOutRecords.filter((payment) =>
-        payment.relatedDocNo === invoice.invoiceNo || payment.relatedDocNo === invoice.id,
+        payment.accountingStatus !== "作废" && (payment.relatedDocNo === invoice.invoiceNo || payment.relatedDocNo === invoice.id),
       );
       if (totalCost > 0 || originalVendorCredit > 0) throw new ConflictError("直接冲销仅支持未使用供应商抵扣余额的整张采购单全部退货");
       if (linkedPayments.length !== 1) throw new ConflictError("直接冲销要求原采购单恰好只有一笔付款；多笔付款请在付款流水中逐笔处理");
@@ -446,6 +474,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       const allocationTotal = allocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (Math.abs(allocationTotal - cashRefundAmount) > 0.009) throw new ConflictError("进货退货退款分摊与应退现金不一致");
       refundPaymentRecordIds = allocations.map((allocation) => createPaymentIn({
+        accountingEventId,
         customerName: invoice.supplierName,
         supplierId: purchaseInvoiceVendorId(invoice),
         supplierName: invoice.supplierName,
@@ -533,6 +562,7 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
       vendorCreditAmount,
       releasedVendorCreditAmount: releasedVendorCredit || undefined,
       cashReleasedAmount: cashRefundAmount || undefined,
+      inventorySnapshots,
     };
   };
 
@@ -556,9 +586,22 @@ export function createReturnCompletionHelpers(dependencies: ReturnCompletionDepe
     // boundary for direct/unit callers as well.
     const before = structuredClone({...state});
     try {
-      const result = existing.type === "销售退货" ? reverseSalesReturn(existing) : reversePurchaseReturn(existing);
+      const accountingEventId = existing.accountingEventId || genId("AE");
+      const postingOrder = existing.accountingEventId ? existing : {...existing, accountingEventId};
+      const result = existing.type === "销售退货" ? reverseSalesReturn(postingOrder) : reversePurchaseReturn(postingOrder);
+      const snapshotByInventoryId = new Map(result.inventorySnapshots.map((entry) => [entry.inventoryId, entry.snapshot]));
+      const completedItems = postingOrder.items?.map((item) => {
+        const snapshot = snapshotByInventoryId.get(item.sourceInventoryId);
+        return snapshot ? {...item, sourceInventorySnapshot: snapshot} : item;
+      });
+      const sourceInventorySnapshot = postingOrder.sourceInventoryId
+        ? snapshotByInventoryId.get(postingOrder.sourceInventoryId)
+        : result.inventorySnapshots[0]?.snapshot;
       const completed: ReturnOrder = {
-        ...existing,
+        ...postingOrder,
+        ...(completedItems ? {items: completedItems} : {}),
+        ...(sourceInventorySnapshot ? {sourceInventorySnapshot} : {}),
+        accountingStatus: "已入账",
         status: "已完成",
         completedAt: nowStamp(),
         paymentRecordId: result.paymentRecordId,

@@ -48,7 +48,7 @@ export function registerOperationalReadRoutes(app: Express, dependencies: Depend
       const query = parseHttpDto(returnListQueryDto, req.query);
       const permissions = dependencies.permissionsForRequest(req);
       const allowedTypes = hasMenu(permissions, "return_orders") ? ["销售退货", "进货退货"] : [hasMenu(permissions, "return_sales") ? "销售退货" : "", hasMenu(permissions, "return_purchase") ? "进货退货" : ""].filter(Boolean);
-      res.json(await listReturnOrders({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, type: query.type, status: query.status, allowedTypes}));
+      res.json(await listReturnOrders({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, type: query.type, status: query.status, allowedTypes, sortKey: query.sortKey, sortDirection: query.sortDirection}));
     } catch (error) {next(error);}
   });
 

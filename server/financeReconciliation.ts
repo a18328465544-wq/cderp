@@ -10,13 +10,26 @@ const EPSILON = 0.009;
 
 export type FinanceReconciliationSeverity = "error" | "warning";
 export type FinanceReconciliationDomain = "accounts" | "payments" | "invoices" | "returns" | "classification";
+export type FinanceReconciliationRecommendedAction = "review" | "resolve" | "reverse";
+
+export type FinanceReconciliationActionSummary = {
+  action: "reviewed" | "resolved" | "reversal_requested";
+  notes?: string;
+  actor: string;
+  createdAt: string;
+};
 
 export type FinanceReconciliationIssue = {
+  fingerprint: string;
   code: string;
   severity: FinanceReconciliationSeverity;
   domain: FinanceReconciliationDomain;
   entityId?: string;
   relatedIds?: string[];
+  sourcePath?: string;
+  reversePath?: string;
+  recommendedAction: FinanceReconciliationRecommendedAction;
+  lastAction?: FinanceReconciliationActionSummary;
   message: string;
 };
 
@@ -39,9 +52,15 @@ export type FinanceReconciliationReport = {
     returnFinanceInvariants: number;
   };
   issues: FinanceReconciliationIssue[];
+  /** Internal-only complete issue set used when persisting reconciliation alerts. */
+  allIssues?: FinanceReconciliationIssue[];
 };
 
 type PaymentLike = PaymentInRecord | PaymentOutRecord;
+
+function isPostedPayment(payment: PaymentLike) {
+  return payment.accountingStatus !== "作废";
+}
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : value === undefined || value === null ? "" : String(value).trim();
@@ -65,14 +84,52 @@ function addIssue(
   message: string,
   options: {severity?: FinanceReconciliationSeverity; entityId?: string; relatedIds?: string[]} = {},
 ) {
+  const relatedIds = options.relatedIds?.filter(Boolean) || [];
   issues.push({
+    fingerprint: [code, domain, options.entityId || "", ...relatedIds].join("|") ,
     code,
     severity: options.severity || "error",
     domain,
     entityId: options.entityId,
-    relatedIds: options.relatedIds?.filter(Boolean).length ? options.relatedIds.filter(Boolean) : undefined,
+    relatedIds: relatedIds.length ? relatedIds : undefined,
+    recommendedAction: options.severity === "warning" ? "review" : "resolve",
     message,
   });
+}
+
+function decorateIssueLinks(state: AppState, issue: FinanceReconciliationIssue) {
+  const entityId = text(issue.entityId);
+  if (issue.domain === "accounts" && entityId) {
+    issue.sourcePath = `/finance/accounts?accountId=${encodeURIComponent(entityId)}`;
+    return;
+  }
+  if (issue.domain === "returns" && entityId) {
+    const order = state.returnOrders.find((item) => item.id === entityId || item.returnNo === entityId);
+    if (order) {
+      issue.sourcePath = order.type === "销售退货"
+        ? `/sales/returns?keyword=${encodeURIComponent(order.returnNo)}&detail=${encodeURIComponent(order.returnNo)}&page=1`
+        : `/purchase/returns?keyword=${encodeURIComponent(order.returnNo)}&detail=${encodeURIComponent(order.returnNo)}&page=1`;
+      if (order.status === "已完成") {
+        issue.recommendedAction = "reverse";
+        issue.reversePath = `/api/returns/${encodeURIComponent(order.id)}/reverse`;
+      }
+    }
+    return;
+  }
+  if (issue.domain === "invoices" && entityId) {
+    const sales = state.salesInvoices.find((item) => item.id === entityId || item.invoiceNo === entityId);
+    const purchase = state.purchaseInvoices.find((item) => item.id === entityId || item.invoiceNo === entityId);
+    const invoice = sales || purchase;
+    if (invoice) {
+      const path = sales ? "/sales" : "/purchase";
+      issue.sourcePath = `${path}?keyword=${encodeURIComponent(invoice.invoiceNo)}&detail=${encodeURIComponent(invoice.invoiceNo)}&page=1`;
+    }
+    return;
+  }
+  if (issue.domain === "payments" || issue.domain === "classification") {
+    const keyword = entityId || issue.relatedIds?.[0];
+    issue.sourcePath = keyword ? `/finance/ledger?keyword=${encodeURIComponent(keyword)}` : "/finance/ledger";
+  }
 }
 
 function documentMatches(value: unknown, invoice: {id: string; invoiceNo: string}) {
@@ -226,14 +283,14 @@ function inspectPaymentLedgerLinks(state: AppState, issues: FinanceReconciliatio
     }
   };
 
-  state.paymentInRecords.forEach((payment) => inspect(payment, true));
-  state.paymentOutRecords.forEach((payment) => inspect(payment, false));
+  state.paymentInRecords.filter(isPostedPayment).forEach((payment) => inspect(payment, true));
+  state.paymentOutRecords.filter(isPostedPayment).forEach((payment) => inspect(payment, false));
   return checked;
 }
 
 function linkedPaymentAmount<T extends PaymentLike>(payments: readonly T[], invoice: {id: string; invoiceNo: string}, inbound: boolean) {
   return payments
-    .filter((payment) => documentMatches(payment.relatedDocNo, invoice) && payment.relatedDocType !== "退货单")
+    .filter((payment) => isPostedPayment(payment) && documentMatches(payment.relatedDocNo, invoice) && payment.relatedDocType !== "退货单")
     .filter((payment) => {
       const type = text(payment.businessType);
       return inbound ? !type || type === "销售收款" : type === "采购付款" || type === "回收付款";
@@ -275,13 +332,13 @@ function inspectBusinessClassification(state: AppState, issues: FinanceReconcili
     const invalid = direction === "income" ? NON_OPERATING_INCOME_TYPES.has(type) : NON_OPERATING_EXPENSE_TYPES.has(type);
     if (invalid) addIssue(issues, "classification", "NON_OPERATING_BUSINESS_LINK", `记录 ${record.id} 将非经营${direction === "income" ? "收入" : "支出"}绑定到了${record.relatedDocType}。`, {entityId: record.id});
   };
-  state.paymentInRecords.forEach((record) => inspect(record, "income"));
-  state.paymentOutRecords.forEach((record) => inspect(record, "expense"));
+  state.paymentInRecords.filter(isPostedPayment).forEach((record) => inspect(record, "income"));
+  state.paymentOutRecords.filter(isPostedPayment).forEach((record) => inspect(record, "expense"));
   state.settlementLedger.forEach((record) => inspect({id: record.id, businessType: record.businessType, relatedDocType: record.relatedDocType, relatedDocNo: record.relatedDocNo}, record.incomeAmount > 0 ? "income" : "expense"));
   state.financeLedger.forEach((record) => inspect({id: record.id, businessType: record.type, relatedDocType: record.relatedDocType, relatedDocNo: record.relatedId}, record.amount >= 0 ? "income" : "expense"));
 }
 
-export function inspectFinanceReconciliation(state: AppState, options: {now?: string; limit?: number} = {}): FinanceReconciliationReport {
+export function inspectFinanceReconciliation(state: AppState, options: {now?: string; limit?: number; includeAllIssues?: boolean} = {}): FinanceReconciliationReport {
   const issues: FinanceReconciliationIssue[] = [];
   const accountBalanceChains = inspectAccountBalances(state, issues);
   const paymentLedgerLinks = inspectPaymentLedgerLinks(state, issues);
@@ -289,11 +346,12 @@ export function inspectFinanceReconciliation(state: AppState, options: {now?: st
   inspectBusinessClassification(state, issues);
   const returnIssues = inspectReturnFinancialConsistency(state);
   returnIssues.forEach((issue) => addIssue(issues, "returns", issue.code, issue.message, {severity: issue.severity, entityId: issue.returnId, relatedIds: issue.paymentIds}));
+  issues.forEach((issue) => decorateIssueLinks(state, issue));
 
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.length - errorCount;
   const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 200)));
-  return {
+  const report: FinanceReconciliationReport = {
     generatedAt: options.now || new Date().toISOString(),
     healthy: errorCount === 0,
     truncated: issues.length > limit,
@@ -301,7 +359,7 @@ export function inspectFinanceReconciliation(state: AppState, options: {now?: st
       errorCount,
       warningCount,
       accountCount: state.settlementAccounts.length,
-      paymentCount: state.paymentInRecords.length + state.paymentOutRecords.length,
+      paymentCount: state.paymentInRecords.filter(isPostedPayment).length + state.paymentOutRecords.filter(isPostedPayment).length,
       invoiceCount: state.salesInvoices.length + state.purchaseInvoices.length,
       returnCount: state.returnOrders.length,
     },
@@ -313,4 +371,6 @@ export function inspectFinanceReconciliation(state: AppState, options: {now?: st
     },
     issues: issues.slice(0, limit),
   };
+  if (options.includeAllIssues) report.allIssues = issues;
+  return report;
 }

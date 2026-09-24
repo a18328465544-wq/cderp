@@ -7,4 +7,5 @@
  * split into feature-owned modules.
  */
 export * from "./types/legacy";
+export * from "./types/accounting";
 export * from "./types/order-pool";

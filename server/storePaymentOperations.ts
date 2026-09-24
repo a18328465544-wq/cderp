@@ -96,6 +96,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       throw new ValidationError("非经营收入不能绑定销售/采购业务单据，请使用关联参考号记录外部凭证");
     }
     const account = findSettlementAccount(payment.accountId);
+    const accountingEventId = payment.accountingEventId || genId("AE");
     const linkedSalesInvoice = findSalesInvoiceByDocNo(payment.relatedDocNo);
     if (!options?.skipInvoiceUpdate && linkedSalesInvoice && paymentAmount > Math.max(0, linkedSalesInvoice.unpaidAmount) + 0.009) {
       throw new ConflictError(`销售单 ${linkedSalesInvoice.invoiceNo || linkedSalesInvoice.id} 当前未收 ${Math.max(0, linkedSalesInvoice.unpaidAmount)} 元，不能补录 ${paymentAmount} 元`);
@@ -104,6 +105,8 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     const effectiveCustomerPartnerType = payment.customerPartnerType || linkedSalesInvoice?.customerPartnerType || "customer";
     const baseRecord: PaymentInRecord = {
       ...payment,
+      accountingStatus: "已入账",
+      accountingEventId,
       amount: paymentAmount,
       customerId: effectiveCustomerId,
       customerPartnerType: effectiveCustomerPartnerType,
@@ -112,6 +115,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       time: payment.time || nowStamp(),
     };
     const settlementLedger = recordSettlementMovement({
+      accountingEventId,
       accountId: account.id,
       direction: "收入",
       amount: paymentAmount,
@@ -125,6 +129,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       remarks: payment.remarks,
     });
     const financeLedger = createFinanceLedgerForSettlement({
+      accountingEventId,
       relatedId: payment.relatedDocNo || baseRecord.id,
       type: businessType === "销售收款" ? "销售收入" : businessType,
       paymentWay: payment.paymentMethod,
@@ -227,15 +232,18 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     return updated;
   };
 
-  const deletePaymentIn = (id: string, options?: {skipInvoiceUpdate?: boolean}) => {
+  const deletePaymentIn = (id: string, options?: {skipInvoiceUpdate?: boolean; allowPostedReverse?: boolean; preserveVoided?: boolean}) => {
     const existing = state.paymentInRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`收款单不存在: ${id}`);
-    if (!options?.skipInvoiceUpdate && existing.relatedDocNo) throw new ConflictError("已绑定业务单据的收款单不能直接删除，请先处理关联销售单或使用冲销流程");
+    if (existing.accountingStatus === "作废") throw new ConflictError("收款单已作废，不能重复处理");
+    if (!options?.skipInvoiceUpdate && existing.relatedDocNo && !options?.allowPostedReverse) throw new ConflictError("已绑定业务单据的收款单不能直接删除，请先处理关联销售单或使用冲销流程");
     const settlementLedgerId = findPaymentInSettlementLedgerId(existing);
     const financeLedgerId = findPaymentInFinanceLedgerId(existing);
     if (!settlementLedgerId || !financeLedgerId) throw new ConflictError("收款单缺少唯一关联流水，不能直接删除，请使用冲销流程处理");
     adjustSettlementBalance(existing.accountId, -existing.amount);
     state.paymentInRecords = state.paymentInRecords.filter((item) => item.id !== id);
+    const voided = options?.preserveVoided ? ({...existing, accountingStatus: "作废"} satisfies PaymentInRecord) : undefined;
+    if (voided) state.paymentInRecords = [voided, ...state.paymentInRecords];
     state.settlementLedger = state.settlementLedger.filter((item) => item.id !== settlementLedgerId);
     state.financeLedger = state.financeLedger.filter((item) => item.id !== financeLedgerId);
     rebuildSettlementLedgerBalances([existing.accountId]);
@@ -264,8 +272,16 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
         }
       }
     }
-    addLog(systemActor(), "结算账户", "删除收款单", id, `${existing.amount}元`, "已反向修正账户余额");
-    return existing;
+    addLog(systemActor(), "结算账户", options?.preserveVoided ? "作废收款单" : "删除收款单", id, `${existing.amount}元`, "已反向修正账户余额");
+    return voided || existing;
+  };
+
+  const reversePaymentIn = (id: string) => {
+    const existing = state.paymentInRecords.find((item) => item.id === id);
+    if (!existing) throw new NotFoundError(`收款单不存在: ${id}`);
+    const reversed = deletePaymentIn(id, {allowPostedReverse: true, preserveVoided: true});
+    addLog(systemActor(), "结算账户", "冲销收款单", id, `${existing.amount}元`, "已反向修正账户余额、业务应收与账务流水");
+    return reversed;
   };
 
   const createPaymentOut = (payment: Omit<PaymentOutRecord, "id" | "accountName">, options?: {skipInvoiceUpdate?: boolean; internalReturnPayment?: boolean}) => {
@@ -280,14 +296,16 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       throw new ValidationError("非经营支出不能绑定采购/退货业务单据，请使用关联参考号记录外部凭证");
     }
     const account = findSettlementAccount(payment.accountId);
+    const accountingEventId = payment.accountingEventId || genId("AE");
     const linkedPurchaseInvoice = findPurchaseInvoiceByDocNo(payment.relatedDocNo);
     if (!options?.skipInvoiceUpdate && linkedPurchaseInvoice && paymentAmount > Math.max(0, linkedPurchaseInvoice.unpaidAmount) + 0.009) {
       throw new ConflictError(`采购单 ${linkedPurchaseInvoice.invoiceNo || linkedPurchaseInvoice.id} 当前未付 ${Math.max(0, linkedPurchaseInvoice.unpaidAmount)} 元，不能补录 ${paymentAmount} 元`);
     }
     const effectiveSupplierId = payment.supplierId || purchaseInvoiceVendorId(linkedPurchaseInvoice);
     const effectiveCustomerId = payment.customerId || (linkedPurchaseInvoice && isPersonalPurchaseSource(linkedPurchaseInvoice.sourceType) ? linkedPurchaseInvoice.sourcePartnerId : undefined);
-    const baseRecord: PaymentOutRecord = {...payment, amount: paymentAmount, supplierId: effectiveSupplierId, customerId: effectiveCustomerId, id: genId("FK"), accountName: account.name, time: payment.time || nowStamp()};
+    const baseRecord: PaymentOutRecord = {...payment, accountingStatus: "已入账", accountingEventId, amount: paymentAmount, supplierId: effectiveSupplierId, customerId: effectiveCustomerId, id: genId("FK"), accountName: account.name, time: payment.time || nowStamp()};
     const settlementLedger = recordSettlementMovement({
+      accountingEventId,
       accountId: account.id,
       direction: "支出",
       amount: paymentAmount,
@@ -301,6 +319,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       remarks: payment.remarks,
     });
     const financeLedger = createFinanceLedgerForSettlement({
+      accountingEventId,
       relatedId: payment.relatedDocNo || baseRecord.id,
       type: payment.businessType,
       paymentWay: payment.paymentMethod,
@@ -387,15 +406,18 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     return updated;
   };
 
-  const deletePaymentOut = (id: string, options?: {skipInvoiceUpdate?: boolean}) => {
+  const deletePaymentOut = (id: string, options?: {skipInvoiceUpdate?: boolean; allowPostedReverse?: boolean; preserveVoided?: boolean}) => {
     const existing = state.paymentOutRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`付款单不存在: ${id}`);
-    if (!options?.skipInvoiceUpdate && existing.relatedDocNo) throw new ConflictError("已绑定业务单据的付款单不能直接删除，请先处理关联进货/入库单或使用冲销流程");
+    if (existing.accountingStatus === "作废") throw new ConflictError("付款单已作废，不能重复处理");
+    if (!options?.skipInvoiceUpdate && existing.relatedDocNo && !options?.allowPostedReverse) throw new ConflictError("已绑定业务单据的付款单不能直接删除，请先处理关联进货/入库单或使用冲销流程");
     const settlementLedgerId = findPaymentOutSettlementLedgerId(existing);
     const financeLedgerId = findPaymentOutFinanceLedgerId(existing);
     if (!settlementLedgerId || !financeLedgerId) throw new ConflictError("付款单缺少唯一关联流水，不能直接删除，请使用冲销流程处理");
     adjustSettlementBalance(existing.accountId, existing.amount);
     state.paymentOutRecords = state.paymentOutRecords.filter((item) => item.id !== id);
+    const voided = options?.preserveVoided ? ({...existing, accountingStatus: "作废"} satisfies PaymentOutRecord) : undefined;
+    if (voided) state.paymentOutRecords = [voided, ...state.paymentOutRecords];
     state.settlementLedger = state.settlementLedger.filter((item) => item.id !== settlementLedgerId);
     state.financeLedger = state.financeLedger.filter((item) => item.id !== financeLedgerId);
     rebuildSettlementLedgerBalances([existing.accountId]);
@@ -423,9 +445,17 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
         );
       }
     }
-    addLog(systemActor(), "结算账户", "删除付款单", id, `${existing.amount}元`, "已反向修正账户余额");
-    return existing;
+    addLog(systemActor(), "结算账户", options?.preserveVoided ? "作废付款单" : "删除付款单", id, `${existing.amount}元`, "已反向修正账户余额");
+    return voided || existing;
   };
 
-  return {createPaymentIn, updatePaymentIn, deletePaymentIn, createPaymentOut, updatePaymentOut, deletePaymentOut};
+  const reversePaymentOut = (id: string) => {
+    const existing = state.paymentOutRecords.find((item) => item.id === id);
+    if (!existing) throw new NotFoundError(`付款单不存在: ${id}`);
+    const reversed = deletePaymentOut(id, {allowPostedReverse: true, preserveVoided: true});
+    addLog(systemActor(), "结算账户", "冲销付款单", id, `${existing.amount}元`, "已反向修正账户余额、业务应付与账务流水");
+    return reversed;
+  };
+
+  return {createPaymentIn, updatePaymentIn, deletePaymentIn, reversePaymentIn, createPaymentOut, updatePaymentOut, deletePaymentOut, reversePaymentOut};
 }

@@ -22,3 +22,28 @@ test("daily closing endpoints use the dedicated snapshot paths and bounded limit
     globalThis.fetch = previous;
   }
 });
+
+test("accounting period endpoints expose lock and reopen actions", async () => {
+  const previous = globalThis.fetch;
+  const calls: Array<{url: string; method: string; body?: string}> = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({url, method: init?.method || "GET", ...(typeof init?.body === "string" ? {body: init.body} : {})});
+    const data = url.includes("accounting-periods?limit")
+      ? [{period: "2026-09", status: "open"}]
+      : {period: "2026-09", status: url.endsWith("/close") ? "closed" : "open"};
+    return new Response(JSON.stringify({data}), {status: 200, headers: {"Content-Type": "application/json"}});
+  };
+  try {
+    await financeClosingApi.listAccountingPeriods(999);
+    await financeClosingApi.closeAccountingPeriod("2026-09", " 月结 ");
+    await financeClosingApi.reopenAccountingPeriod("2026-09");
+    assert.equal(calls[0]?.url, "/api/finance/accounting-periods?limit=120");
+    assert.equal(calls[1]?.url, "/api/finance/accounting-periods/2026-09/close");
+    assert.equal(calls[1]?.method, "POST");
+    assert.deepEqual(JSON.parse(calls[1]?.body || "{}"), {remarks: "月结"});
+    assert.equal(calls[2]?.url, "/api/finance/accounting-periods/2026-09/reopen");
+  } finally {
+    globalThis.fetch = previous;
+  }
+});

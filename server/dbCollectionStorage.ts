@@ -192,6 +192,21 @@ export function buildDeleteMissingRowsQuery(table: string, ids: string[], tenant
 // which made writes — especially the unbounded logs table — slower the more data accumulated.
 export const BULK_UPSERT_CHUNK_SIZE = 500;
 
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, stableJsonValue(child)]));
+  }
+  return value;
+}
+
+function stableJson(value: unknown) {
+  const parsed = typeof value === "string" ? (() => {
+    try { return JSON.parse(value) as unknown; } catch { return value; }
+  })() : value;
+  return JSON.stringify(stableJsonValue(parsed));
+}
+
 export async function bulkUpsertRows(client: PoolClient, table: string, rows: { id: string; json: string }[], tenantId?: string, storeId?: string) {
   // Dedupe by id (last write wins) so a multi-row VALUES list never hits the same conflict target
   // twice — Postgres rejects that — and to match the original "last assignment wins" semantics.
@@ -217,21 +232,53 @@ export async function bulkUpsertRows(client: PoolClient, table: string, rows: { 
         throw new ConflictError(`记录 ${collisions.rows[0].id} 已属于其他企业，禁止跨企业覆盖`);
       }
     }
-    const placeholders: string[] = [];
-    const params: unknown[] = [];
-    chunk.forEach((row, offset) => {
-      const base = offset * 2;
-      placeholders.push(tenantId
-        ? `($${base + 1}, $${base + 2}::jsonb, NOW(), $${chunk.length * 2 + 1}, $${chunk.length * 2 + 2})`
-        : `($${base + 1}, $${base + 2}::jsonb, NOW())`);
-      params.push(row.id, row.json);
-    });
-    if (tenantId) params.push(tenantId, storeScope);
-    await client.query(
-      `INSERT INTO ${quotedTable}${tenantId ? " AS target" : ""} (id, data, updated_at${tenantId ? ", tenant_id, store_id" : ""}) VALUES ${placeholders.join(", ")}
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()${tenantId ? " WHERE target.tenant_id = EXCLUDED.tenant_id AND target.store_id = EXCLUDED.store_id" : ""}`,
-      params,
+    const existing = await client.query<{id: string; data: unknown}>(
+      `SELECT id, data FROM ${quotedTable}
+        WHERE id = ANY($1::text[])${tenantId ? ` AND tenant_id = $2${storeScope ? " AND store_id = $3" : ""}` : ""}`,
+      tenantId ? (storeScope ? [chunk.map((row) => row.id), tenantId, storeScope] : [chunk.map((row) => row.id), tenantId]) : [chunk.map((row) => row.id)],
     );
+    const existingById = new Map(existing.rows.map((row) => [row.id, row.data]));
+    const newRows = chunk.filter((row) => !existingById.has(row.id));
+    const changedRows = chunk.filter((row) => existingById.has(row.id) && stableJson(existingById.get(row.id)) !== stableJson(row.json));
+
+    if (changedRows.length) {
+      const values: string[] = [];
+      const params: unknown[] = [];
+      changedRows.forEach((row, offset) => {
+        const base = offset * 2;
+        values.push(`($${base + 1}::text, $${base + 2}::jsonb)`);
+        params.push(row.id, row.json);
+      });
+      if (tenantId) {
+        params.push(tenantId, storeScope);
+      }
+      const tenantWhere = tenantId ? ` AND target.tenant_id = $${params.length - 1} AND target.store_id = $${params.length}` : "";
+      await client.query(
+        `UPDATE ${quotedTable} AS target
+         SET data = input.data, updated_at = NOW()
+         FROM (VALUES ${values.join(", ")}) AS input(id, data)
+         WHERE target.id = input.id${tenantWhere}`,
+        params,
+      );
+    }
+
+    if (newRows.length) {
+      const placeholders: string[] = [];
+      const params: unknown[] = [];
+      newRows.forEach((row, offset) => {
+        const base = offset * 2;
+        placeholders.push(tenantId
+          ? `($${base + 1}, $${base + 2}::jsonb, NOW(), $${newRows.length * 2 + 1}, $${newRows.length * 2 + 2})`
+          : `($${base + 1}, $${base + 2}::jsonb, NOW())`);
+        params.push(row.id, row.json);
+      });
+      if (tenantId) params.push(tenantId, storeScope);
+      await client.query(
+        `INSERT INTO ${quotedTable} (id, data, updated_at${tenantId ? ", tenant_id, store_id" : ""}) VALUES ${placeholders.join(", ")}
+         ON CONFLICT (id) DO NOTHING`,
+        params,
+      );
+    }
   }
 }
 

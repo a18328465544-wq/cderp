@@ -1,4 +1,4 @@
-import type {Pool} from "pg";
+import type {Pool, PoolClient} from "pg";
 import type {DailyClosing} from "../src/types.ts";
 
 type DailyOperationsDependencies = {
@@ -85,17 +85,36 @@ export function createDailyOperations({
 
   async function saveDailyClosing(closing: DailyClosing, tenantId?: string, storeId?: string): Promise<DailyClosing> {
     await initializePostgres();
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      const saved = await saveDailyClosingInTransaction(client, closing, tenantId, storeId);
+      await client.query("COMMIT");
+      return saved;
+    } catch (error) {
+      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function saveDailyClosingInTransaction(client: PoolClient, closing: DailyClosing, tenantId?: string, storeId?: string): Promise<DailyClosing> {
     const normalizedDate = normalizeDailyClosingDate(closing.date);
     if (!normalizedDate) throw new Error("日结日期必须是 YYYY-MM-DD");
     const scope = scopedTenantId(tenantId);
     const storeScope = scopedStoreId(storeId);
-    const result = await getPool().query<{data: DailyClosing}>(`
+    const result = await client.query<{data: DailyClosing}>(`
       INSERT INTO gpu_daily_closings (tenant_id, store_id, date, data, updated_at) VALUES ($1, $2, $3, $4::jsonb, NOW())
       ON CONFLICT (tenant_id, store_id, date) DO NOTHING
       RETURNING data
     `, [scope, storeScope, normalizedDate, JSON.stringify(closing)]);
     if (result.rows[0]?.data) return result.rows[0].data;
-    return (await getDailyClosing(closing.date, tenantId, storeId)) || closing;
+    const existing = await client.query<{data: DailyClosing}>(
+      "SELECT data FROM gpu_daily_closings WHERE tenant_id = $1 AND store_id = $2 AND date = $3",
+      [scope, storeScope, normalizedDate],
+    );
+    return existing.rows[0]?.data || closing;
   }
 
   return {
@@ -105,6 +124,7 @@ export function createDailyOperations({
     getDailyClosing,
     listDailyClosings,
     saveDailyClosing,
+    saveDailyClosingInTransaction,
   };
 }
 

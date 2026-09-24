@@ -2655,6 +2655,42 @@ test("payment documents reconcile only their own ledger entries when duplicate m
   assert.equal(state.financeLedger.filter((item) => item.type === "其他支出" && item.settlementAccountId === account.id).length, 1);
 });
 
+test("posted financial reversals keep the original source document as 作废 evidence", () => {
+  const state = createInitialState();
+  const actions = createStoreActions(state);
+  const accountA = actions.createSettlementAccount({
+    name: "冲销留痕账户A", type: "微信", owner: "财务", platform: "微信", balance: 0,
+    availableBalance: 0, frozenAmount: 0, enabled: true, allowNegative: true,
+  });
+  const accountB = actions.createSettlementAccount({
+    name: "冲销留痕账户B", type: "银行卡", owner: "财务", platform: "银行卡", balance: 0,
+    availableBalance: 0, frozenAmount: 0, enabled: true, allowNegative: true,
+  });
+
+  const paymentIn = actions.createPaymentIn({
+    customerName: "冲销客户", accountId: accountA.id, amount: 1200, handler: "财务", paymentMethod: "微信", time: "2026-06-20 10:00",
+  });
+  const paymentOut = actions.createPaymentOut({
+    supplierName: "冲销供应商", accountId: accountA.id, amount: 300, handler: "财务", paymentMethod: "微信", businessType: "其他支出", time: "2026-06-20 10:01",
+  });
+  const transfer = actions.createAccountTransfer({
+    fromAccountId: accountA.id, toAccountId: accountB.id, amount: 200, fee: 5, receivedAmount: 195, handler: "财务", time: "2026-06-20 10:02",
+  });
+
+  const reversedIn = actions.reversePaymentIn(paymentIn.id);
+  const reversedOut = actions.reversePaymentOut(paymentOut.id);
+  const reversedTransfer = actions.reverseAccountTransfer(transfer.id);
+
+  assert.equal(reversedIn.accountingStatus, "作废");
+  assert.equal(reversedOut.accountingStatus, "作废");
+  assert.equal(reversedTransfer.accountingStatus, "作废");
+  assert.equal(state.paymentInRecords.find((item) => item.id === paymentIn.id)?.accountingStatus, "作废");
+  assert.equal(state.paymentOutRecords.find((item) => item.id === paymentOut.id)?.accountingStatus, "作废");
+  assert.equal(state.accountTransfers.find((item) => item.id === transfer.id)?.accountingStatus, "作废");
+  assert.equal(state.settlementLedger.some((item) => item.relatedDocNo === paymentIn.id || item.relatedDocNo === paymentOut.id || item.relatedDocNo === transfer.id), false);
+  assert.equal(state.financeLedger.some((item) => item.relatedId === paymentIn.id || item.relatedId === paymentOut.id || item.relatedId === transfer.id), false);
+});
+
 test("linked purchase payments update supplier payable by archive id instead of duplicate supplier names", () => {
   const state = createInitialState();
   const actions = createStoreActions(state);
@@ -2846,12 +2882,12 @@ test("documents can be deleted only when linked business state allows it", () =>
   assert.equal(state.settlementAccounts.find((item) => item.id === accountA.id)?.balance, beforeA);
 
   const transfer = actions.createAccountTransfer({ fromAccountId: accountA.id, toAccountId: accountB.id, amount: 80, fee: 2, receivedAmount: 78, handler: "财务", time: "2026-06-06 12:00" });
-  actions.deleteAccountTransfer(transfer.id);
-  assert.equal(state.accountTransfers.some((item) => item.id === transfer.id), false);
-  assert.equal(state.settlementAccounts.find((item) => item.id === accountA.id)?.balance, beforeA);
-  assert.equal(state.settlementAccounts.find((item) => item.id === accountB.id)?.balance, beforeB);
-  assert.equal(state.settlementLedger.some((item) => item.relatedDocNo === transfer.id), false);
-  assert.equal(state.financeLedger.some((item) => item.relatedId === transfer.id), false);
+  assert.throws(() => actions.deleteAccountTransfer(transfer.id), /已产生账务流水/);
+  assert.equal(state.accountTransfers.some((item) => item.id === transfer.id), true);
+  assert.equal(state.settlementAccounts.find((item) => item.id === accountA.id)?.balance, beforeA - 80);
+  assert.equal(state.settlementAccounts.find((item) => item.id === accountB.id)?.balance, beforeB + 78);
+  assert.equal(state.settlementLedger.some((item) => item.relatedDocNo === transfer.id), true);
+  assert.equal(state.financeLedger.some((item) => item.relatedId === transfer.id), true);
 });
 
 test("overall inventory summary groups stock and import creates persisted inventory rows", () => {
@@ -3271,7 +3307,7 @@ test("whole-document purchase return creates one atomic order for every purchase
   actions.deleteReturnOrder(completed.id);
   assert.equal(state.returnOrders.length, 0);
   assert.equal(state.purchaseInvoices.find((item) => item.id === invoice.id)?.items.length, 2);
-  cards.forEach((card) => assert.equal(state.inventory.find((item) => item.id === card.id)?.status, "已入库"));
+  cards.forEach((card) => assert.equal(state.inventory.find((item) => item.id === card.id)?.status, "待检测"));
 });
 
 test("multiple purchase return creates one atomic order for only the selected inventory cards", () => {
@@ -3356,6 +3392,36 @@ test("pending return can be voided without changing inventory or finance, while 
   const completed = actions.completeReturnOrder(retry.id);
   assert.equal(completed.status, "已完成");
   assert.throws(() => actions.voidReturnOrder(retry.id), /已完成退货不能作废/);
+});
+
+test("reversing a completed return keeps a voided return order instead of deleting it", () => {
+  const state = createInitialState();
+  const actions = createStoreActions(state);
+  const product = state.products[0];
+  const invoice = actions.createPurchaseInvoice(buildPurchase([buildPurchaseItem(product, "VOIDED-RETURN-SOURCE-SN", 3000)]));
+  const card = state.inventory.find((item) => item.purchaseInvoiceNo === invoice.invoiceNo);
+  assert.ok(card);
+  const order = actions.createReturnOrder({
+    type: "进货退货",
+    relatedDocType: "采购单",
+    relatedDocNo: invoice.invoiceNo,
+    sourceInventoryId: card.id,
+    amount: 3000,
+    settlementMode: "抵扣账款",
+    handler: "采购测试",
+    reason: "冲销留痕测试",
+    inventoryAction: "退回供应商",
+  });
+  actions.completeReturnOrder(order.id);
+
+  const reversed = actions.reverseReturnOrder(order.id);
+
+  assert.equal(reversed.status, "已作废");
+  assert.equal(reversed.accountingStatus, "作废");
+  assert.equal(state.returnOrders.find((item) => item.id === order.id)?.status, "已作废");
+  assert.equal(state.purchaseInvoices.find((item) => item.id === invoice.id)?.items.length, 1);
+  assert.equal(state.inventory.find((item) => item.id === card.id)?.status, "待检测");
+  assert.throws(() => actions.deleteReturnOrder(order.id), /已作废退货单不能删除/);
 });
 
 test("sales return preserves an explicit zero profit instead of falling back to sell price minus cost", () => {
@@ -3579,7 +3645,7 @@ test("purchase return can offset supplier payable without touching settlement ac
 
   actions.deleteReturnOrder(completed.id);
   assert.equal(state.returnOrders.length, 0);
-  assert.equal(state.inventory.find((item) => item.id === card.id)?.status, "已入库");
+  assert.equal(state.inventory.find((item) => item.id === card.id)?.status, "待检测");
   const restoredInvoice = state.purchaseInvoices.find((item) => item.id === invoice.id);
   assert.equal(restoredInvoice?.items.length, 1);
   assert.equal(restoredInvoice?.totalCost, 8000);

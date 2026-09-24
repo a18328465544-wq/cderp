@@ -1,12 +1,25 @@
 import type { Express, Request, RequestHandler } from "express";
 import {getFinanceDashboard, listAccountTransfers} from "../financeDashboardRepository.ts";
 import {getCustomerFundsSnapshot} from "../customerFundsRepository.ts";
+import {createFinanceReconciliationActionInTransaction, listFinanceReconciliationActions, withDatabaseTransaction} from "../db.ts";
+import {completeIdempotencyKeyInTransaction} from "../commercialRepository.ts";
 import type {AppState} from "../store.ts";
 import type {createStoreActions} from "../store.ts";
-import {customerFundsQueryDto, financeAccountListQueryDto, financeDashboardQueryDto, financeReconciliationQueryDto, financeSummaryQueryDto, financeTransferListQueryDto, parseHttpDto} from "../httpDto.ts";
+import {customerFundsQueryDto, financeAccountListQueryDto, financeDashboardQueryDto, financeReconciliationActionDto, financeReconciliationActionQueryDto, financeReconciliationQueryDto, financeSummaryQueryDto, financeTransferListQueryDto, parseHttpDto} from "../httpDto.ts";
 import {inspectFinanceReconciliation} from "../financeReconciliation.ts";
+import {projectFinanceReconciliationReport} from "../financePermissionProjection.ts";
 
-type FinanceRequest = Request & { authUser?: unknown; tenantId?: string; storeId?: string };
+type FinanceRequest = Request & { authUser?: {displayName?: string; username?: string}; tenantId?: string; storeId?: string };
+
+type IdempotencyContext = {
+  request: {
+    tenantId: string;
+    route: string;
+    key: string;
+    requestHash: string;
+  };
+  replay?: {statusCode: number; response: unknown};
+};
 
 type FinanceReadModelDependencies = {
   requireMenu: (menuId: string) => RequestHandler;
@@ -21,6 +34,8 @@ type FinanceReadModelDependencies = {
   paginated: <T>(items: T[], req: Request) => unknown;
   sendValidationError: (req: FinanceRequest, res: Parameters<RequestHandler>[1], message: string) => void;
   permissionsForRequest: (req: Request) => {showCost?: boolean; showProfit?: boolean; allowedMenus: string[]};
+  claimMutationIdempotency: (req: FinanceRequest) => Promise<IdempotencyContext | null>;
+  releaseMutationIdempotency: (context: IdempotencyContext | null) => Promise<void>;
 };
 
 function hasMenu(permissions: {allowedMenus: string[]}, menu: string) {
@@ -76,13 +91,50 @@ export function registerFinanceReadModelRoutes(app: Express, dependencies: Finan
     // operator-triggered audit, not a dashboard polling path, and partial state would
     // make a clean result indistinguishable from "history not loaded".
     const current = await dependencies.loadState(req.tenantId, req.storeId);
-    res.json(dependencies.ok(inspectFinanceReconciliation(current, {limit: query.limit})));
+    const report = inspectFinanceReconciliation(current, {limit: query.limit});
+    const actions = await listFinanceReconciliationActions(500, req.tenantId, req.storeId);
+    const latestActionByFingerprint = new Map<string, (typeof actions)[number]>();
+    actions.forEach((action) => {
+      if (!latestActionByFingerprint.has(action.issueFingerprint)) latestActionByFingerprint.set(action.issueFingerprint, action);
+    });
+    report.issues = report.issues.map((issue) => {
+      const action = latestActionByFingerprint.get(issue.fingerprint);
+      return action ? {...issue, lastAction: {action: action.action, notes: action.notes, actor: action.actor, createdAt: action.createdAt}} : issue;
+    });
+    res.json(dependencies.ok(projectFinanceReconciliationReport(report, dependencies.permissionsForRequest(req))));
+  }));
+
+  app.get("/api/finance/reconciliation/actions", dependencies.requireMenu("finance"), dependencies.asyncRoute(async (req: FinanceRequest, res) => {
+    const query = parseHttpDto(financeReconciliationActionQueryDto, req.query);
+    res.json(dependencies.ok(await listFinanceReconciliationActions(query.limit, req.tenantId, req.storeId)));
+  }));
+
+  app.post("/api/finance/reconciliation/actions", dependencies.requireMenu("finance"), dependencies.asyncRoute(async (req: FinanceRequest, res) => {
+    const idempotency = await dependencies.claimMutationIdempotency(req);
+    if (idempotency?.replay) {
+      res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+      return;
+    }
+    try {
+      const command = parseHttpDto(financeReconciliationActionDto, req.body);
+      const actor = req.authUser?.displayName || req.authUser?.username || "系统";
+      const response = await withDatabaseTransaction(async (client) => {
+        const created = await createFinanceReconciliationActionInTransaction(client, {...command, actor}, req.tenantId, req.storeId);
+        const payload = dependencies.ok(created);
+        if (idempotency) await completeIdempotencyKeyInTransaction(client, idempotency.request, 201, payload);
+        return payload;
+      });
+      res.status(201).json(response);
+    } catch (error) {
+      await dependencies.releaseMutationIdempotency(idempotency);
+      throw error;
+    }
   }));
 
   app.get("/api/gpu_erp/finance/account-transfers", dependencies.requireMenu("account_transfer"), async (req: FinanceRequest, res, next) => {
     try {
       const query = parseHttpDto(financeTransferListQueryDto, req.query);
-      res.json(await listAccountTransfers({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, accountId: query.accountId || "all", handler: query.handler, startDate: query.startDate, endDate: query.endDate}));
+      res.json(await listAccountTransfers({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, accountId: query.accountId || "all", handler: query.handler, startDate: query.startDate, endDate: query.endDate, sortKey: query.sortKey, sortDirection: query.sortDirection}));
     } catch (error) {next(error);}
   });
 

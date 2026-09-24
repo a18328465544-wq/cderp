@@ -10,6 +10,7 @@ type PostgresInitializerDependencies = {
   applyOperationalProjectionSchema: (client: PoolClient) => Promise<void>;
   applyCommercialFoundationSchema: (client: PoolClient) => Promise<void>;
   applyCommercialHardeningSchema: (client: PoolClient) => Promise<void>;
+  applyAccountingControlPlaneSchema: (client: PoolClient) => Promise<void>;
   upgradePersistedUserPasswords: (client: PoolClient) => Promise<void>;
   rollbackQuietly: (client: PoolClient) => Promise<void>;
 };
@@ -23,6 +24,7 @@ export function createPostgresInitializer({
   applyOperationalProjectionSchema,
   applyCommercialFoundationSchema,
   applyCommercialHardeningSchema,
+  applyAccountingControlPlaneSchema,
   upgradePersistedUserPasswords,
   rollbackQuietly,
 }: PostgresInitializerDependencies) {
@@ -116,6 +118,7 @@ export function createPostgresInitializer({
       // Commercial migration assigns legacy rows to the default tenant.
       await applyCommercialFoundationSchema(client);
       await applyCommercialHardeningSchema(client);
+      await applyAccountingControlPlaneSchema(client);
       // Scope columns must exist before password upgrades write account rows.
       await upgradePersistedUserPasswords(client);
 

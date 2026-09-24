@@ -28,6 +28,8 @@ export interface InspectionCandidate {
   serialNumber: string;
   expressNo: string;
   supplierName: string;
+  /** 经办该批进货/回收单的员工，来源于库存卡片的 purchaseHandler。 */
+  purchaseHandler: string;
   purchaseInvoiceNo: string;
   status: string;
   condition: CardInventory["condition"];

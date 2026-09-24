@@ -4,7 +4,7 @@ import {createInspectionDefaults} from "./inspection.defaults";
 import {inspectionSchema} from "./inspection.schema";
 
 const candidate = {
-  id: "KC-1", productId: "P-1", productName: "RTX 4090", category: "显卡" as const, model: "RTX 4090", brand: "华硕", version: "猛禽", vram: "24G", serialNumber: "", expressNo: "", supplierName: "供应商", purchaseInvoiceNo: "JH-1", status: "待检测", condition: "95新" as const, inWarranty: true, warrantyDate: "2028-01-01", repaired: false, fullBox: true, warehouseLocation: "待检测区", entryTime: "2026-08-09", inventoryDays: 0, isGpu: true, searchText: "",
+  id: "KC-1", productId: "P-1", productName: "RTX 4090", category: "显卡" as const, model: "RTX 4090", brand: "华硕", version: "猛禽", vram: "24G", serialNumber: "", expressNo: "", supplierName: "供应商", purchaseHandler: "采购经办人", purchaseInvoiceNo: "JH-1", status: "待检测", condition: "95新" as const, inWarranty: true, warrantyDate: "2028-01-01", repaired: false, fullBox: true, warehouseLocation: "待检测区", entryTime: "2026-08-09", inventoryDays: 0, isGpu: true, searchText: "",
 };
 
 test("inspection defaults never invent measured GPU results", () => {

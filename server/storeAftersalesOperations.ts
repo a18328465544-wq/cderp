@@ -90,7 +90,8 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     const effectiveCustomerId = claim.customerId || salesInvoiceCustomerId(invoice);
     const refundAmount = Number(claim.refundAmount || returnedItem?.sellPrice || 0);
     const handler = claim.handler || getActiveRole();
-    let nextClaim = claim;
+    const accountingEventId = claim.accountingEventId || genId("AE");
+    let nextClaim = {...claim, accountingEventId};
 
     if (refundAmount > 0 && !claim.refundPaymentOutId && !state.paymentOutRecords.some((payment) => payment.relatedDocNo === claim.id && payment.businessType === "客户退款")) {
       const accountId = findAftersalesRefundAccountId(claim, invoice);
@@ -105,6 +106,7 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
         businessType: "客户退款",
         relatedDocType: "售后单",
         relatedDocNo: claim.id,
+        accountingEventId,
         time: nowStamp(),
         remarks: `售后退货退款：${claim.salesInvoiceNo} / ${claim.sn}`,
       }, {skipInvoiceUpdate: true});
@@ -125,6 +127,7 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
         businessType: "维修费",
         relatedDocType: "售后单",
         relatedDocNo: claim.id,
+        accountingEventId,
         time: nowStamp(),
         remarks: `售后维修费：${claim.salesInvoiceNo} / ${claim.sn}`,
       }, {skipInvoiceUpdate: true});
@@ -202,7 +205,7 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     if (claim.type === "退货") throw new ValidationError("售后退货退款请在【销售退货】中办理，系统会按原收款记录分摊退款并同步冲销库存和单据");
     const invoice = findSalesInvoiceByDocNo(claim.salesInvoiceNo);
     const effectiveCustomerId = claim.customerId || salesInvoiceCustomerId(invoice);
-    const newClaim: AftersalesRecord = {...claim, customerId: effectiveCustomerId, id: genId("SH"), status: "待处理", createTime: storeDate()};
+    const newClaim: AftersalesRecord = {...claim, customerId: effectiveCustomerId, id: genId("SH"), accountingStatus: "已提交", accountingEventId: genId("AE"), status: "待处理", createTime: storeDate()};
     state.aftersales = [newClaim, ...state.aftersales];
     state.inventory = state.inventory.map((card) => card.sn === claim.sn ? {...card, status: "售后中"} : card);
     state.customers = state.customers.map((customer) => matchesCustomerByIdOrLegacyName(customer, newClaim.customerId, newClaim.customerName) ? {...customer, aftersalesCount: customer.aftersalesCount + 1, tags: Array.from(new Set([...customer.tags, "售后记录"]))} : customer);
@@ -225,10 +228,15 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     const completingNow = affectedClaim && updatedFields.status === "已完成" && previousClaim?.status !== "已完成";
     if (affectedClaim && completingNow) {
       const completedClaim = applyAftersalesReturnSettlement(affectedClaim, {reverseSale: false});
-      affectedClaim = completedClaim;
+      affectedClaim = {...completedClaim, accountingStatus: "已入账"};
+      state.aftersales = state.aftersales.map((claim) => claim.id === affectedClaim?.id ? affectedClaim! : claim);
       state.inventory = state.inventory.map((card) => card.sn === affectedClaim?.sn ? {...card, status: "已售出"} : card);
     }
-    if (affectedClaim && updatedFields.status === "已拒绝") state.inventory = state.inventory.map((card) => card.sn === affectedClaim?.sn ? {...card, status: "已售出"} : card);
+    if (affectedClaim && updatedFields.status === "已拒绝") {
+      affectedClaim = {...affectedClaim, accountingStatus: "作废"};
+      state.aftersales = state.aftersales.map((claim) => claim.id === affectedClaim?.id ? affectedClaim! : claim);
+      state.inventory = state.inventory.map((card) => card.sn === affectedClaim?.sn ? {...card, status: "已售出"} : card);
+    }
     addLog(systemActor(), "售后保障", "更新处理状态", `售后单: ${id}`, undefined, `状态变为: ${updatedFields.status || "未更改"}`);
     return affectedClaim ?? null;
   };

@@ -1,4 +1,5 @@
 import type {CustomerPickerOption, CustomerPartnerType} from "./customer";
+import type {AccountingDocumentStatus} from "./accounting";
 
 export interface SalesItem {
   inventoryId: string;
@@ -17,6 +18,8 @@ export interface SalesItem {
 export interface SalesInvoice {
   id: string;
   invoiceNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   date: string;
   customerId?: string;
   customerPartnerType?: CustomerPartnerType;

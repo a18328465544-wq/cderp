@@ -1,5 +1,6 @@
 const stateMutationRoutePatterns = [
-  /^\/api\/finance\/(?:commission-rules|daily-closing)$/,
+  /^\/api\/finance\/(?:commission-rules|daily-closing|reconciliation\/(?:actions|run))$/,
+  /^\/api\/finance\/accounting-periods\/[^/]+\/(?:close|reopen)$/,
   /^\/api\/finance\/commissions\/settle$/,
   /^\/api\/ai\/insights\/refresh$/,
   /^\/api\/ai\/insight-actions\/[^/]+$/,
@@ -21,7 +22,7 @@ const stateMutationRoutePatterns = [
   /^\/api\/inspections(?:\/[^/]+)?$/,
   /^\/api\/assembly-operations(?:\/[^/]+)?$/,
   /^\/api\/sales-invoices(?:\/[^/]+)?(?:\/outbound)?$/,
-  /^\/api\/returns(?:\/[^/]+)?(?:\/complete)?$/,
+  /^\/api\/returns(?:\/[^/]+)?(?:\/(?:complete|reverse))?$/,
   /^\/api\/aftersales(?:\/[^/]+)?$/,
   /^\/api\/market-quotes(?:\/(?:import|[^/]+))?$/,
   /^\/api\/inventory\/(?:batch|import|scan-flow)$/,

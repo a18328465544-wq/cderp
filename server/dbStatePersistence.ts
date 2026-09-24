@@ -31,6 +31,7 @@ type StatePersistenceDependencies = {
   enqueueStateSave: <T>(task: () => T | PromiseLike<T>) => Promise<T>;
   lockTransactionForStateWrite: (client: PoolClient) => Promise<void>;
   rollbackQuietly: (client: PoolClient) => Promise<void>;
+  syncAccountingEventsForRecordsInTransaction: (client: PoolClient, sourceKey: string, items: unknown[], tenantId?: string, storeId?: string) => Promise<void>;
   assertProductionBootstrapPasswordConfigured: () => void;
   legacyDataFile: string;
   legacyImportEnabled: boolean;
@@ -56,6 +57,7 @@ export function createStatePersistence({
   enqueueStateSave,
   lockTransactionForStateWrite,
   rollbackQuietly,
+  syncAccountingEventsForRecordsInTransaction,
   assertProductionBootstrapPasswordConfigured,
   legacyDataFile,
   legacyImportEnabled,
@@ -268,6 +270,7 @@ export function createStatePersistence({
       }
       const rows = items.map((item, index) => ({id: rowId(item, index), json: JSON.stringify(item)}));
       await bulkUpsertRows(client, table, rows, scope, storeScope);
+      await syncAccountingEventsForRecordsInTransaction(client, key, items, scope, storeScope);
       const deleteMissing = buildDeleteMissingRowsQuery(table, rows.map((row) => row.id), scope, storeScope);
       await client.query(deleteMissing.sql, deleteMissing.values);
     }
@@ -282,6 +285,7 @@ export function createStatePersistence({
 
       const rows = record.items.map((item, index) => ({id: rowId(item, index), json: JSON.stringify(item)}));
       await bulkUpsertRows(client, target.table, rows, scope, storeScope);
+      await syncAccountingEventsForRecordsInTransaction(client, record.key, record.items, scope, storeScope);
       if (record.deleteIds?.length) {
         await client.query(
           `DELETE FROM ${quoteIdentifier(target.table)} WHERE tenant_id = $1 AND store_id = $2 AND id = ANY($3::text[])`,

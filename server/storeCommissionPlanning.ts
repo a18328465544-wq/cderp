@@ -79,6 +79,8 @@ export function createCommissionPlanningHelpers(dependencies: CommissionPlanning
 
       created.push({
         id: genId("TC"),
+        accountingStatus: "已提交",
+        accountingEventId: invoice.accountingEventId || purchaseInvoice?.accountingEventId,
         inventoryId: card.id,
         sn: card.sn || item.sn,
         productId: card.productId || item.productId,

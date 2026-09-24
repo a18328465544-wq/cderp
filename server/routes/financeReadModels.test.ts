@@ -11,6 +11,10 @@ test("finance reconciliation is exposed as a protected read-only route", () => {
       registered.push({method: "GET", path, middlewareCount: handlers.length});
       return this;
     },
+    post(path: string, ...handlers: RequestHandler[]) {
+      registered.push({method: "POST", path, middlewareCount: handlers.length});
+      return this;
+    },
   } as unknown as Express;
 
   registerFinanceReadModelRoutes(app, {
@@ -26,6 +30,8 @@ test("finance reconciliation is exposed as a protected read-only route", () => {
     paginated: (items) => ({data: items, meta: {page: 1, pageSize: items.length, total: items.length}}),
     sendValidationError: () => undefined,
     permissionsForRequest: () => ({allowedMenus: [], showCost: false, showProfit: false}),
+    claimMutationIdempotency: async () => null,
+    releaseMutationIdempotency: async () => undefined,
   });
 
   assert.ok(registered.some((item) => item.method === "GET" && item.path === "/api/finance/reconciliation" && item.middlewareCount === 2));

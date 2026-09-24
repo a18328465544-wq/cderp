@@ -5,13 +5,13 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
-import { acquireAuthWriteLock, acquireStateWriteLock, createDatabaseSessionStore, dataFilePath, findActiveTenantMembership, findSystemUserById, findSystemUserByUsername, getStateRevision, loadState, loadStateCollections, saveState, saveStateCollections, saveStateRecords } from "./db.ts";
+import { acquireAuthWriteLock, acquireStateWriteLock, createDatabaseSessionStore, dataFilePath, findActiveTenantMembership, findSystemUserById, findSystemUserByUsername, getAccountingEvent, getStateRevision, isAccountingPeriodClosed, listAccountingEvents, listAccountingReversalDocuments, listFinanceIntegrityAlerts, loadState, loadStateCollections, saveState, saveStateCollections, saveStateRecords, syncFinanceIntegrityAlertsInTransaction } from "./db.ts";
 import type { StateCollectionKey } from "./db.ts";
 import { createStoreActions, type AppState, type StoreActionContext } from "./store.ts";
 import { notifyFeishuMarketQuotePriceChanged, notifyFeishuSalesInvoiceCreated } from "./feishu.ts";
 import { createSessionManager } from "./security.ts";
 import { createRequireAuth, createRequireCsrf, createRequireOpenApiToken } from "./httpAuth.ts";
-import { AppError, toDomainError, UnauthorizedError } from "./errors.ts";
+import { AppError, ConflictError, toDomainError, UnauthorizedError } from "./errors.ts";
 import {
   getPermissionsForUser as getScopedPermissions,
   publicCollectionForUser as getPublicCollection,
@@ -60,6 +60,7 @@ import { registerAiDailySalesRoutes } from "./routes/aiDailySales.ts";
 import { registerBackupRoutes } from "./routes/backup.ts";
 import { registerStateRevisionRoute, registerStateRoutes } from "./routes/state.ts";
 import { registerFinanceReadModelRoutes } from "./routes/financeReadModels.ts";
+import { registerFinanceAccountingControlRoutes } from "./routes/financeAccountingControls.ts";
 import { registerFinanceAccountRoutes } from "./routes/financeAccounts.ts";
 import { registerFinancePaymentRoutes } from "./routes/financePayments.ts";
 import {
@@ -235,10 +236,75 @@ async function withStateMutation<T>(req: AuthRequest | undefined, res: express.R
         }
         req.authUser = freshUser;
       }
+      await assertAccountingPeriodOpen(req);
       return operation();
     }, { signal: requestSignal?.signal });
   } finally {
     requestSignal?.dispose();
+  }
+}
+
+const ACCOUNTING_MUTATION_PATHS = [
+  /^\/api\/gpu_erp\/finance\//,
+  /^\/api\/purchase-invoices(?:\/|$)/,
+  /^\/api\/sales-invoices(?:\/|$)/,
+  /^\/api\/returns(?:\/|$)/,
+  /^\/api\/aftersales(?:\/|$)/,
+  /^\/api\/finance\/commissions\/settle$/,
+];
+
+function isAccountingMutationRequest(req: AuthRequest) {
+  const path = req.path.replace(/\/$/, "") || "/";
+  if (/^\/api\/finance\/accounting-periods\//.test(path)) return false;
+  return ACCOUNTING_MUTATION_PATHS.some((pattern) => pattern.test(path));
+}
+
+function firstBusinessDate(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const date = value.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+function requestBusinessDate(req: AuthRequest) {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : {};
+  for (const key of ["date", "time", "businessDate", "paymentDate", "returnDate", "completedAt"]) {
+    const date = firstBusinessDate(body[key]);
+    if (date) return date;
+  }
+
+  const id = typeof req.params?.id === "string" ? req.params.id : undefined;
+  if (id) {
+    const currentState = getCurrentState<AppState>() || state;
+    const collections = [
+      currentState.purchaseInvoices,
+      currentState.salesInvoices,
+      currentState.returnOrders,
+      currentState.aftersales,
+      currentState.paymentInRecords,
+      currentState.paymentOutRecords,
+      currentState.accountTransfers,
+      currentState.financeLedger,
+      currentState.settlementLedger,
+    ] as unknown as Array<Array<Record<string, unknown>>>;
+    for (const records of collections) {
+      const record = records.find((item) => item.id === id || item.invoiceNo === id || item.returnNo === id);
+      if (!record) continue;
+      for (const key of ["date", "time", "businessDate", "paymentDate", "returnDate", "completedAt"]) {
+        const date = firstBusinessDate(record[key]);
+        if (date) return date;
+      }
+    }
+  }
+  return storeDate();
+}
+
+async function assertAccountingPeriodOpen(req?: AuthRequest) {
+  if (!req || !isAccountingMutationRequest(req)) return;
+  const date = requestBusinessDate(req);
+  if (await isAccountingPeriodClosed(date, req.tenantId, req.storeId)) {
+    throw new ConflictError(`会计期间 ${date.slice(0, 7)} 已结账，不能修改账务数据；请先重开期间或通过冲销/红字更正处理`);
   }
 }
 
@@ -747,8 +813,11 @@ registerSystemRoutes(app, {
 
 registerFinanceClosingRoutes(app, {
   requireMenu,
+  requireBoss,
   asyncRoute,
   sendValidationError: (req, res, message) => sendApiError(req, res, 400, "VALIDATION_ERROR", message),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
 });
 registerFinanceCommissionRoutes(app, {
   requireBoss,
@@ -757,6 +826,9 @@ registerFinanceCommissionRoutes(app, {
   actions: (req) => actions(req as AuthRequest),
   persist: (req, result) => persistRequest(req as AuthRequest, result),
   permissionsForRequest: (req) => getPermissionsForUser((req as AuthRequest).authUser),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
+  transactionHookWithIdempotency,
 });
 registerCommercialRoutes(app, {
   requireBoss,
@@ -977,6 +1049,22 @@ registerFinanceReadModelRoutes(app, {
   paginated,
   sendValidationError: (req, res, message) => sendApiError(req as AuthRequest, res, 400, "VALIDATION_ERROR", message),
   permissionsForRequest: (req) => getPermissionsForUser((req as AuthRequest).authUser),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
+});
+
+registerFinanceAccountingControlRoutes(app, {
+  requireMenu,
+  asyncRoute,
+  loadState,
+  listAccountingEvents,
+  getAccountingEvent,
+  listAccountingReversalDocuments,
+  listFinanceIntegrityAlerts,
+  syncFinanceIntegrityAlertsInTransaction,
+  permissionsForRequest: (req) => getPermissionsForUser((req as AuthRequest).authUser),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
 });
 
 registerCrmReadModelRoutes(app, {
@@ -1107,6 +1195,9 @@ registerAftersalesMutationRoutes(app, {
   asyncRoute,
   getState: () => state,
   actions: (req) => actions(req as AuthRequest),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
+  transactionHookWithIdempotency,
 });
 
 registerMarketQuoteMutationRoutes(app, {
@@ -1143,6 +1234,8 @@ registerFinanceLedgerMutationRoutes(app, {
   asyncRoute,
   getState: () => state,
   actions: (req) => actions(req as AuthRequest),
+  claimMutationIdempotency: (req) => claimMutationIdempotency(req as AuthRequest),
+  releaseMutationIdempotency,
 });
 
 registerResetRoute(app, authRouteDependencies);

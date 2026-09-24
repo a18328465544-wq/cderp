@@ -1,8 +1,9 @@
 import type {ColumnDef} from "@tanstack/react-table";
-import {Button} from "@/src/components/ui";
+import {Button, Input} from "@/src/components/ui";
+import {Lock, Unlock} from "lucide-react";
 import {DashboardSection, ErpDetailDrawer, ErpDetailFact, ErpDetailFactGrid, ErpStatusBadge} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
-import type {FinanceDailyClosing} from "@/src/types/finance-closing";
+import type {FinanceAccountingPeriod, FinanceDailyClosing} from "@/src/types/finance-closing";
 import {financeClosingStatus, financeClosingStatusLabel} from "../finance-closing";
 import {FinanceDetailRow} from "./FinanceMetricCard";
 
@@ -18,6 +19,55 @@ export function createFinanceClosingColumns(onDetail: (item: FinanceDailyClosing
     {id: "status", header: "状态", size: 100, cell: ({row}) => <ErpStatusBadge label={financeClosingStatusLabel(row.original)} tone={financeClosingStatus(row.original)} />},
     {id: "actions", header: "操作", size: 85, cell: ({row}) => <Button size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onDetail(row.original);}}>详情</Button>},
   ];
+}
+
+export function FinanceAccountingPeriodPanel({
+  periods,
+  selectedPeriod,
+  onSelectedPeriodChange,
+  onClosePeriod,
+  onReopenPeriod,
+  busy,
+}: {
+  periods: FinanceAccountingPeriod[];
+  selectedPeriod: string;
+  onSelectedPeriodChange: (period: string) => void;
+  onClosePeriod: (period: string) => void;
+  onReopenPeriod: (period: string) => void;
+  busy: boolean;
+}) {
+  const selected = periods.find((item) => item.period === selectedPeriod);
+  const closed = selected?.status === "closed";
+  return (
+    <DashboardSection
+      title="月结锁定"
+      description="锁定后，采购、销售、退货、收付款和其他账务写入不能修改该月份。"
+      actions={<ErpStatusBadge label={closed ? "已锁定" : "未锁定"} tone={closed ? "warning" : "success"} />}
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="min-w-40 flex-1 space-y-1 text-xs font-medium text-[var(--erp-color-text-secondary)]">
+          <span>会计期间</span>
+          <Input type="month" value={selectedPeriod} onChange={(event) => onSelectedPeriodChange(event.target.value)} aria-label="选择会计期间" />
+        </label>
+        {closed ? (
+          <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => onReopenPeriod(selectedPeriod)}>
+            <Unlock className="h-4 w-4" />
+            重开期间
+          </Button>
+        ) : (
+          <Button type="button" size="sm" variant="warning" disabled={busy || !selectedPeriod} onClick={() => onClosePeriod(selectedPeriod)}>
+            <Lock className="h-4 w-4" />
+            锁定本月
+          </Button>
+        )}
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-[var(--erp-color-text-muted)]">
+        {closed
+          ? `${selectedPeriod} 已由 ${selected?.closedBy || "系统"} 锁定${selected?.closedAt ? `，时间：${selected.closedAt}` : ""}。如需调整，请先重开期间并保留处理记录。`
+          : `${selectedPeriod} 当前可记账。建议完成对账后再执行月结锁定。`}
+      </p>
+    </DashboardSection>
+  );
 }
 
 export function FinanceClosingDetailDrawer({item, onClose}: {item: FinanceDailyClosing | null; onClose: () => void}) {

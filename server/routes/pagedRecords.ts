@@ -57,6 +57,7 @@ function paymentPageFilters(req: Request) {
     accountId: query.accountId, handler: query.handler, businessType: query.businessType,
     direction: query.direction, relatedDocNo: query.relatedDocNo, customerName: query.customerName, supplierName: query.supplierName,
     dateStart: query.startDate || query.dateStart, dateEnd: query.endDate || query.dateEnd,
+    sortKey: query.sortKey, sortDirection: query.sortDirection,
   };
 }
 

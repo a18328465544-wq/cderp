@@ -28,13 +28,18 @@ test("integration tests require a separate test database URL", () => {
   );
 });
 
-function createFakeClient(existingIds: string[] = []) {
+function createFakeClient(existingIds: string[] = [], existingData: Record<string, unknown> = {}) {
   const calls: { sql: string; params: unknown[] }[] = [];
   const client = {
     query: async (sql: string, params: unknown[] = []) => {
       calls.push({ sql, params });
+      if (/^\s*SELECT id, data FROM/i.test(sql)) {
+        const ids = Array.isArray(params[0]) ? params[0] as string[] : [];
+        return { rows: existingIds.filter((id) => ids.includes(id)).map((id) => ({ id, data: existingData[id] || {} })) };
+      }
       if (/^\s*SELECT id FROM/i.test(sql)) {
-        return { rows: existingIds.map((id) => ({ id })) };
+        const ids = Array.isArray(params[0]) ? params[0] as string[] : existingIds;
+        return { rows: existingIds.filter((id) => ids.includes(id)).map((id) => ({ id })) };
       }
       return { rows: [] };
     },
@@ -210,11 +215,12 @@ test("bulk upsert dedupes duplicate ids (last write wins) into a single multi-ro
     { id: "SP-001", json: '{"v":2}' },
     { id: "SP-002", json: '{"v":3}' },
   ]);
-  // One INSERT with two value tuples — never the same conflict target twice in one statement.
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].sql, /INSERT INTO "gpu_products"/);
-  assert.equal((calls[0].sql.match(/::jsonb, NOW\(\)\)/g) || []).length, 2);
-  assert.deepEqual(calls[0].params, ["SP-001", '{"v":2}', "SP-002", '{"v":3}']);
+  // One read plus one INSERT with two value tuples — never the same conflict target twice in one statement.
+  assert.equal(calls.length, 2);
+  const insert = calls.find((call) => /INSERT INTO/.test(call.sql));
+  assert.ok(insert);
+  assert.equal((insert!.sql.match(/::jsonb, NOW\(\)\)/g) || []).length, 2);
+  assert.deepEqual(insert!.params, ["SP-001", '{"v":2}', "SP-002", '{"v":3}']);
 });
 
 test("bulk upsert splits large collections into chunked inserts", async () => {
@@ -224,9 +230,22 @@ test("bulk upsert splits large collections into chunked inserts", async () => {
     json: `{"i":${index}}`,
   }));
   await bulkUpsertRows(client, "gpu_logs", rows);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].params.length, BULK_UPSERT_CHUNK_SIZE * 2);
-  assert.equal(calls[1].params.length, 100 * 2);
+  const inserts = calls.filter((call) => /INSERT INTO/.test(call.sql));
+  assert.equal(inserts.length, 2);
+  assert.equal(inserts[0].params.length, BULK_UPSERT_CHUNK_SIZE * 2);
+  assert.equal(inserts[1].params.length, 100 * 2);
+});
+
+test("bulk upsert updates only changed rows and leaves identical historical rows untouched", async () => {
+  const {client, calls} = createFakeClient(["SP-001"], {"SP-001": {v: 1}});
+  await bulkUpsertRows(client, "gpu_products", [{id: "SP-001", json: '{"v":2}'}]);
+  assert.equal(calls.filter((call) => /UPDATE/.test(call.sql)).length, 1);
+  assert.equal(calls.filter((call) => /INSERT INTO/.test(call.sql)).length, 0);
+
+  const identical = createFakeClient(["SP-001"], {"SP-001": {v: 2}});
+  await bulkUpsertRows(identical.client, "gpu_products", [{id: "SP-001", json: '{"v":2}'}]);
+  assert.equal(identical.calls.filter((call) => /UPDATE/.test(call.sql)).length, 0);
+  assert.equal(identical.calls.filter((call) => /INSERT INTO/.test(call.sql)).length, 0);
 });
 
 test("bulk upsert issues no query for an empty collection", async () => {

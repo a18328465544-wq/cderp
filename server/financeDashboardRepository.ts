@@ -65,7 +65,7 @@ export async function getFinanceDashboard(scope: Scope, range: {startDate: strin
   });
 }
 
-export async function listAccountTransfers(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; accountId?: string; handler?: string; startDate?: string; endDate?: string}) {
+export async function listAccountTransfers(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; accountId?: string; handler?: string; startDate?: string; endDate?: string; sortKey?: string; sortDirection?: "asc" | "desc"}) {
   return withDatabaseTransaction(async (client) => {
     const query = scoped(scope);
     if (filters.keyword?.trim()) {query.values.push(`%${filters.keyword.trim()}%`); query.clauses.push(`CONCAT_WS(' ', id, data->>'fromAccountName', data->>'toAccountName', data->>'handler', data->>'remarks') ILIKE $${query.values.length}`);}
@@ -75,9 +75,21 @@ export async function listAccountTransfers(scope: Scope, filters: {page?: number
     if (filters.endDate?.trim()) {query.values.push(filters.endDate.trim()); query.clauses.push(`LEFT(COALESCE(data->>'time',''),10) <= $${query.values.length}`);}
     const page = boundedInteger(filters.page, 1, 100_000);
     const pageSize = boundedInteger(filters.pageSize, 20, 100);
-    const where = query.clauses.length ? `WHERE ${query.clauses.join(" AND ")}` : "";
-    const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_account_transfers ${where} ORDER BY COALESCE(data->>'time','') DESC, id DESC LIMIT $${query.values.length + 1} OFFSET $${query.values.length + 2}`, [...query.values, pageSize, (page - 1) * pageSize]);
     const numeric = (field: string) => `CASE WHEN COALESCE(data->>'${field}','') ~ '^-?[0-9]+(?:\\.[0-9]+)?$' THEN (data->>'${field}')::numeric ELSE 0 END`;
+    const sortExpressions: Record<string, string> = {
+      time: "COALESCE(data->>'time','')",
+      fromAccountName: "data->>'fromAccountName'",
+      toAccountName: "data->>'toAccountName'",
+      amount: numeric("amount"),
+      fee: numeric("fee"),
+      receivedAmount: numeric("receivedAmount"),
+      handler: "data->>'handler'",
+      remarks: "data->>'remarks'",
+    };
+    const sortExpression = sortExpressions[filters.sortKey || "time"] || sortExpressions.time;
+    const sortDirection = filters.sortDirection === "asc" ? "ASC" : "DESC";
+    const where = query.clauses.length ? `WHERE ${query.clauses.join(" AND ")}` : "";
+    const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_account_transfers ${where} ORDER BY ${sortExpression} ${sortDirection} NULLS LAST, id DESC LIMIT $${query.values.length + 1} OFFSET $${query.values.length + 2}`, [...query.values, pageSize, (page - 1) * pageSize]);
     const aggregate = await client.query<{total: string; amount: string; fee: string; received: string}>(`SELECT COUNT(*)::text total, COALESCE(SUM(${numeric("amount")}),0)::text amount, COALESCE(SUM(${numeric("fee")}),0)::text fee, COALESCE(SUM(${numeric("receivedAmount")}),0)::text received FROM gpu_account_transfers ${where}`, query.values);
     const summary = aggregate.rows[0];
     return {data: {accountTransfers: rows.rows.map((row) => ({...row.data, id: row.id}))}, meta: {page, pageSize, total: Number(summary?.total || 0), totalAmount: Number(summary?.amount || 0), totalFee: Number(summary?.fee || 0), totalReceived: Number(summary?.received || 0), source: "database-page"}};

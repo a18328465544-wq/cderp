@@ -62,13 +62,21 @@ export function restoreWorkspaceState(raw: string | null, allowedIds: string[], 
   }
 }
 
+/**
+ * Returns the existing tab that opening `id` would evict at capacity.
+ * Keeping this decision separate lets the shell ask the runtime whether the
+ * candidate contains unsaved work before mutating the tab state.
+ */
+export function workspaceTabToEvict(state: WorkspaceTabState, id: string): string | null {
+  if (!id || state.openIds.includes(id) || state.openIds.length < WORKSPACE_MAX_TABS) return null;
+  return state.openIds.find((candidate) => candidate !== id && candidate !== WORKSPACE_HOME_ID && !state.pinnedIds.includes(candidate)) || null;
+}
+
 export function openWorkspaceTab(state: WorkspaceTabState, id: string): WorkspaceTabState {
   if (!id) return state;
   const openIds = state.openIds.includes(id) ? [...state.openIds] : [...state.openIds, id];
-  if (openIds.length > WORKSPACE_MAX_TABS) {
-    const removable = openIds.find((candidate) => candidate !== id && candidate !== WORKSPACE_HOME_ID && !state.pinnedIds.includes(candidate));
-    if (removable) openIds.splice(openIds.indexOf(removable), 1);
-  }
+  const removable = workspaceTabToEvict(state, id);
+  if (removable) openIds.splice(openIds.indexOf(removable), 1);
   const recentIds = [...state.recentIds.filter((candidate) => candidate !== id && openIds.includes(candidate)), id];
   return normalizeState({openIds, pinnedIds: state.pinnedIds, recentIds, activeId: id}, [WORKSPACE_HOME_ID, ...openIds]);
 }

@@ -1,4 +1,6 @@
 export {cardStatusValues, inventoryConditionValues, productCategoryValues, sourceTypeValues} from "./core";
+export {accountingDocumentStatusValues, canTransitionAccountingDocument, normalizeAccountingDocumentStatus} from "./accounting";
+export type {AccountingDocumentStatus} from "./accounting";
 export type {CardInventory, CardStatus, InventoryCondition, ProductCategory, SourceType} from "./core";
 export type {AccountPermissionOverrides, PermissionSettings, SafeSystemUserAccount, StoreRole, SystemUserAccount} from "./auth";
 export {customerLevels, customerPartnerTypes, customerTypeValues} from "./customer";
@@ -51,7 +53,7 @@ export type {
   PurchaseSourceOption,
   PurchaseSummary,
 } from "./purchase";
-export type {ReturnCreateResponse, ReturnInventoryAction, ReturnOrder, ReturnOrderBatchItemInput, ReturnOrderItem, ReturnOrderStatus, ReturnOrderType, ReturnResponsibility, ReturnSettlementMode, SalesReturnFormValues} from "./returns";
+export type {ReturnCreateResponse, ReturnInventoryAction, ReturnInventoryStateSnapshot, ReturnOrder, ReturnOrderBatchItemInput, ReturnOrderItem, ReturnOrderStatus, ReturnOrderType, ReturnResponsibility, ReturnSettlementMode, SalesReturnFormValues} from "./returns";
 export type {ProductLibraryFilters, ProductLibraryItem, ProductLibrarySnapshot, ProductTemplateFormValues} from "./product";
 export {productLedgerDocumentTypes} from "./product-ledger";
 export type {ProductLedgerDocumentType, ProductLedgerFilters, ProductLedgerOperationType, ProductLedgerPage, ProductLedgerRow} from "./product-ledger";

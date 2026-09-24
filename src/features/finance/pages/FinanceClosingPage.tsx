@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  useMutation,
   useQuery,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -51,6 +52,8 @@ import {createCapabilities, useAuth} from "@/src/app/auth";
 import {useTablePreferences} from "@/src/hooks/useTablePreferences";
 import {useUrlSearchState} from "@/src/hooks/useUrlSearchState";
 import { formatCurrency } from "@/src/lib/format";
+import {storeMonth} from "@/src/utils/storeTime";
+import {notify} from "@/src/utils/notification";
 import type {
   FinanceDailyClosing,
   FinanceDailyClosingCollection,
@@ -69,7 +72,7 @@ import { FinanceSectionTabs } from "../components/FinanceSectionTabs";
 import {FinanceTableControls} from "../components/FinanceTableControls";
 import {FinanceLatestExceptions} from "../components/FinanceLatestExceptions";
 import {FinanceTableRegion} from "../components/FinanceTableRegion";
-import {createFinanceClosingColumns, FinanceClosingDetailDrawer} from "../components/FinanceClosingSections";
+import {createFinanceClosingColumns, FinanceAccountingPeriodPanel, FinanceClosingDetailDrawer} from "../components/FinanceClosingSections";
 import {
   FinanceMetricCard,
 } from "../components/FinanceMetricCard";
@@ -98,6 +101,12 @@ export function FinanceClosingPage() {
     queryFn: ({ signal }) => financeClosingApi.list(30, signal),
     enabled: Boolean(session && allowed),
     placeholderData: keepPreviousData,
+    retry: false,
+  });
+  const accountingPeriodsQuery = useQuery({
+    queryKey: queryKeys.finance.accountingPeriods(24),
+    queryFn: ({signal}) => financeClosingApi.listAccountingPeriods(24, signal),
+    enabled: Boolean(session && allowed),
     retry: false,
   });
   const reconciliationQuery = useQuery<FinanceReconciliationReport, Error>({
@@ -139,6 +148,7 @@ export function FinanceClosingPage() {
       filters={filters}
       onFiltersChange={commit}
       query={closingQuery}
+      accountingPeriodsQuery={accountingPeriodsQuery}
       reconciliationQuery={reconciliationQuery}
     />
   );
@@ -149,17 +159,30 @@ function FinanceClosingContent({
   filters,
   onFiltersChange,
   query,
+  accountingPeriodsQuery,
   reconciliationQuery,
 }: {
   session: AuthSession;
   filters: FinanceClosingFilters;
   onFiltersChange: (filters: FinanceClosingFilters) => void;
   query: UseQueryResult<FinanceDailyClosingCollection, Error>;
+  accountingPeriodsQuery: UseQueryResult<Awaited<ReturnType<typeof financeClosingApi.listAccountingPeriods>>, Error>;
   reconciliationQuery: UseQueryResult<FinanceReconciliationReport, Error>;
 }) {
   const navigate = useNavigate();
   const capabilities = createCapabilities(session);
   const [detail, setDetail] = useState<FinanceDailyClosing | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState(() => storeMonth());
+  const accountingPeriodMutation = useMutation({
+    mutationFn: ({period, action}: {period: string; action: "close" | "reopen"}) => action === "close"
+      ? financeClosingApi.closeAccountingPeriod(period)
+      : financeClosingApi.reopenAccountingPeriod(period),
+    onSuccess: async () => {
+      notify.success("会计期间已更新");
+      await accountingPeriodsQuery.refetch();
+    },
+    onError: (error: Error) => notify.error(error.message),
+  });
   const {columnVisibility, setColumnVisibility, density, setDensity} = useTablePreferences<VisibilityState>({feature: "finance-closing", userId: session.user.id, defaultVisibility: {}});
   const items = query.data?.items || [];
   const report = useMemo(
@@ -171,8 +194,12 @@ function FinanceClosingContent({
     [items],
   );
   const latest = allReport.rows[0];
+  const accountingPeriods = accountingPeriodsQuery.data || [];
   const activeFilters = countActiveFinanceClosingFilters(filters);
   const columns = useMemo(() => createFinanceClosingColumns(setDetail), []);
+  useEffect(() => {
+    if (latest?.date) setSelectedPeriod((current) => current || latest.date.slice(0, 7));
+  }, [latest?.date]);
   const update = (partial: Partial<FinanceClosingFilters>) =>
     onFiltersChange({ ...filters, ...partial, page: partial.page ?? 1 });
   const exportRows = () => {
@@ -449,6 +476,14 @@ function FinanceClosingContent({
           />
         </MainRegion.Primary>
         <MainRegion.Secondary>
+          <FinanceAccountingPeriodPanel
+            periods={accountingPeriods}
+            selectedPeriod={selectedPeriod}
+            onSelectedPeriodChange={setSelectedPeriod}
+            onClosePeriod={(period) => accountingPeriodMutation.mutate({period, action: "close"})}
+            onReopenPeriod={(period) => accountingPeriodMutation.mutate({period, action: "reopen"})}
+            busy={accountingPeriodMutation.isPending || accountingPeriodsQuery.isFetching}
+          />
           {reconciliationQuery.data ? <FinanceReconciliationPanel report={reconciliationQuery.data} /> : null}
           <DashboardSection
             title="最新异常"

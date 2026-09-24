@@ -6,12 +6,16 @@ import { hashPassword, isPasswordHash } from "./security.ts";
 import type { CommissionMode, SystemUserAccount } from "../src/types.ts";
 import { applyCrmFoundationSchema } from "./crmSchema.ts";
 import { applyOperationalProjectionSchema } from "./operationalSchema.ts";
-import { applyCommercialFoundationSchema, applyCommercialHardeningSchema } from "./commercialSchema.ts";
+import { applyAccountingControlPlaneSchema, applyCommercialFoundationSchema, applyCommercialHardeningSchema } from "./commercialSchema.ts";
 import { DEFAULT_STORE_ID, DEFAULT_TENANT_ID } from "./commercialConstants.ts";
 import { createResilientQueue } from "./resilientQueue.ts";
 import { createAiInsightsRepository } from "./dbAiInsights.ts";
 import { createDatabaseBackups } from "./dbBackups.ts";
 import { createDailyOperations } from "./dbDailyOperations.ts";
+import { createAccountingPeriodOperations } from "./dbAccountingPeriods.ts";
+import { createFinanceReconciliationActionOperations } from "./dbFinanceReconciliationActions.ts";
+import { createAccountingEventOperations } from "./dbAccountingEvents.ts";
+import { createFinanceControlsOperations } from "./dbFinanceControls.ts";
 import { createDatabaseQueryServices } from "./dbQueryServices.ts";
 import { createReferenceQueries } from "./dbReferenceQueries.ts";
 import { createStatePersistence } from "./dbStatePersistence.ts";
@@ -99,6 +103,8 @@ export type FinanceRecordPageFilters = {
   supplierName?: string;
   dateStart?: string;
   dateEnd?: string;
+  sortKey?: string;
+  sortDirection?: "asc" | "desc";
 };
 export type FinanceRecordPage<T> = CollectionPage<T> & { meta: CollectionPage<T>["meta"] & { totalAmount?: number } };
 export type FinanceProfitFlowFilters = {tenantId?: string; storeId?: string; dateStart?: string; dateEnd?: string};
@@ -221,6 +227,7 @@ const postgresInitializer = createPostgresInitializer({
   applyOperationalProjectionSchema,
   applyCommercialFoundationSchema,
   applyCommercialHardeningSchema,
+  applyAccountingControlPlaneSchema,
   upgradePersistedUserPasswords,
   rollbackQuietly,
 });
@@ -358,6 +365,31 @@ export const findSystemUserByUsername = referenceQueries.findSystemUserByUsernam
 export const findActiveTenantMembership = referenceQueries.findActiveTenantMembership;
 export const listInspectionVersions = referenceQueries.listInspectionVersions;
 
+const accountingEventOperations = createAccountingEventOperations({
+  initializePostgres,
+  getPool,
+  scopedTenantId,
+  scopedStoreId,
+});
+
+export const listAccountingEvents = accountingEventOperations.listAccountingEvents;
+export const getAccountingEvent = accountingEventOperations.getAccountingEvent;
+export const listAccountingReversalDocuments = accountingEventOperations.listReversalDocuments;
+export const createAccountingReversalDocumentInTransaction = accountingEventOperations.createAccountingReversalDocumentInTransaction;
+
+const financeControlsOperations = createFinanceControlsOperations({
+  initializePostgres,
+  getPool,
+  scopedTenantId,
+  scopedStoreId,
+});
+
+export const saveFinanceDailySnapshotInTransaction = financeControlsOperations.saveDailySnapshotInTransaction;
+export const saveFinanceDailySnapshot = financeControlsOperations.saveDailySnapshot;
+export const listFinanceDailySnapshots = financeControlsOperations.listDailySnapshots;
+export const syncFinanceIntegrityAlertsInTransaction = financeControlsOperations.syncFinanceIntegrityAlertsInTransaction;
+export const listFinanceIntegrityAlerts = financeControlsOperations.listFinanceIntegrityAlerts;
+
 const statePersistence = createStatePersistence({
   initializePostgres,
   getPool,
@@ -374,6 +406,7 @@ const statePersistence = createStatePersistence({
   enqueueStateSave,
   lockTransactionForStateWrite,
   rollbackQuietly,
+  syncAccountingEventsForRecordsInTransaction: accountingEventOperations.syncAccountingEventsForRecordsInTransaction,
   assertProductionBootstrapPasswordConfigured: () => assertProductionBootstrapPasswordConfigured(),
   legacyDataFile: LEGACY_DATA_FILE,
   legacyImportEnabled: LEGACY_IMPORT_ENABLED,
@@ -414,5 +447,35 @@ export const markDailyNotificationFailed = dailyOperations.markDailyNotification
 export const getDailyClosing = dailyOperations.getDailyClosing;
 export const listDailyClosings = dailyOperations.listDailyClosings;
 export const saveDailyClosing = dailyOperations.saveDailyClosing;
+export const saveDailyClosingInTransaction = dailyOperations.saveDailyClosingInTransaction;
+
+const accountingPeriodOperations = createAccountingPeriodOperations({
+  initializePostgres,
+  getPool,
+  scopedTenantId,
+  scopedStoreId,
+});
+
+export const getAccountingPeriod = accountingPeriodOperations.getAccountingPeriod;
+export const listAccountingPeriods = accountingPeriodOperations.listAccountingPeriods;
+export const isAccountingPeriodClosed = accountingPeriodOperations.isAccountingPeriodClosed;
+export const closeAccountingPeriod = accountingPeriodOperations.closeAccountingPeriod;
+export const closeAccountingPeriodInTransaction = accountingPeriodOperations.closeAccountingPeriodInTransaction;
+export const reopenAccountingPeriod = accountingPeriodOperations.reopenAccountingPeriod;
+export const reopenAccountingPeriodInTransaction = accountingPeriodOperations.reopenAccountingPeriodInTransaction;
+export const accountingPeriodFromDate = accountingPeriodOperations.periodFromDate;
+export const normalizeAccountingPeriod = accountingPeriodOperations.normalizePeriod;
+
+const financeReconciliationActionOperations = createFinanceReconciliationActionOperations({
+  initializePostgres,
+  getPool,
+  withDatabaseTransaction,
+  scopedTenantId,
+  scopedStoreId,
+});
+
+export const listFinanceReconciliationActions = financeReconciliationActionOperations.listActions;
+export const createFinanceReconciliationAction = financeReconciliationActionOperations.createAction;
+export const createFinanceReconciliationActionInTransaction = financeReconciliationActionOperations.createActionInTransaction;
 
 export const dataFilePath = "postgresql:DATABASE_URL";

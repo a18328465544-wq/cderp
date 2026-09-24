@@ -91,11 +91,19 @@ REQUIRED_TABLE_COUNT="$(psql --dbname="${RESTORE_TEST_DATABASE_URL}" --set=ON_ER
       'gpu_inventory_reservations',
       'gpu_inspection_versions',
       'gpu_daily_notifications',
-      'gpu_daily_closings'
+      'gpu_daily_closings',
+      'gpu_accounting_periods',
+      'gpu_accounting_events',
+      'gpu_accounting_event_links',
+      'gpu_accounting_event_lines',
+      'gpu_accounting_reversal_documents',
+      'gpu_finance_daily_snapshots',
+      'gpu_finance_integrity_alerts',
+      'gpu_accounting_backfill_runs'
     ]);
 ")"
-if [[ "${REQUIRED_TABLE_COUNT}" != "16" ]]; then
-  echo "[restore-drill] 核心业务表校验失败: ${REQUIRED_TABLE_COUNT}/16" >&2
+if [[ "${REQUIRED_TABLE_COUNT}" != "24" ]]; then
+  echo "[restore-drill] 核心业务表校验失败: ${REQUIRED_TABLE_COUNT}/24" >&2
   exit 1
 fi
 
@@ -104,11 +112,13 @@ MIGRATION_COUNT="$(psql --dbname="${RESTORE_TEST_DATABASE_URL}" --set=ON_ERROR_S
     'crm-foundation-v2',
     'operational-projections-v1',
     'commercial-foundation-v1',
-    'commercial-hardening-v1'
+    'commercial-hardening-v1',
+    'accounting-guardrails-v1',
+    'accounting-control-plane-v1'
   );
 ")"
-if [[ "${MIGRATION_COUNT}" != "4" ]]; then
-  echo "[restore-drill] 必需迁移版本缺失: crm / operational / commercial foundation + hardening" >&2
+if [[ "${MIGRATION_COUNT}" != "6" ]]; then
+  echo "[restore-drill] 必需迁移版本缺失: crm / operational / commercial / accounting control plane" >&2
   exit 1
 fi
 

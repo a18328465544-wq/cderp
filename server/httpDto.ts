@@ -293,6 +293,10 @@ const queryFilterEnum = <const Values extends readonly [string, ...string[]]>(va
   (value) => Array.isArray(value) || value === undefined || value === null || value === "all" ? "" : value,
   z.union([z.literal(""), z.enum(values)]),
 );
+const queryOptionalEnum = <const Values extends readonly [string, ...string[]]>(values: Values) => z.preprocess(
+  (value) => Array.isArray(value) || value === undefined || value === null || value === "" || value === "all" ? undefined : value,
+  z.enum(values).optional(),
+);
 const queryDefaultEnum = <const Values extends readonly [string, ...string[]]>(values: Values, fallback: Values[number]) => z.preprocess(
   (value) => Array.isArray(value) || value === undefined || value === null || value === "" ? fallback : value,
   z.enum(values),
@@ -313,6 +317,9 @@ const optionalIsoDate = z.preprocess(
 const invoiceSortKeys = ["date", "invoiceNo", "supplierName", "customerName", "totalCount", "totalCost", "totalAmount", "totalProfit", "paymentStatus", "outboundStatus", "handleBy"] as const;
 const invoicePaymentStatusValues = [...purchasePaymentStatusValues, ...salesPaymentStatusValues] as const;
 const inventorySortKeys = ["id", "code", "product", "productName", "cost", "costPrice", "profit", "days", "status", "warehouseLocation", "entryTime"] as const;
+const financeRecordSortKeys = ["time", "businessType", "source", "party", "amount", "accountName", "paymentMethod", "referenceNo", "handler", "remarks"] as const;
+const financeTransferSortKeys = ["time", "fromAccountName", "toAccountName", "amount", "fee", "receivedAmount", "handler", "remarks"] as const;
+const returnSortKeys = ["date", "returnNo", "relatedDocNo", "partyName", "productName", "amount", "settlementMode", "inventoryAction", "status", "handler"] as const;
 const inventoryRiskValues = ["mined", "upturned", "high"] as const;
 const customerDirectorySortKeys = ["name", "level", "totalAmount", "receivableBalance", "payableBalance", "lastDealTime"] as const;
 const vendorBalanceValues = ["payable", "receivable", "credit"] as const;
@@ -419,6 +426,8 @@ export const financeTransferListQueryDto = z.object({
   handler: queryText(80),
   startDate: queryDate,
   endDate: queryDate,
+  sortKey: queryOptionalEnum(financeTransferSortKeys),
+  sortDirection: queryOptionalEnum(["asc", "desc"] as const),
 }).strict();
 
 export const financeDashboardQueryDto = z.object({
@@ -442,6 +451,30 @@ export const financeSummaryQueryDto = z.object({
 
 export const financeReconciliationQueryDto = z.object({
   limit: queryNumber(200, 500),
+}).strict();
+
+export const financeReconciliationActionQueryDto = z.object({
+  limit: queryNumber(100, 500),
+}).strict();
+
+export const financeReconciliationActionDto = z.object({
+  issueFingerprint: requiredText("异常标识", 500),
+  issueCode: requiredText("异常编码", 160),
+  domain: requiredText("异常领域", 80),
+  entityId: optionalText(160),
+  action: z.enum(["reviewed", "resolved", "reversal_requested"]),
+  notes: optionalText(1000),
+}).strict();
+
+export const financeAccountingEventQueryDto = z.object({
+  limit: queryNumber(100, 500),
+  status: queryText(20),
+  keyword: queryText(160),
+}).strict();
+
+export const financeIntegrityAlertQueryDto = z.object({
+  limit: queryNumber(100, 500),
+  status: z.enum(["open", "resolved"]).optional(),
 }).strict();
 
 export const financeProfitFlowQueryDto = z.object({
@@ -498,6 +531,8 @@ export const financeRecordListQueryDto = z.object({
   dateEnd: queryDate,
   startDate: queryDate,
   endDate: queryDate,
+  sortKey: queryOptionalEnum(financeRecordSortKeys),
+  sortDirection: queryOptionalEnum(["asc", "desc"] as const),
 }).strict();
 
 export const inventoryListQueryDto = z.object({
@@ -579,6 +614,8 @@ export const returnListQueryDto = z.object({
   page: queryNumber(1, 10_000),
   pageSize: queryNumber(20, 200),
   keyword: queryText(120),
+  sortKey: queryOptionalEnum(returnSortKeys),
+  sortDirection: queryOptionalEnum(["asc", "desc"] as const),
 }).strict();
 
 export const assemblyListQueryDto = z.object({
@@ -618,6 +655,15 @@ export const logsCreateDto = z.object({
 
 export const financeDailyClosingCreateDto = z.object({
   date: dateText.optional(),
+  remarks: optionalText(500),
+}).strict();
+
+export const financeAccountingPeriodQueryDto = z.object({
+  period: queryText(7),
+  limit: queryNumber(24, 120),
+}).strict();
+
+export const financeAccountingPeriodMutationDto = z.object({
   remarks: optionalText(500),
 }).strict();
 

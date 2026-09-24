@@ -1,4 +1,4 @@
-import {useQuery, useQueryClient} from "@tanstack/react-query";
+import {useQuery, useQueryClient, type QueryClient} from "@tanstack/react-query";
 import {createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode} from "react";
 import {ArrowUpRight, Boxes, Eye, EyeOff, LockKeyhole, ShieldAlert, ShieldCheck, Store, UserRound, WalletCards} from "lucide-react";
 import {authApi, type AuthSession} from "@/src/services/api/endpoints/auth";
@@ -22,6 +22,15 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Business queries are tenant/user scoped. They must not survive a session
+ * expiry or a user switch, otherwise the next session can briefly render the
+ * previous operator's cached business data.
+ */
+function clearBusinessQueryCache(queryClient: QueryClient) {
+  queryClient.removeQueries({predicate: ({queryKey}) => queryKey[0] !== "auth"});
+}
+
 export function AuthProvider({children}: {children: ReactNode}) {
   const queryClient = useQueryClient();
   const [signedOut, setSignedOut] = useState(false);
@@ -42,6 +51,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
     const onExpired = () => {
       clearBrowserAuthState();
       setSignedOut(true);
+      clearBusinessQueryCache(queryClient);
       queryClient.removeQueries({queryKey: queryKeys.auth.session()});
     };
     window.addEventListener("gpu-erp:auth-expired", onExpired);
@@ -52,8 +62,9 @@ export function AuthProvider({children}: {children: ReactNode}) {
     if (sessionQuery.error instanceof ApiError && sessionQuery.error.isUnauthorized) {
       clearBrowserAuthState();
       setSignedOut(true);
+      clearBusinessQueryCache(queryClient);
     }
-  }, [sessionQuery.error]);
+  }, [queryClient, sessionQuery.error]);
 
   const value = useMemo<AuthContextValue>(() => ({
     session: sessionQuery.data || null,
@@ -67,6 +78,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
     error: sessionQuery.error instanceof Error ? sessionQuery.error : null,
     async login(username, password) {
       const session = await authApi.login(username, password);
+      clearBusinessQueryCache(queryClient);
       if (session.initialState) queryClient.setQueryData(queryKeys.state.initial(), session.initialState);
       const {initialState: _initialState, ...sessionForContext} = session;
       queryClient.setQueryData(queryKeys.auth.session(), sessionForContext);

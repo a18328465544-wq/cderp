@@ -1,5 +1,6 @@
 import type {CardInventory, ProductCategory, SourceType} from "./core";
 import type {CustomerLevel, CustomerPickerOption, CustomerPartnerType} from "./customer";
+import type {AccountingDocumentStatus} from "./accounting";
 
 export interface PurchaseItem {
   tempId: string;
@@ -27,6 +28,8 @@ export interface PurchaseItem {
 export interface PurchaseInvoice {
   id: string;
   invoiceNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   /** Optimistic-lock version for safe historical edits; legacy records start at 1. */
   recordVersion?: number;
   date: string;

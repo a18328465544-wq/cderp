@@ -13,7 +13,7 @@ function gpuValues(): InspectionFormValues {
 test("inspection workspace keeps only valid pending candidates and enriches history", () => {
   const result = adaptInspectionWorkspace({data: {
     inventory: [
-      {id: "GPU-1", category: "显卡", productName: "RTX 4090", status: "待检测", entryTime: "2026-08-09", condition: "95新"},
+      {id: "GPU-1", category: "显卡", productName: "RTX 4090", status: "待检测", entryTime: "2026-08-09", condition: "95新", supplierName: "供应商甲", purchaseHandler: "采购经办人", purchaseInvoiceNo: "JH-1"},
       {id: "GPU-2", category: "显卡", productName: "RTX 4080", status: "已入库", entryTime: "2026-08-08"},
       {id: "CPU-1", category: "CPU", productName: "i9", status: "待检测", entryTime: "2026-08-07"},
       {id: "CPU-2", category: "CPU", productName: "i7", status: "已售出", entryTime: "2026-08-06"},
@@ -21,6 +21,7 @@ test("inspection workspace keeps only valid pending candidates and enriches hist
     inspections: [{id: "JC-1", inventoryId: "CPU-1", sn: "CPU-SN", resultStatus: "通过", recordVersion: 4, inspectTime: "2026-08-09 10:00", images: ["/api/media/assets/IMG-2"]}],
   }});
   assert.deepEqual(result.candidates.map((item) => item.id), ["GPU-1"]);
+  assert.equal(result.candidates[0]?.purchaseHandler, "采购经办人");
   assert.equal(result.history[0]?.productName, "i9");
   assert.equal(result.history[0]?.category, "CPU");
   assert.equal(result.history[0]?.temperature, undefined);

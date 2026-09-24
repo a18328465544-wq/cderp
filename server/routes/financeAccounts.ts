@@ -1,8 +1,8 @@
 import type {Express, Request, RequestHandler} from "express";
 import {financeAccountCreateDto, financeAccountReconcileDto, parseHttpDto} from "../httpDto.ts";
-import {saveStateRecords, type StateCollectionKey} from "../db.ts";
+import type {StateCollectionKey} from "../db.ts";
 import {runStateCommand, type StateCommandTransactionHook} from "../stateCommand.ts";
-import {compactStateMerge, stateDeleteRecords, stateMergeRecords, statePatchResponse, type StateDeletePatch, type StateMergePatch} from "../statePatch.ts";
+import {compactStateMerge, statePatchResponse, type StateDeletePatch, type StateMergePatch} from "../statePatch.ts";
 import type {AppState, createStoreActions} from "../store.ts";
 
 type FinanceAccountRequest = Request & {
@@ -80,16 +80,28 @@ export function registerFinanceAccountRoutes(app: Express, dependencies: Finance
     "/api/gpu_erp/finance/settlement-account/:id/reconcile",
     dependencies.requireMenu("settlement_accounts"),
     dependencies.asyncRoute(async (req: FinanceAccountRequest, res) => {
-      const {actualBalance} = parseHttpDto(financeAccountReconcileDto, req.body);
-      const {data: updated, stateMerge} = await runStateCommand(
-        () => dependencies.actions(req).reconcileSettlementAccount(
-          req.params.id!,
-          actualBalance,
-          req.authUser?.displayName || req.authUser?.username,
-        ),
-        (record) => ({stateMerge: recordMerge(dependencies.getState(), "settlementAccounts", record)}),
-      );
-      res.json(okMerge(updated, stateMerge));
+      const idempotency = await dependencies.claimMutationIdempotency(req);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const {actualBalance} = parseHttpDto(financeAccountReconcileDto, req.body);
+        const {data: updated, stateMerge} = await runStateCommand(
+          () => dependencies.actions(req).reconcileSettlementAccount(
+            req.params.id!,
+            actualBalance,
+            req.authUser?.displayName || req.authUser?.username,
+          ),
+          (record) => ({stateMerge: recordMerge(dependencies.getState(), "settlementAccounts", record)}),
+          undefined,
+          dependencies.transactionHookWithIdempotency(idempotency, 200),
+        );
+        res.json(okMerge(updated, stateMerge));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -98,11 +110,24 @@ export function registerFinanceAccountRoutes(app: Express, dependencies: Finance
     dependencies.requireMenu("settlement_accounts"),
     dependencies.requireDeletePermission,
     dependencies.asyncRoute(async (req, res) => {
-      const deleted = dependencies.actions(req).deleteSettlementAccount(req.params.id!);
-      const stateMerge = deleteMerge(dependencies.getState());
-      const stateDelete = {settlementAccounts: deleted?.id ? [deleted.id] : []};
-      await saveStateRecords([...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)]);
-      res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      const authRequest = req as FinanceAccountRequest;
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const {data: deleted, stateMerge, stateDelete} = await runStateCommand(
+          () => dependencies.actions(req).deleteSettlementAccount(req.params.id!),
+          (record) => ({stateMerge: deleteMerge(dependencies.getState()), stateDelete: {settlementAccounts: record?.id ? [record.id] : []}}),
+          undefined,
+          dependencies.transactionHookWithIdempotency(idempotency, 200),
+        );
+        res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 }

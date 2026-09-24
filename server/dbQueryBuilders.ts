@@ -232,7 +232,10 @@ const PROFIT_EXPLICIT_EXPENSE_TYPES = financeExpenseCategories;
 export function buildFinanceProfitFlowQuery(kind: FinanceProfitFlowKind, filters: FinanceProfitFlowFilters = {}) {
   const table = kind === "income" ? "gpu_payment_in_records" : "gpu_payment_out_records";
   const values: unknown[] = [];
-  const clauses = ["LEFT(COALESCE(data->>'time', ''), 10) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'"];
+  const clauses = [
+    "COALESCE(data->>'accountingStatus', '已入账') <> '作废'",
+    "LEFT(COALESCE(data->>'time', ''), 10) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'",
+  ];
   const bind = (value: unknown) => {
     values.push(value);
     return `$${values.length}`;
@@ -263,7 +266,7 @@ export function buildFinanceRecordPageQuery(kind: FinanceRecordKind, filters: Fi
   const page = normalizedPage(filters.page, 1);
   const pageSize = Math.min(200, normalizedPage(filters.pageSize, 20));
   const values: unknown[] = [];
-  const clauses: string[] = [];
+  const clauses: string[] = ["COALESCE(data->>'accountingStatus', '已入账') <> '作废'"];
   const bind = (value: unknown) => {
     values.push(value);
     return `$${values.length}`;
@@ -298,6 +301,22 @@ export function buildFinanceRecordPageQuery(kind: FinanceRecordKind, filters: Fi
     clauses.push(`COALESCE(data->>'relatedDocNo', '') NOT LIKE 'JH%'`);
     clauses.push(`COALESCE(data->>'businessType', '') NOT IN ('采购付款', '回收付款')`);
   }
+  const amountExpression = "COALESCE(NULLIF(data->>'amount', '')::numeric, 0)";
+  const partyExpression = "COALESCE(NULLIF(data->>'supplierName', ''), data->>'customerName')";
+  const sortExpressions: Record<string, string> = {
+    time: "data->>'time'",
+    businessType: "data->>'businessType'",
+    source: partyExpression,
+    party: partyExpression,
+    amount: amountExpression,
+    accountName: "data->>'accountName'",
+    paymentMethod: "data->>'paymentMethod'",
+    referenceNo: "data->>'referenceNo'",
+    handler: "data->>'handler'",
+    remarks: "data->>'remarks'",
+  };
+  const sortExpression = sortExpressions[filters.sortKey || "time"] || sortExpressions.time;
+  const sortDirection = filters.sortDirection === "asc" ? "ASC" : "DESC";
   return {
     table: financeRecordTables[kind],
     page,
@@ -305,6 +324,7 @@ export function buildFinanceRecordPageQuery(kind: FinanceRecordKind, filters: Fi
     offset: (page - 1) * pageSize,
     values,
     where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    orderBy: `ORDER BY ${sortExpression} ${sortDirection} NULLS LAST, id DESC`,
   };
 }
 

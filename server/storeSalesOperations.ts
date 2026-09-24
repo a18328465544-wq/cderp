@@ -131,12 +131,15 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
     // Only create a new customer archive after all stock and payment validations pass.
     // A rejected sales order must not leave an orphan customer record behind.
     const resolvedCustomer = resolveSalesCustomerArchive(invoice);
+    const accountingEventId = invoice.accountingEventId || genId("AE");
     const newInvoice: SalesInvoice = {
       ...invoice,
       ...resolvedCustomer,
       items,
       id: genId("XS"),
       invoiceNo,
+      accountingStatus: "已入账",
+      accountingEventId,
       totalCount,
       totalCost,
       totalAmount,
@@ -160,6 +163,7 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
         paymentMethod: newInvoice.paymentMethod,
         relatedDocType: "销售单",
         relatedDocNo: invoiceNo,
+        accountingEventId,
         time: nowStamp(),
         remarks: newInvoice.remarks,
       }, { skipInvoiceUpdate: true });
@@ -327,16 +331,17 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
   const deleteSalesInvoice = (id: string) => {
     const existing = state.salesInvoices.find((item) => item.id === id || item.invoiceNo === id);
     if (!existing) throw new NotFoundError(`销售单不存在: ${id}`);
+    const linkedPayments = state.paymentInRecords.filter((payment) => payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id);
+    const linkedLedgerEntries = state.financeLedger.filter((item) => item.relatedId === existing.invoiceNo || item.relatedId === existing.id);
+    if (linkedPayments.length || linkedLedgerEntries.length) {
+      throw new ConflictError("销售单已产生资金流水，不能直接删除；请使用作废、冲销或红字更正");
+    }
     const chosenIds = new Set(existing.items.map((item) => item.inventoryId).filter(Boolean));
     const hasOutbound = existing.outboundStatus === "已出库" ||
       state.inventory.some((card) => chosenIds.has(card.id) && card.status === "已售出" && card.salesInvoiceId === existing.invoiceNo);
     if (hasOutbound) {
       throw new ConflictError("销售单已出库，不能删除");
     }
-
-    state.paymentInRecords
-      .filter((payment) => payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id)
-      .forEach((payment) => deletePaymentIn(payment.id, { skipInvoiceUpdate: true }));
 
     state.inventory = state.inventory.map((card) => {
       if (!chosenIds.has(card.id) || card.salesInvoiceId !== existing.invoiceNo) return card;

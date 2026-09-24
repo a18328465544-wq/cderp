@@ -6,6 +6,7 @@ import {ProfitDisplay} from "@/src/components/domain";
 import {formatCurrency} from "@/src/lib/format";
 import type {InventoryModelSummary} from "@/src/types/inventory";
 import {formatStoreDateTime} from "@/src/utils/storeTime";
+import {productDisplayName, productIdentityParts} from "@/src/lib/productName";
 
 const amount = (value: number | undefined) => value === undefined ? "—" : formatCurrency(value);
 
@@ -16,7 +17,7 @@ export function createInventoryModelColumns({showCost, showProfit, onOpenCards, 
       header: "商品型号",
       accessorFn: (row) => row.productName,
       size: 270,
-      cell: ({row}) => <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-info-soft)] text-[var(--erp-color-primary)]"><Boxes className="h-4 w-4" /></span><div className="min-w-0"><p className="truncate font-semibold text-[var(--erp-color-text)]">{row.original.productName}</p><p className="truncate text-xs text-[var(--erp-color-text-muted)]">{[row.original.brand, row.original.model, row.original.version, row.original.vram].filter(Boolean).join(" · ") || "型号信息待补充"}</p></div></div>,
+      cell: ({row}) => { const displayName = productDisplayName({name: row.original.productName, ...row.original}); return <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-info-soft)] text-[var(--erp-color-primary)]"><Boxes className="h-4 w-4" /></span><div className="min-w-0"><p className="truncate font-semibold text-[var(--erp-color-text)]">{displayName}</p><p className="truncate text-xs text-[var(--erp-color-text-muted)]">{productIdentityParts(row.original).join(" · ") || "型号信息待补充"}</p></div></div>; },
     },
     {id: "category", accessorKey: "category", header: "分类", size: 100, enableSorting: false, cell: ({row}) => <ErpStatusBadge label={row.original.category} tone="info" />},
     {id: "totalCount", header: "总数量", accessorKey: "totalCount", size: 100, cell: ({row}) => <span className="erp-data-number text-base font-semibold">{row.original.totalCount} 张</span>},

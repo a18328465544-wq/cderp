@@ -1,12 +1,12 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import {useNavigate} from "@tanstack/react-router";
-import type {VisibilityState} from "@tanstack/react-table";
+import type {OnChangeFn, SortingState, VisibilityState} from "@tanstack/react-table";
 import {Banknote, CheckCircle2, ClipboardCheck, Download, Filter, ListFilter, LockKeyhole, Plus, RefreshCw, Undo2} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, CardContent, Select} from "@/src/components/ui";
-import {ErpColumnVisibilityMenu, ErpConfirmDialog, ErpDataTable, ErpDetailDrawer, ErpDetailFact, ErpEmptyState, ErpFilterBar, ErpListPageFrame, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
+import {ErpColumnVisibilityMenu, ErpConfirmDialog, ErpDataTable, ErpDetailDrawer, ErpDetailFact, ErpEmptyState, ErpFilterBar, ErpListPageFrame, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpTableResultsBar, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
 import {ApiError, queryKeys, returnsApi} from "@/src/services/api";
 import {invalidateErpDomains} from "@/src/services/api";
 import type {AuthSession} from "@/src/services/api";
@@ -20,6 +20,8 @@ import type {SalesReturnListFilters, SalesReturnListItem} from "@/src/types/retu
 import {createSalesReturnColumns} from "../sales-return.columns";
 import {countActiveSalesReturnFilters, defaultSalesReturnListFilters, parseSalesReturnListFilters, salesReturnListFiltersToSearch} from "../sales-return.filters";
 import {csvCell, DeleteReturnDialog, ReturnEditDialog, VoidReturnDialog, type ReturnEditDraft} from "../components/ReturnMutationDialogs";
+import {ReturnItemsSummary} from "../components/ReturnItemsSummary";
+import {returnDisplayLabel} from "../return-display";
 
 const statusOptions = [{value: "", label: "全部处理状态"}, ...returnOrderStatusValues.map((value) => ({value, label: value}))];
 
@@ -124,9 +126,9 @@ function SalesReturnListContent({session, filters, commitFilters, detailId, comm
     onError: handleMutationError,
   });
   const deleteMutation = useMutation({
-    mutationFn: (item: SalesReturnListItem) => returnsApi.remove(item.id),
+    mutationFn: (item: SalesReturnListItem) => item.status === "已完成" ? returnsApi.reverse(item.id) : returnsApi.remove(item.id),
     onSuccess: (result) => {
-      notify.success(`${result?.returnNo || deleteTarget?.returnNo || "退货单"} 已删除${deleteTarget?.status === "已完成" ? "并完成冲销" : ""}`);
+      notify.success(`${result?.returnNo || deleteTarget?.returnNo || "退货单"} ${deleteTarget?.status === "已完成" ? "已冲销" : "已删除"}`);
       setDeleteTarget(null);
       if (detailId) commitDetail(null);
       void invalidateReturns();
@@ -152,6 +154,12 @@ function SalesReturnListContent({session, filters, commitFilters, detailId, comm
   }, [commitDetail, voidMutation]);
   const columns = useMemo(() => createSalesReturnColumns({onDetail: openDetail, onComplete: (item) => {completeMutation.reset(); setCompleteTarget(item);}, onVoid: openVoid, onEdit: openEdit, onDelete: openDelete, canEdit, canDelete}), [canDelete, canEdit, completeMutation, openDelete, openDetail, openEdit, openVoid]);
   const updateFilters = (patch: Partial<SalesReturnListFilters>) => commitFilters({...filters, ...patch, page: 1});
+  const sorting: SortingState = filters.sortKey ? [{id: filters.sortKey, desc: filters.sortDirection === "desc"}] : [];
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const next = typeof updater === "function" ? updater(sorting) : updater;
+    const first = next[0];
+    updateFilters({sortKey: first?.id || undefined, sortDirection: first ? (first.desc ? "desc" : "asc") : undefined});
+  };
   const quickStatus: QuickStatusItemData[] = [
     {icon: <ListFilter className="h-4 w-4" />, label: "筛选状态", value: activeFilterCount ? `${activeFilterCount} 项` : "全部", description: "已同步到当前 URL", tone: activeFilterCount ? "info" : "neutral"},
     {icon: <ClipboardCheck className="h-4 w-4" />, label: "待处理（本页）", value: `${pendingOnPage} 单`, description: "完成后才变更退款与库存", tone: pendingOnPage ? "warning" : "success"},
@@ -159,8 +167,8 @@ function SalesReturnListContent({session, filters, commitFilters, detailId, comm
   ];
   const exportCurrentPage = () => {
     const rows = [
-      ["退货单号", "状态", "关联销售单", "客户", "商品", "SN", "退款金额", "退款方式", "库存处理", "经办人", "退货日期", "退货原因", "备注"],
-      ...items.map((item) => [item.returnNo, item.status, item.relatedDocNo, item.partyName, item.productName, item.sn, item.amount, item.settlementMode, item.inventoryAction, item.handler, item.date, item.reason, item.remarks]),
+      ["退货单号", "状态", "关联销售单", "客户", "商品", "SN / 库存卡片", "退款金额", "退款方式", "库存处理", "经办人", "退货日期", "退货原因", "备注"],
+      ...items.map((item) => [item.returnNo, item.status, item.relatedDocNo, item.partyName, returnDisplayLabel(item), item.returnItems?.map((line) => `${line.sourceInventoryId}${line.sn ? ` · ${line.sn}` : ""}`).join("；") || item.sn, item.amount, item.settlementMode, item.inventoryAction, item.handler, item.date, item.reason, item.remarks]),
     ];
     const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\n")}`;
     const url = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
@@ -185,11 +193,9 @@ function SalesReturnListContent({session, filters, commitFilters, detailId, comm
       <Select className="w-40" value={filters.status} options={statusOptions} onValueChange={(value) => updateFilters({status: value as SalesReturnListFilters["status"]})} aria-label="退货处理状态筛选" />
     </ErpFilterBar></ErpPageToolbar>
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-2"><ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} /><div className="inline-flex rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-0.5"><Button type="button" size="sm" variant={density === "comfortable" ? "secondary" : "ghost"} onClick={() => setDensity("comfortable")}>舒适</Button><Button type="button" size="sm" variant={density === "compact" ? "secondary" : "ghost"} onClick={() => setDensity("compact")}>紧凑</Button></div></div>
-    </div>
-    <ErpDataTable ariaLabel="销售退货明细" columns={columns} data={items} getRowId={(item) => item.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="销售退货加载失败" emptyTitle="暂无销售退货" emptyDescription={activeFilterCount ? "当前筛选没有匹配的销售退货记录。" : "服务器当前没有销售退货记录。"} onRetry={() => void query.refetch()} onRowClick={openDetail} page={query.data?.meta.page || filters.page} pageSize={query.data?.meta.pageSize || filters.pageSize} total={query.data?.meta.total || 0} onPageChange={(page) => commitFilters({...filters, page})} onPageSizeChange={(pageSize) => commitFilters({...filters, page: 1, pageSize})} columnVisibility={columnVisibility} onColumnVisibilityChange={setColumnVisibility} enableColumnResizing density={density} stickyHeader />
-    <ErpDetailDrawer open={Boolean(detailId)} onOpenChange={(open) => {if (!open) commitDetail(null);}} modal={false} resizable drawerKey="sales-return-detail" defaultWidth={860} minWidth={680} maxWidth={1080} title={selectedDetail?.returnNo || detailId || "销售退货详情"} description="详情来自真实退货列表响应；退款、库存和冲销均由现有服务端动作处理。" footer={selectedDetail && <div className="flex flex-wrap justify-end gap-2">{canDelete && selectedDetail.status === "待处理" && <Button type="button" size="sm" variant="danger" onClick={() => openVoid(selectedDetail)}>作废退货单</Button>}{canDelete && selectedDetail.status === "已完成" && <Button type="button" size="sm" variant="danger" onClick={() => openDelete(selectedDetail)}>删除并冲销</Button>}{canEdit && selectedDetail.status !== "已作废" && <Button type="button" size="sm" variant="secondary" onClick={() => openEdit(selectedDetail)}>编辑资料</Button>}{selectedDetail.status === "待处理" && <Button type="button" size="sm" variant="primary" onClick={() => setCompleteTarget(selectedDetail)}><CheckCircle2 className="h-4 w-4" />完成退货处理</Button>}</div>}>
+    <ErpTableResultsBar actions={<><ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} /><div className="inline-flex rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-0.5"><Button type="button" size="sm" variant={density === "comfortable" ? "secondary" : "ghost"} onClick={() => setDensity("comfortable")}>舒适</Button><Button type="button" size="sm" variant={density === "compact" ? "secondary" : "ghost"} onClick={() => setDensity("compact")}>紧凑</Button></div></>} />
+    <ErpDataTable ariaLabel="销售退货明细" columns={columns} data={items} getRowId={(item) => item.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="销售退货加载失败" emptyTitle="暂无销售退货" emptyDescription={activeFilterCount ? "当前筛选没有匹配的销售退货记录。" : "服务器当前没有销售退货记录。"} onRetry={() => void query.refetch()} onRowClick={openDetail} manualSorting sorting={sorting} onSortingChange={handleSortingChange} page={query.data?.meta.page || filters.page} pageSize={query.data?.meta.pageSize || filters.pageSize} total={query.data?.meta.total || 0} onPageChange={(page) => commitFilters({...filters, page})} onPageSizeChange={(pageSize) => commitFilters({...filters, page: 1, pageSize})} columnVisibility={columnVisibility} onColumnVisibilityChange={setColumnVisibility} enableColumnResizing density={density} stickyHeader />
+    <ErpDetailDrawer open={Boolean(detailId)} onOpenChange={(open) => {if (!open) commitDetail(null);}} modal={false} resizable drawerKey="sales-return-detail" defaultWidth={860} minWidth={680} maxWidth={1080} title={selectedDetail?.returnNo || detailId || "销售退货详情"} description="详情来自真实退货列表响应；退款、库存和冲销均由现有服务端动作处理。" footer={selectedDetail && <div className="flex flex-wrap justify-end gap-2">{canDelete && selectedDetail.status === "待处理" && <Button type="button" size="sm" variant="danger" onClick={() => openVoid(selectedDetail)}>作废退货单</Button>}{canDelete && selectedDetail.status === "已完成" && <Button type="button" size="sm" variant="danger" onClick={() => openDelete(selectedDetail)}>冲销退货单</Button>}{canEdit && selectedDetail.status !== "已作废" && <Button type="button" size="sm" variant="secondary" onClick={() => openEdit(selectedDetail)}>编辑资料</Button>}{selectedDetail.status === "待处理" && <Button type="button" size="sm" variant="primary" onClick={() => setCompleteTarget(selectedDetail)}><CheckCircle2 className="h-4 w-4" />完成退货处理</Button>}</div>}>
       {selectedDetail ? <SalesReturnDetail item={selectedDetail} /> : detailQuery.isPending || query.isPending ? <ErpLoadingState title="正在定位销售退货单" description="正在跨页查找完整退货明细。" /> : detailQuery.error ? <ErpEmptyState title="销售退货详情加载失败" description={(detailQuery.error as Error).message} action={<Button type="button" size="sm" variant="secondary" onClick={() => void detailQuery.refetch()}>重试</Button>} /> : <div className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-warning-soft)] p-4 text-sm text-[var(--erp-color-warning)]">当前未找到该退货单，可能已删除或当前账号无权查看。</div>}
     </ErpDetailDrawer>
     <CompleteReturnDialog target={completeTarget} pending={completeMutation.isPending} error={completeMutation.error instanceof Error ? completeMutation.error.message : ""} onClose={() => {if (!completeMutation.isPending) setCompleteTarget(null);}} onConfirm={() => {if (completeTarget) completeMutation.mutate(completeTarget);}} />
@@ -202,7 +208,8 @@ function SalesReturnListContent({session, filters, commitFilters, detailId, comm
 
 function SalesReturnDetail({item}: {item: SalesReturnListItem}) {
   return <div className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-2"><DetailFact label="处理状态" value={item.status} /><DetailFact label="退货日期" value={item.date || "—"} /><DetailFact label="关联销售单" value={item.relatedDocNo || "—"} /><DetailFact label="原库存卡片" value={item.sourceInventoryId || "—"} /><DetailFact label="客户" value={item.partyName || "—"} /><DetailFact label="联系方式" value={item.contact || "—"} /><DetailFact label="商品" value={item.productName} /><DetailFact label="SN" value={item.sn || "—"} /><DetailFact label="退款金额" value={formatCurrency(item.amount)} /><DetailFact label="退款方式" value={item.settlementMode || "—"} /><DetailFact label="库存处理" value={item.inventoryAction || "—"} /><DetailFact label="责任归属" value={item.responsibility || "—"} /><DetailFact label="经办人" value={item.handler || "—"} /><DetailFact label="完成时间" value={item.completedAt || "尚未完成"} /></div>
+    <div className="grid gap-3 sm:grid-cols-2"><DetailFact label="处理状态" value={item.status} /><DetailFact label="退货日期" value={item.date || "—"} /><DetailFact label="关联销售单" value={item.relatedDocNo || "—"} /><DetailFact label="退货范围" value={returnDisplayLabel(item)} /><DetailFact label="原库存卡片" value={item.sourceInventoryId || "—"} /><DetailFact label="客户" value={item.partyName || "—"} /><DetailFact label="联系方式" value={item.contact || "—"} /><DetailFact label="商品" value={item.productName} /><DetailFact label="SN" value={item.sn || "—"} /><DetailFact label="退款金额" value={formatCurrency(item.amount)} /><DetailFact label="退款方式" value={item.settlementMode || "—"} /><DetailFact label="库存处理" value={item.inventoryAction || "—"} /><DetailFact label="责任归属" value={item.responsibility || "—"} /><DetailFact label="经办人" value={item.handler || "—"} /><DetailFact label="完成时间" value={item.completedAt || "尚未完成"} /></div>
+    <ReturnItemsSummary item={item} />
     <Card><CardContent className="grid gap-4 p-4"><DetailFact label="退货原因" value={item.reason || "—"} /><DetailFact label="备注" value={item.remarks || "—"} /></CardContent></Card>
   </div>;
 }

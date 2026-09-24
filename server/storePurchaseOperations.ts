@@ -95,11 +95,14 @@ export function createPurchaseOperationHelpers(dependencies: PurchaseOperationsD
         throw new ConflictError(`供应商抵扣余额不足：可用 ${Math.max(0, Number(vendor?.returnCreditBalance || 0))} 元，需使用 ${settlement.vendorCreditAppliedAmount} 元`);
       }
     }
+    const accountingEventId = invoice.accountingEventId || genId("AE");
     const newInvoice: PurchaseInvoice = {
       ...invoice,
       ...resolvedSource,
       id: genId("CG"),
       invoiceNo,
+      accountingStatus: "已入账",
+      accountingEventId,
       recordVersion: 1,
       items,
       totalCount,
@@ -178,6 +181,7 @@ export function createPurchaseOperationHelpers(dependencies: PurchaseOperationsD
         businessType: "采购付款",
         relatedDocType: "采购单",
         relatedDocNo: invoiceNo,
+        accountingEventId,
         time: nowStamp(),
         remarks: newInvoice.remarks,
       }, { skipInvoiceUpdate: true });
@@ -366,16 +370,17 @@ export function createPurchaseOperationHelpers(dependencies: PurchaseOperationsD
   const deletePurchaseInvoice = (id: string) => {
     const existing = state.purchaseInvoices.find((item) => item.id === id || item.invoiceNo === id);
     if (!existing) throw new NotFoundError(`进货单不存在: ${id}`);
+    const linkedPayments = state.paymentOutRecords.filter((payment) => payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id);
+    const linkedLedgerEntries = state.financeLedger.filter((item) => item.relatedId === existing.invoiceNo || item.relatedId === existing.id);
+    if (linkedPayments.length || linkedLedgerEntries.length) {
+      throw new ConflictError("进货单已产生资金流水，不能直接删除；请使用作废、冲销或红字更正");
+    }
     const relatedCards = state.inventory.filter((card) => isInventoryLinkedToPurchase(card, existing));
     const hasInboundOrInspection = relatedCards.some((card) => card.status !== "待检测") ||
       state.inspections.some((inspection) => relatedCards.some((card) => card.id === inspection.inventoryId));
     if (hasInboundOrInspection) {
       throw new ConflictError("进货单已入库或已检测，不能删除");
     }
-
-    state.paymentOutRecords
-      .filter((payment) => payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id)
-      .forEach((payment) => deletePaymentOut(payment.id, { skipInvoiceUpdate: true }));
 
     state.inventory = state.inventory.filter((card) => !relatedCards.some((related) => related.id === card.id));
     state.purchaseInvoices = state.purchaseInvoices.filter((item) => item.id !== existing.id);

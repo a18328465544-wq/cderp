@@ -70,6 +70,11 @@ export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Pr
     headers.set("Content-Type", "application/json");
   }
   const method = init.method || "GET";
+  if (isUnsafeMethod(method) && !headers.has("Idempotency-Key")) {
+    // Every mutation gets a server-recognized key by default. Callers that need
+    // retry stability (for example a submit button) can provide their own key.
+    headers.set("Idempotency-Key", `client-${method.toLowerCase()}-${requestId}`);
+  }
   if (csrfToken && isUnsafeMethod(method)) headers.set("X-CSRF-Token", csrfToken);
   reportClientRequest({phase: "start", requestId, method, path: requestPath(path)});
 
@@ -113,6 +118,9 @@ export async function apiStreamRequest(path: string, init: RequestInit = {}): Pr
     headers.set("Content-Type", "application/json");
   }
   const method = init.method || "GET";
+  if (isUnsafeMethod(method) && !headers.has("Idempotency-Key")) {
+    headers.set("Idempotency-Key", `client-${method.toLowerCase()}-${requestId}`);
+  }
   if (csrfToken && isUnsafeMethod(method)) headers.set("X-CSRF-Token", csrfToken);
   reportClientRequest({phase: "start", requestId, method, path: requestPath(path)});
 
@@ -148,6 +156,9 @@ export async function apiDownload(path: string, init: RequestInit = {}): Promise
   const requestId = headers.get("X-Request-ID") || createRequestId();
   headers.set("X-Request-ID", requestId);
   const method = init.method || "GET";
+  if (isUnsafeMethod(method) && !headers.has("Idempotency-Key")) {
+    headers.set("Idempotency-Key", `client-${method.toLowerCase()}-${requestId}`);
+  }
   if (csrfToken && isUnsafeMethod(method)) headers.set("X-CSRF-Token", csrfToken);
   reportClientRequest({phase: "start", requestId, method, path: requestPath(path)});
   let response: Response;

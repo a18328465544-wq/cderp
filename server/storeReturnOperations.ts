@@ -56,6 +56,7 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
   const {completeReturnOrder} = createReturnCompletionHelpers({
     state,
     nowStamp,
+    genId,
     systemActor,
     replaceState,
     purchaseInvoiceVendorId,
@@ -125,11 +126,12 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
     if (!existing) throw new NotFoundError(`退货单不存在: ${id}`);
     if (existing.status === "已作废") return existing;
     if (existing.status !== "待处理") {
-      throw new ConflictError("已完成退货不能作废，请使用删除并冲销");
+      throw new ConflictError("已完成退货不能作废，请使用冲销退货动作");
     }
     const updated: ReturnOrder = {
       ...existing,
       status: "已作废",
+      accountingStatus: "作废",
     };
     state.returnOrders = state.returnOrders.map((item) => item.id === existing.id ? updated : item);
     addLog(systemActor(), "退货管理", "作废退货单", updated.returnNo, "待处理", "已作废");
@@ -148,5 +150,13 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
     returnRefundPayments,
   });
 
-  return {createReturnOrder, completeReturnOrder, updateReturnOrder, voidReturnOrder, deleteReturnOrder};
+  const reverseReturnOrder = (id: string) => {
+    const reversed = deleteReturnOrder(id, {preserveVoidedPayments: true});
+    const voided: ReturnOrder = {...reversed, status: "已作废", accountingStatus: "作废"};
+    state.returnOrders = [voided, ...state.returnOrders];
+    addLog(systemActor(), "退货管理", "冲销退货单", voided.returnNo, "已完成", "已作废");
+    return voided;
+  };
+
+  return {createReturnOrder, completeReturnOrder, updateReturnOrder, voidReturnOrder, deleteReturnOrder, reverseReturnOrder};
 }

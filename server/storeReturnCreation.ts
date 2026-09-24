@@ -174,10 +174,13 @@ export function createReturnCreationHelpers(dependencies: ReturnCreationDependen
     }
 
     const {items: _items, ...baseInput} = input;
+    const accountingEventId = input.accountingEventId || genId("AE");
     const order: ReturnOrder = {
       ...baseInput,
       id: genId("TH"),
       returnNo: nextReturnNo(input.type),
+      accountingStatus: "已提交",
+      accountingEventId,
       status: "待处理",
       date: input.date || storeDate(),
       relatedDocType: input.relatedDocType || (input.type === "销售退货" ? "销售单" : "采购单"),
@@ -301,10 +304,13 @@ export function createReturnCreationHelpers(dependencies: ReturnCreationDependen
     }
 
     const {items: _batchItems, ...singleInput} = input;
+    const accountingEventId = input.accountingEventId || genId("AE");
     const order: ReturnOrder = {
       ...singleInput,
       id: genId("TH"),
       returnNo: nextReturnNo(input.type),
+      accountingStatus: "已提交",
+      accountingEventId,
       status: "待处理",
       date: input.date || storeDate(),
       relatedDocType: input.relatedDocType || (input.type === "销售退货" ? "销售单" : "采购单"),

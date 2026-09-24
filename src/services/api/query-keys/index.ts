@@ -117,6 +117,7 @@ export const queryKeys = {
       list: (limit: number) => ["finance", "daily-closings", "list", limit] as const,
       detail: (date: string) => ["finance", "daily-closings", "detail", date] as const,
     },
+    accountingPeriods: (limit: number) => ["finance", "accounting-periods", limit] as const,
     reconciliation: (limit: number) => ["finance", "reconciliation", limit] as const,
   },
   settings: {

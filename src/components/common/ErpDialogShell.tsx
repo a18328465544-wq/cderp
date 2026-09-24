@@ -2,6 +2,7 @@ import type {ReactNode} from "react";
 import {X} from "lucide-react";
 import {Button, Dialog} from "@/src/components/ui";
 import {cn} from "@/src/lib/cn";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 
 export type ErpDialogSize = "sm" | "md" | "lg" | "xl" | "wide" | "full";
 
@@ -34,8 +35,9 @@ const sizeClasses: Record<ErpDialogSize, string> = {
  * surface and optional action footer.
  */
 export function ErpDialogShell({open, title, description, children, footer, size = "md", className, pending = false, closeLabel = "关闭", showClose = true, onOpenChange}: ErpDialogShellProps) {
+  const {active} = useWorkspaceTabActivity();
   return (
-    <Dialog.Root open={open} onOpenChange={(nextOpen) => {if (!pending) onOpenChange(nextOpen);}}>
+    <Dialog.Root open={active && open} onOpenChange={(nextOpen) => {if (!pending) onOpenChange(nextOpen);}}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 erp-modal-layer bg-[var(--erp-color-backdrop)] backdrop-blur-sm" />
         <Dialog.Viewport className="fixed inset-0 erp-modal-layer flex items-center justify-center p-4 sm:p-6">

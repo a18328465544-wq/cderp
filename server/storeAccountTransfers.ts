@@ -1,6 +1,6 @@
 import type {AccountTransferRecord, FinanceLedger, SettlementAccount, SettlementLedger} from "../src/types.ts";
 import type {FinanceSettlementLedgerInput, SettlementMovementInput, SettlementState} from "./storeSettlementLedger.ts";
-import {NotFoundError, ValidationError} from "./errors.ts";
+import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
 
 export type AccountTransferState = SettlementState & {
   accountTransfers: AccountTransferRecord[];
@@ -50,8 +50,11 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
     const from = findSettlementAccount(transfer.fromAccountId);
     const to = findSettlementAccount(transfer.toAccountId);
     if (from.id === to.id) throw new ValidationError("转出账户和转入账户不能相同");
+    const accountingEventId = transfer.accountingEventId || genId("AE");
     const record: AccountTransferRecord = {
       ...transfer,
+      accountingStatus: "已入账",
+      accountingEventId,
       amount,
       fee,
       receivedAmount,
@@ -62,6 +65,7 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
     };
     state.accountTransfers = [record, ...state.accountTransfers];
     recordSettlementMovement({
+      accountingEventId,
       accountId: from.id,
       direction: "转出",
       // The transfer amount is the total cash leaving the source account; the fee is the
@@ -75,6 +79,7 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
       remarks: transfer.remarks,
     });
     recordSettlementMovement({
+      accountingEventId,
       accountId: to.id,
       direction: "转入",
       amount: receivedAmount,
@@ -86,6 +91,7 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
       remarks: transfer.remarks,
     });
     createFinanceLedgerForSettlement({
+      accountingEventId,
       relatedId: record.id,
       type: "账户调拨",
       paymentWay: `${from.name} -> ${to.name}`,
@@ -163,18 +169,33 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
     return updated;
   };
 
-  const deleteAccountTransfer = (id: string) => {
+  const deleteAccountTransfer = (id: string, options?: {allowPostedReverse?: boolean}) => {
     const existing = state.accountTransfers.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`资金调拨单不存在: ${id}`);
+    if (existing.accountingStatus === "作废") throw new ConflictError("资金调拨已作废，不能重复处理");
+    const hasSettlementMovement = state.settlementLedger.some((item) => item.relatedDocNo === id);
+    const hasFinanceEntry = state.financeLedger.some((item) => item.relatedId === id);
+    if ((hasSettlementMovement || hasFinanceEntry) && !options?.allowPostedReverse) {
+      throw new ConflictError("资金调拨已产生账务流水，不能直接删除；请使用作废、冲销或红字更正");
+    }
     adjustSettlementBalance(existing.fromAccountId, existing.amount);
     adjustSettlementBalance(existing.toAccountId, -existing.receivedAmount);
     state.accountTransfers = state.accountTransfers.filter((item) => item.id !== id);
+    if (options?.allowPostedReverse) {
+      state.accountTransfers = [{...existing, accountingStatus: "作废"}, ...state.accountTransfers];
+    }
     state.settlementLedger = state.settlementLedger.filter((item) => item.relatedDocNo !== id);
     state.financeLedger = state.financeLedger.filter((item) => item.relatedId !== id);
     rebuildSettlementLedgerBalances([existing.fromAccountId, existing.toAccountId]);
-    addLog(systemActor(), "结算账户", "删除资金调拨", id, `${existing.amount}元`, "已反向修正账户余额和流水");
-    return existing;
+    addLog(systemActor(), "结算账户", options?.allowPostedReverse ? "作废资金调拨" : "删除资金调拨", id, `${existing.amount}元`, "已反向修正账户余额和流水");
+    return options?.allowPostedReverse ? {...existing, accountingStatus: "作废"} : existing;
   };
 
-  return {createAccountTransfer, updateAccountTransfer, deleteAccountTransfer};
+  const reverseAccountTransfer = (id: string) => {
+    const reversed = deleteAccountTransfer(id, {allowPostedReverse: true});
+    addLog(systemActor(), "结算账户", "冲销资金调拨", id, `${reversed.amount}元`, "已反向修正两边账户余额与关联流水");
+    return reversed;
+  };
+
+  return {createAccountTransfer, updateAccountTransfer, deleteAccountTransfer, reverseAccountTransfer};
 }

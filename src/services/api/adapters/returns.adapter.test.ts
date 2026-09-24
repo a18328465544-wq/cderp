@@ -33,9 +33,18 @@ test("sales return adapter never leaks purchase return rows into the feature", (
 });
 
 test("return adapter keeps nested inventory references for batch detail lookup", () => {
-  const result = adaptSalesReturnList({data: {data: [{id: "RET-BATCH", returnNo: "TH-BATCH", type: "销售退货", items: [{sourceInventoryId: "KC-1"}, {sourceInventoryId: "KC-2"}]}], meta: {page: 1, pageSize: 20, total: 1}}});
+  const result = adaptSalesReturnList({data: {data: [{id: "RET-BATCH", returnNo: "TH-BATCH", type: "销售退货", batchMode: "多件退货", items: [{sourceInventoryId: "KC-1", productName: "RTX 4090", sn: "SN-1", amount: 10000}, {sourceInventoryId: "KC-2", productName: "RTX 4080", sn: "SN-2", amount: 8000}]}], meta: {page: 1, pageSize: 20, total: 1}}});
   assert.equal(result.items[0]?.sourceInventoryId, "KC-1");
   assert.deepEqual(result.items[0]?.sourceInventoryIds, ["KC-1", "KC-2"]);
+  assert.equal(result.items[0]?.batchMode, "多件退货");
+  assert.deepEqual(result.items[0]?.returnItems?.map((item) => [item.sourceInventoryId, item.productName, item.sn, item.amount]), [["KC-1", "RTX 4090", "SN-1", 10000], ["KC-2", "RTX 4080", "SN-2", 8000]]);
+});
+
+test("return adapter infers a batch marker when legacy rows only contain multiple nested items", () => {
+  const result = adaptPurchaseReturnList({data: {data: [{id: "RET-LEGACY-BATCH", returnNo: "JTH-BATCH", type: "进货退货", items: [{sourceInventoryId: "KC-1", productName: "RTX 4090"}, {sourceInventoryId: "KC-2", productName: "RTX 4080"}]}], meta: {page: 1, pageSize: 20, total: 1}}});
+  assert.equal(result.items[0]?.batchMode, "多件退货");
+  assert.equal(result.items[0]?.productName, "RTX 4090");
+  assert.equal(result.items[0]?.returnItems?.length, 2);
 });
 
 test("sales return completion response is projected without state patches", () => {

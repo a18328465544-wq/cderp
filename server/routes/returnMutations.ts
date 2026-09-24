@@ -1,6 +1,6 @@
 import type {Express, Request, RequestHandler} from "express";
 import type {AuthenticatedRequest} from "../httpAuth.ts";
-import {saveStateRecords} from "../db.ts";
+import {createAccountingReversalDocumentInTransaction, saveStateRecords} from "../db.ts";
 import {completeIdempotencyKeyInTransaction, releaseInventoryReservationsInTransaction} from "../commercialRepository.ts";
 import {compactStateMerge, stateDeleteRecords, stateMergeRecords, statePatchResponse, type StateDeletePatch, type StateMergePatch} from "../statePatch.ts";
 import type {AppState, createStoreActions} from "../store.ts";
@@ -174,10 +174,25 @@ export function registerReturnMutationRoutes(app: Express, dependencies: ReturnM
     returnTypeGuard(dependencies),
     dependencies.requireDeletePermission,
     dependencies.asyncRoute(async (req, res) => {
-      const voided = dependencies.actions(req).voidReturnOrder(req.params.id!);
-      const stateMerge = returnOrderMerge(dependencies.getState(), voided);
-      await saveStateRecords(stateMergeRecords(stateMerge));
-      res.json(okMerge(voided, stateMerge));
+      const authRequest = req as ReturnRequest;
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const voided = dependencies.actions(authRequest).voidReturnOrder(req.params.id!);
+        const stateMerge = returnOrderMerge(dependencies.getState(), voided);
+        await saveStateRecords(
+          stateMergeRecords(stateMerge),
+          idempotency ? (client) => dependencies.completeIdempotency(client, idempotency.request, 200, okMerge(voided, stateMerge)) : undefined,
+          authRequest.tenantId,
+        );
+        res.json(okMerge(voided, stateMerge));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -186,11 +201,81 @@ export function registerReturnMutationRoutes(app: Express, dependencies: ReturnM
     dependencies.requireAnyMenu([...returnMenuIds]),
     returnTypeGuard(dependencies),
     dependencies.asyncRoute(async (req, res) => {
-      const command = parseHttpDto(returnUpdateDto, req.body);
-      const updated = dependencies.actions(req).updateReturnOrder(req.params.id!, command);
-      const stateMerge = returnOrderMerge(dependencies.getState(), updated);
-      await saveStateRecords(stateMergeRecords(stateMerge));
-      res.json(okMerge(updated, stateMerge));
+      const authRequest = req as ReturnRequest;
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const command = parseHttpDto(returnUpdateDto, req.body);
+        const updated = dependencies.actions(authRequest).updateReturnOrder(req.params.id!, command);
+        const stateMerge = returnOrderMerge(dependencies.getState(), updated);
+        await saveStateRecords(
+          stateMergeRecords(stateMerge),
+          idempotency ? (client) => dependencies.completeIdempotency(client, idempotency.request, 200, okMerge(updated, stateMerge)) : undefined,
+          authRequest.tenantId,
+        );
+        res.json(okMerge(updated, stateMerge));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
+    }),
+  );
+
+  app.post(
+    "/api/returns/:id/reverse",
+    dependencies.requireAnyMenu([...returnMenuIds]),
+    returnTypeGuard(dependencies),
+    dependencies.requireDeletePermission,
+    dependencies.asyncRoute(async (req, res) => {
+      const authRequest = req as ReturnRequest;
+      const existing = dependencies.getState().returnOrders.find((item) => item.id === req.params.id! || item.returnNo === req.params.id!);
+      if (!existing || existing.status !== "已完成") {
+        dependencies.sendApiError(req, res, 409, "CONFLICT", "只有已完成退货单可以冲销，待处理退货请使用删除或作废", true);
+        return;
+      }
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const state = dependencies.getState();
+        const relatedReturnNos = new Set([existing.id, existing.returnNo].filter(Boolean));
+        const returnPaymentIds = new Set([existing.paymentRecordId, ...(existing.refundPaymentRecordIds || [])].filter(Boolean));
+        const returnPaymentIn = state.paymentInRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "采购退款"));
+        const returnPaymentOut = state.paymentOutRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "客户退款"));
+        const reversed = dependencies.actions(authRequest).reverseReturnOrder(req.params.id!);
+        const stateMerge = returnOrderMerge(state, reversed);
+        const stateDelete = {
+          settlementLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.settlementLedgerId).filter(Boolean) as string[],
+          financeLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.financeLedgerId).filter(Boolean) as string[],
+        };
+        const response = okMerge(reversed, stateMerge, stateDelete);
+        await saveStateRecords(
+          [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
+          async (client) => {
+            const originalEventId = existing.accountingEventId || `AE-legacy-returnOrders-${existing.id}`;
+            await createAccountingReversalDocumentInTransaction(client, {
+              originalEventId,
+              reversalEventId: `AE-REV-${originalEventId}`,
+              sourceType: "returnOrders",
+              sourceId: existing.id,
+              reason: typeof req.body?.reason === "string" && req.body.reason.trim() ? req.body.reason.trim().slice(0, 500) : "人工冲销",
+              actor: authRequest.authUser?.displayName || authRequest.authUser?.username || "系统",
+              effectiveDate: existing.date?.slice(0, 10),
+            }, authRequest.tenantId, authRequest.storeId);
+            if (idempotency) await dependencies.completeIdempotency(client, idempotency.request, 200, response);
+          },
+          authRequest.tenantId,
+        );
+        res.json(response);
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -200,23 +285,42 @@ export function registerReturnMutationRoutes(app: Express, dependencies: ReturnM
     returnTypeGuard(dependencies),
     dependencies.requireDeletePermission,
     dependencies.asyncRoute(async (req, res) => {
-      const state = dependencies.getState();
-      const existing = state.returnOrders.find((item) => item.id === req.params.id! || item.returnNo === req.params.id!);
-      const relatedReturnNos = existing ? new Set([existing.id, existing.returnNo].filter(Boolean)) : new Set<string>();
-      const returnPaymentIds = new Set([existing?.paymentRecordId, ...(existing?.refundPaymentRecordIds || [])].filter(Boolean));
-      const returnPaymentIn = existing ? state.paymentInRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "采购退款")) : [];
-      const returnPaymentOut = existing ? state.paymentOutRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "客户退款")) : [];
-      const deleted = dependencies.actions(req).deleteReturnOrder(req.params.id!);
-      const stateMerge = returnOrderMerge(state, deleted);
-      const stateDelete = {
-        returnOrders: deleted?.id ? [deleted.id] : [],
-        paymentInRecords: returnPaymentIn.map((item) => item.id),
-        paymentOutRecords: returnPaymentOut.map((item) => item.id),
-        settlementLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.settlementLedgerId).filter(Boolean) as string[],
-        financeLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.financeLedgerId).filter(Boolean) as string[],
-      };
-      await saveStateRecords([...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)]);
-      res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      const authRequest = req as ReturnRequest;
+      const existing = dependencies.getState().returnOrders.find((item) => item.id === req.params.id! || item.returnNo === req.params.id!);
+      if (existing?.status === "已完成" || existing?.status === "已作废") {
+        dependencies.sendApiError(req, res, 409, "CONFLICT", existing.status === "已完成" ? "已完成退货单不能直接删除，请使用冲销退货动作" : "已作废退货单不能删除，请保留原单作为审计凭证", true);
+        return;
+      }
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const state = dependencies.getState();
+        const relatedReturnNos = existing ? new Set([existing.id, existing.returnNo].filter(Boolean)) : new Set<string>();
+        const returnPaymentIds = new Set([existing?.paymentRecordId, ...(existing?.refundPaymentRecordIds || [])].filter(Boolean));
+        const returnPaymentIn = existing ? state.paymentInRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "采购退款")) : [];
+        const returnPaymentOut = existing ? state.paymentOutRecords.filter((item) => returnPaymentIds.has(item.id) || (!!item.relatedDocNo && relatedReturnNos.has(item.relatedDocNo) && item.businessType === "客户退款")) : [];
+        const deleted = dependencies.actions(authRequest).deleteReturnOrder(req.params.id!);
+        const stateMerge = returnOrderMerge(state, deleted);
+        const stateDelete = {
+          returnOrders: deleted?.id ? [deleted.id] : [],
+          paymentInRecords: returnPaymentIn.map((item) => item.id),
+          paymentOutRecords: returnPaymentOut.map((item) => item.id),
+          settlementLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.settlementLedgerId).filter(Boolean) as string[],
+          financeLedger: [...returnPaymentIn, ...returnPaymentOut].map((item) => item.financeLedgerId).filter(Boolean) as string[],
+        };
+        await saveStateRecords(
+          [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
+          idempotency ? (client) => dependencies.completeIdempotency(client, idempotency.request, 200, okMerge(deleted, stateMerge, stateDelete)) : undefined,
+          authRequest.tenantId,
+        );
+        res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 }

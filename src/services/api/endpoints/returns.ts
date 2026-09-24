@@ -13,10 +13,16 @@ function completionIdempotencyKey(id: string) {
   return `return-complete-${safeId}`;
 }
 
+function reversalIdempotencyKey(id: string) {
+  const safeId = id.trim().replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 160) || "unknown";
+  return `return-reverse-${safeId}`;
+}
+
 export function toSalesReturnListQueryParams(filters: SalesReturnListFilters) {
   const params = new URLSearchParams({type: "销售退货", page: String(filters.page), pageSize: String(filters.pageSize)});
   if (filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
   if (filters.status) params.set("status", filters.status);
+  if (filters.sortKey) {params.set("sortKey", filters.sortKey); params.set("sortDirection", filters.sortDirection || "desc");}
   return params;
 }
 
@@ -24,6 +30,7 @@ export function toPurchaseReturnListQueryParams(filters: SalesReturnListFilters)
   const params = new URLSearchParams({type: "进货退货", page: String(filters.page), pageSize: String(filters.pageSize)});
   if (filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
   if (filters.status) params.set("status", filters.status);
+  if (filters.sortKey) {params.set("sortKey", filters.sortKey); params.set("sortDirection", filters.sortDirection || "desc");}
   return params;
 }
 
@@ -76,6 +83,11 @@ export const returnsApi = {
   async complete(id: string, signal?: AbortSignal, idempotencyKey = completionIdempotencyKey(id)) {
     const response = await apiRequest<SalesReturnCompleteResponseDto>(`/api/returns/${encodeURIComponent(id)}/complete`, {method: "POST", signal, headers: {"Idempotency-Key": idempotencyKey}});
     return adaptSalesReturnComplete(response.data);
+  },
+
+  async reverse(id: string, signal?: AbortSignal, idempotencyKey = reversalIdempotencyKey(id)) {
+    const response = await apiRequest<SalesReturnMutationResponseDto>(`/api/returns/${encodeURIComponent(id)}/reverse`, {method: "POST", signal, headers: {"Idempotency-Key": idempotencyKey}});
+    return adaptSalesReturnMutation(response);
   },
 
   async voidReturn(id: string, signal?: AbortSignal) {

@@ -9,7 +9,8 @@ const serverRoot = path.join(projectRoot, "server");
 // explicit so a newly added route fails CI instead of silently becoming a write
 // path outside the serialization boundary.
 const protectedPatterns = [
-  /^\/api\/finance\/(?:commission-rules|daily-closing)$/,
+  /^\/api\/finance\/(?:commission-rules|daily-closing|reconciliation\/(?:actions|run))$/,
+  /^\/api\/finance\/accounting-periods\/[^/]+\/(?:close|reopen)$/,
   /^\/api\/finance\/commissions\/settle$/,
   /^\/api\/ai\/insights\/refresh$/,
   /^\/api\/ai\/insight-actions\/[^/]+$/,
@@ -26,7 +27,7 @@ const protectedPatterns = [
   /^\/api\/inspections(?:\/[^/]+)?$/,
   /^\/api\/assembly-operations(?:\/[^/]+)?$/,
   /^\/api\/sales-invoices(?:\/[^/]+)?(?:\/outbound)?$/,
-  /^\/api\/returns(?:\/[^/]+)?(?:\/(?:complete|void))?$/,
+  /^\/api\/returns(?:\/[^/]+)?(?:\/(?:complete|reverse|void))?$/,
   /^\/api\/aftersales(?:\/[^/]+)?$/,
   /^\/api\/market-quotes(?:\/(?:import|[^/]+))?$/,
   /^\/api\/inventory\/(?:batch|import|scan-flow)$/,

@@ -29,7 +29,7 @@ export function ErpPageHeader({title, subtitle, density = "compact", quickStatus
     // the identity, quick-status strip, and actions in a readable stack until
     // the wide desktop canvas is available; otherwise short titles wrap into
     // two lines beside a partially wrapped status strip.
-    className={cn(density === "default" && "gap-4", hasQuickStatus && "xl:grid xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_auto] xl:items-start xl:gap-4")}
+    className={cn(density === "default" && "gap-4", hasQuickStatus && "xl:grid xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_auto] xl:items-center xl:gap-4")}
   >
     <ErpPageIdentity title={title} subtitle={showSubtitle ? subtitle : undefined} reserveSubtitle={showSubtitle && Boolean(subtitle)} />
     {hasQuickStatus ? <ErpPageContext><QuickStatusGroup items={quickStatus!} variant={quickStatusVariant} className="min-w-0" /></ErpPageContext> : null}

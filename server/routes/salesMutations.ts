@@ -143,18 +143,28 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
     dependencies.requireHistoryEditPermission,
     dependencies.asyncRoute(async (req, res) => {
       const authRequest = req as SalesRequest;
-      const command = parseHttpDto(salesInvoiceUpdateDto, req.body);
-      const state = dependencies.getState();
-      const existing = state.salesInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
-      const paymentsBeforeUpdate = existing ? relatedSalesPayments(state, existing) : [];
-      const financeBeforeUpdate = existing ? relatedSalesFinanceLedger(state, existing) : [];
-      const {data: updated, stateMerge, stateDelete} = await runStateCommand(
-        () => dependencies.actions(authRequest).updateSalesInvoice(req.params.id!, command),
-        (invoice) => salesInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
-        undefined,
-        (client, invoice) => syncCrmSalesInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest)),
-      );
-      res.json(okMerge(updated, stateMerge, stateDelete));
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
+        const command = parseHttpDto(salesInvoiceUpdateDto, req.body);
+        const state = dependencies.getState();
+        const existing = state.salesInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
+        const paymentsBeforeUpdate = existing ? relatedSalesPayments(state, existing) : [];
+        const financeBeforeUpdate = existing ? relatedSalesFinanceLedger(state, existing) : [];
+        const {data: updated, stateMerge, stateDelete} = await runStateCommand(
+          () => dependencies.actions(authRequest).updateSalesInvoice(req.params.id!, command),
+          (invoice) => salesInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
+          undefined,
+          dependencies.transactionHookWithIdempotency(idempotency, 200, (client, invoice) => syncCrmSalesInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest))),
+        );
+        res.json(okMerge(updated, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 
@@ -164,6 +174,12 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
     dependencies.requireDeletePermission,
     dependencies.asyncRoute(async (req, res) => {
       const authRequest = req as SalesRequest;
+      const idempotency = await dependencies.claimMutationIdempotency(authRequest);
+      if (idempotency?.replay) {
+        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        return;
+      }
+      try {
       const state = dependencies.getState();
       const existing = state.salesInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
       const chosenIds = new Set(existing?.items.map((item) => item.inventoryId).filter(Boolean) || []);
@@ -187,10 +203,19 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
       };
       await saveStateRecords(
         [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
-        (client) => dependencies.releaseInventoryReservations(client, Array.from(chosenIds), authRequest.tenantId, existing?.id),
+        (client) => Promise.all([
+          dependencies.releaseInventoryReservations(client, Array.from(chosenIds), authRequest.tenantId, existing?.id),
+          idempotency
+            ? dependencies.transactionHookWithIdempotency(idempotency, 200)!(client, deleted, {stateMerge, stateDelete})
+            : Promise.resolve(),
+        ]),
         authRequest.tenantId,
       );
       res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      } catch (error) {
+        await dependencies.releaseMutationIdempotency(idempotency);
+        throw error;
+      }
     }),
   );
 

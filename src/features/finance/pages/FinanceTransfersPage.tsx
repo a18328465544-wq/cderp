@@ -1,11 +1,12 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient, type UseQueryResult} from "@tanstack/react-query";
+import type {OnChangeFn, SortingState} from "@tanstack/react-table";
 import {ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarRange, Download, Pencil, Plus, RefreshCw, RotateCcw, ShieldCheck, Trash2} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
-import {useEffect, useMemo, useState, type ReactNode} from "react";
+import {useEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, Input, Select} from "@/src/components/ui";
 import {DashboardSection, ErpFinancePageFrame, ErpDataTable, ErpDateRangePicker, ErpDetailDrawer, ErpDetailFact, ErpDetailFactGrid, ErpFilterBar, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpStatusBadge, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
-import {ApiError, financeAccountsApi, financeTransfersApi, queryKeys, type AuthSession} from "@/src/services/api";
+import {ApiError, createIdempotencyKey, financeAccountsApi, financeTransfersApi, queryKeys, type AuthSession} from "@/src/services/api";
 import {invalidateErpDomains, refreshErpAfterDocument} from "@/src/services/api";
 import {createCapabilities, useAuth} from "@/src/app/auth";
 import {useUrlSearchState} from "@/src/hooks/useUrlSearchState";
@@ -39,16 +40,23 @@ function FinanceTransfersContent({session, onAuthExpired, filters, onFiltersChan
   const [editing, setEditing] = useState<FinanceTransferItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<FinanceTransferItem | null>(null);
+  const saveIdempotencyKeyRef = useRef(createIdempotencyKey("finance-transfer"));
   const collection = transferQuery.data || {items: [], total: 0, totalAmount: 0, totalFee: 0, totalReceived: 0, page: filters.page, pageSize: filters.pageSize, source: "database-page" as const};
   const invalidate = () => invalidateErpDomains(queryClient, ["finance"]);
   const mutationError = (caught: Error) => {if (caught instanceof ApiError && caught.isUnauthorized) {onAuthExpired(); return;} notify.error(caught.message);};
-  const saveMutation = useMutation({mutationFn: ({values, item}: {values: FinanceTransferFormValues; item: FinanceTransferItem | null}) => item ? financeTransfersApi.update(item.id, values, session.user.displayName) : financeTransfersApi.create(values, session.user.displayName), onSuccess: async (item, variables) => {notify.success(`${item.id} 调拨已保存，账户余额与流水已同步`); setDialogOpen(false); setEditing(null); setDetail(item); await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient));}, onError: mutationError});
-  const deleteMutation = useMutation({mutationFn: (id: string) => financeTransfersApi.remove(id), onSuccess: async () => {notify.success("资金调拨已删除，账户余额与流水已反向修正"); setDeleting(null); setDetail(null); await invalidate();}, onError: mutationError});
-  const openCreate = () => {saveMutation.reset(); setEditing(null); setDialogOpen(true);};
-  const openEdit = (item: FinanceTransferItem) => {saveMutation.reset(); setEditing(item); setDialogOpen(true);};
+  const saveMutation = useMutation({mutationFn: ({values, item, idempotencyKey}: {values: FinanceTransferFormValues; item: FinanceTransferItem | null; idempotencyKey: string}) => item ? financeTransfersApi.update(item.id, values, session.user.displayName, {idempotencyKey}) : financeTransfersApi.create(values, session.user.displayName, {idempotencyKey}), onSuccess: async (item, variables) => {notify.success(`${item.id} 调拨已保存，账户余额与流水已同步`); setDialogOpen(false); setEditing(null); setDetail(item); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient));}, onError: mutationError});
+  const deleteMutation = useMutation({mutationFn: (id: string) => financeTransfersApi.reverse(id), onSuccess: async () => {notify.success("资金调拨已冲销，两边账户余额与流水已反向修正"); setDeleting(null); setDetail(null); await invalidate();}, onError: mutationError});
+  const openCreate = () => {saveMutation.reset(); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); setEditing(null); setDialogOpen(true);};
+  const openEdit = (item: FinanceTransferItem) => {saveMutation.reset(); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); setEditing(item); setDialogOpen(true);};
   const canEdit = session.permissions.canEditHistory;
   const columns = useMemo(() => createFinanceTransferColumns({canEdit, canDelete: session.permissions.canDelete, onView: setDetail, onEdit: openEdit, onDelete: setDeleting}), [canEdit, session.permissions.canDelete]);
   const update = (partial: Partial<FinanceTransferFilters>) => onFiltersChange({...filters, ...partial, page: partial.page ?? 1});
+  const sorting: SortingState = filters.sortKey ? [{id: filters.sortKey, desc: filters.sortDirection === "desc"}] : [];
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const next = typeof updater === "function" ? updater(sorting) : updater;
+    const first = next[0];
+    update({sortKey: first?.id || undefined, sortDirection: first ? (first.desc ? "desc" : "asc") : undefined});
+  };
   const quickStatus: QuickStatusItemData[] = [
     {icon: <ShieldCheck className="h-4 w-4" />, label: "账户权限", value: accountOptionsAvailable ? "可登记" : "仅查看", description: accountOptionsAvailable ? "可读取真实余额和账户候选" : "账户候选与余额未请求", tone: accountOptionsAvailable ? "success" : "neutral"},
     {icon: <ArrowLeftRight className="h-4 w-4" />, label: "到账规则", value: "实时入账", description: "转入 = 调拨金额 − 手续费", tone: "info"},
@@ -62,9 +70,9 @@ function FinanceTransfersContent({session, onAuthExpired, filters, onFiltersChan
     <ErpPageHeader title="资金调拨" subtitle="在结算账户之间转移资金，并同步记录手续费与账户流水。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" disabled={transferQuery.isFetching} onClick={() => void transferQuery.refetch()}><RefreshCw className={`h-4 w-4 ${transferQuery.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="secondary" disabled={!collection.items.length} onClick={exportCurrentPage}><Download className="h-4 w-4" />导出当前页</Button><Button type="button" size="sm" variant="primary" disabled={!accountOptionsAvailable} title={accountOptionsAvailable ? undefined : "登记调拨需要资金账户权限"} onClick={openCreate}><Plus className="h-4 w-4" />新增调拨</Button></>} />
     <MetricsRegion><Metric label="筛选调拨金额" value={formatCurrency(collection.totalAmount)} detail={`${collection.total} 笔匹配记录`} icon={<ArrowLeftRight className="h-4 w-4" />} tone="info" /><Metric label="筛选实际到账" value={formatCurrency(collection.totalReceived)} detail="转入账户实际增加金额" icon={<ArrowDownLeft className="h-4 w-4" />} tone="success" /><Metric label="筛选手续费" value={formatCurrency(collection.totalFee)} detail="已计入财务流水" icon={<ArrowUpRight className="h-4 w-4" />} tone="danger" /><Metric label="筛选调拨笔数" value={`${collection.total} 笔`} detail={`${filters.startDate || "不限"} 至 ${filters.endDate || "不限"}`} icon={<CalendarRange className="h-4 w-4" />} tone="neutral" /></MetricsRegion>
     <ErpPageToolbar><ErpFilterBar compact actions={<Button type="button" size="sm" variant="ghost" onClick={() => onFiltersChange(defaultFinanceTransferFilters)}><RotateCcw className="h-4 w-4" />重置</Button>}><ErpSearchInput className="min-w-56 flex-1" value={filters.keyword} onChange={(event) => update({keyword: event.target.value})} placeholder="搜索调拨编号、账户或备注" aria-label="搜索资金调拨" />{accountOptionsAvailable ? <Select className="w-44" value={filters.accountId} onValueChange={(accountId) => update({accountId})} options={[{value: "all", label: "全部账户"}, ...accounts.map((account) => ({value: account.id, label: account.name}))]} aria-label="筛选调拨账户" /> : <Select className="w-44" value="unavailable" onValueChange={() => undefined} options={[{value: "unavailable", label: "账户筛选需权限"}]} disabled aria-label="调拨账户筛选不可用" />}<Input className="w-32" value={filters.handler} onChange={(event) => update({handler: event.target.value.trim()})} placeholder="经办人" aria-label="筛选经办人" /><ErpDateRangePicker value={{startDate: filters.startDate, endDate: filters.endDate}} onChange={({startDate, endDate}) => update({startDate, endDate})} density="compact" triggerClassName="sm:w-36" startAriaLabel="开始日期" endAriaLabel="结束日期" ariaLabel="调拨日期范围" /></ErpFilterBar></ErpPageToolbar>
-    <ErpPageContent className="space-y-[var(--erp-page-gap)]"><DashboardSection title="调拨明细" description="每笔调拨会同时生成转出、转入账户流水；手续费通过财务流水记录。" actions={<ErpStatusBadge label={`共 ${collection.total} 笔`} tone="info" />}><ErpDataTable ariaLabel="资金调拨明细" columns={columns} data={collection.items} getRowId={(row) => row.id} loading={transferQuery.isPending} fetching={transferQuery.isFetching} error={transferQuery.error as Error | null} errorTitle="资金调拨加载失败" emptyTitle="暂无资金调拨" emptyDescription="当前筛选条件下没有调拨记录。" onRetry={() => void transferQuery.refetch()} onRowClick={setDetail} page={collection.page} pageSize={collection.pageSize} total={collection.total} onPageChange={(page) => update({page})} onPageSizeChange={(pageSize) => update({page: 1, pageSize})} enableColumnResizing stickyHeader /></DashboardSection>
+    <ErpPageContent className="space-y-[var(--erp-page-gap)]"><DashboardSection title="调拨明细" description="每笔调拨会同时生成转出、转入账户流水；手续费通过财务流水记录。" actions={<ErpStatusBadge label={`共 ${collection.total} 笔`} tone="info" />}><ErpDataTable ariaLabel="资金调拨明细" columns={columns} data={collection.items} getRowId={(row) => row.id} loading={transferQuery.isPending} fetching={transferQuery.isFetching} error={transferQuery.error as Error | null} errorTitle="资金调拨加载失败" emptyTitle="暂无资金调拨" emptyDescription="当前筛选条件下没有调拨记录。" onRetry={() => void transferQuery.refetch()} onRowClick={setDetail} manualSorting sorting={sorting} onSortingChange={handleSortingChange} page={collection.page} pageSize={collection.pageSize} total={collection.total} onPageChange={(page) => update({page})} onPageSizeChange={(pageSize) => update({page: 1, pageSize})} enableColumnResizing stickyHeader /></DashboardSection>
     <TransferDetail item={detail} canEdit={canEdit} canDelete={session.permissions.canDelete} onClose={() => setDetail(null)} onEdit={() => {if (detail) openEdit(detail);}} onDelete={() => {if (detail) setDeleting(detail);}} />
-    <FinanceTransferDialog open={dialogOpen} item={editing} accounts={accounts} pending={saveMutation.isPending} error={saveMutation.error instanceof Error ? saveMutation.error.message : undefined} handler={session.user.displayName} onOpenChange={(open) => {setDialogOpen(open); if (!open) setEditing(null);}} onSubmit={async (values) => {await saveMutation.mutateAsync({values, item: editing});}} />
+    <FinanceTransferDialog open={dialogOpen} item={editing} accounts={accounts} pending={saveMutation.isPending} error={saveMutation.error instanceof Error ? saveMutation.error.message : undefined} handler={session.user.displayName} onOpenChange={(open) => {setDialogOpen(open); if (!open) setEditing(null);}} onSubmit={async (values) => {await saveMutation.mutateAsync({values, item: editing, idempotencyKey: saveIdempotencyKeyRef.current});}} />
     <ConfirmDelete item={deleting} pending={deleteMutation.isPending} onClose={() => setDeleting(null)} onConfirm={() => {if (deleting) deleteMutation.mutate(deleting.id);}} /></ErpPageContent>
   </ErpFinancePageFrame>;
 }
@@ -81,7 +89,7 @@ function TransferDetail({item, canEdit, canDelete, onClose, onEdit, onDelete}: {
     onOpenChange={(open) => {if (!open) onClose();}}
     title="资金调拨详情"
     description={item ? `${item.id} · ${item.time}` : undefined}
-    footer={item && <div className="flex justify-end gap-2">{canDelete && <Button size="sm" variant="danger" onClick={onDelete}><Trash2 className="h-4 w-4" />删除</Button>}{canEdit && <Button size="sm" variant="primary" onClick={onEdit}><Pencil className="h-4 w-4" />编辑</Button>}</div>}
+    footer={item && <div className="flex justify-end gap-2">{canDelete && <Button size="sm" variant="danger" onClick={onDelete}><Trash2 className="h-4 w-4" />冲销</Button>}{canEdit && <Button size="sm" variant="primary" onClick={onEdit}><Pencil className="h-4 w-4" />编辑</Button>}</div>}
   >
     <div className="space-y-5">
       {item && <>
@@ -95,7 +103,7 @@ function TransferDetail({item, canEdit, canDelete, onClose, onEdit, onDelete}: {
 }
 
 function ConfirmDelete({item, pending, onClose, onConfirm}: {item: FinanceTransferItem | null; pending: boolean; onClose: () => void; onConfirm: () => void}) {
-  return <ErpDetailDrawer open={Boolean(item)} onOpenChange={(open) => {if (!open && !pending) onClose();}} title="删除资金调拨" description="服务端将反向修正两边账户余额与关联流水" footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={onClose} disabled={pending}>取消</Button><Button variant="danger" onClick={onConfirm} disabled={pending}>{pending ? "删除中…" : "确认删除"}</Button></div>}><p className="text-sm leading-6 text-[var(--erp-color-text-secondary)]">确认删除调拨「{item?.id}」？转出 {item?.fromAccountName} 的 {formatCurrency(item?.amount || 0)}、转入 {item?.toAccountName} 的 {formatCurrency(item?.receivedAmount || 0)} 将由服务端回滚。</p></ErpDetailDrawer>;
+  return <ErpDetailDrawer open={Boolean(item)} onOpenChange={(open) => {if (!open && !pending) onClose();}} title="冲销资金调拨" description="服务端将反向修正两边账户余额与关联流水并保留操作记录" footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={onClose} disabled={pending}>取消</Button><Button variant="danger" onClick={onConfirm} disabled={pending}>{pending ? "冲销中…" : "确认冲销"}</Button></div>}><p className="text-sm leading-6 text-[var(--erp-color-text-secondary)]">确认冲销调拨「{item?.id}」？转出 {item?.fromAccountName} 的 {formatCurrency(item?.amount || 0)}、转入 {item?.toAccountName} 的 {formatCurrency(item?.receivedAmount || 0)} 将由服务端反向修正。</p></ErpDetailDrawer>;
 }
 
 function Metric({label, value, detail, icon, tone}: {label: string; value: string; detail: string; icon: ReactNode; tone: "neutral" | "info" | "success" | "warning" | "danger"}) {

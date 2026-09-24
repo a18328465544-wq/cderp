@@ -4,6 +4,7 @@
  */
 
 import type {CardStatus as CoreCardStatus, InventoryCondition as CoreInventoryCondition, ProductCategory as CoreProductCategory, SourceType as CoreSourceType} from "./core";
+import type {AccountingDocumentStatus} from "./accounting";
 
 export type ProductCategory = CoreProductCategory;
 
@@ -220,6 +221,8 @@ export interface PurchaseItem {
 export interface PurchaseInvoice {
   id: string;
   invoiceNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   /** Optimistic-lock version for safe historical edits; legacy records start at 1. */
   recordVersion?: number;
   date: string;
@@ -267,6 +270,8 @@ export interface SalesItem {
 export interface SalesInvoice {
   id: string;
   invoiceNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   date: string;
   customerId?: string;
   customerPartnerType?: "customer" | "vendor";
@@ -329,6 +334,8 @@ export type AftersalesStatus = "待处理" | "检测中" | "已完成" | "已拒
 
 export interface AftersalesRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   salesInvoiceNo: string;
   customerId?: string;
   customerName: string;
@@ -696,6 +703,9 @@ export interface AuditLog {
 
 export interface FinanceLedger {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  /** Canonical accounting event linking the source document and all derived entries. */
+  accountingEventId?: string;
   time: string;
   relatedId?: string;
   type: string; // e.g. "进货支出", "销售收入", "售后退款", "杂费支出", "员工提成"
@@ -779,6 +789,9 @@ export interface SettlementAccount {
 
 export interface SettlementLedger {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  /** Canonical accounting event linking sibling cash movements and the finance entry. */
+  accountingEventId?: string;
   accountId: string;
   accountName: string;
   accountType: SettlementAccountType;
@@ -821,6 +834,9 @@ export interface DailyClosing {
 
 export interface PaymentInRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  /** Canonical accounting event linking this receipt to its ledger entries. */
+  accountingEventId?: string;
   customerId?: string;
   /** 销售收款对应的档案类型；同行也可作为销售买方。 */
   customerPartnerType?: "customer" | "vendor";
@@ -860,6 +876,17 @@ export interface ReturnRefundAllocation {
   amount: number;
 }
 
+/** Inventory lifecycle state captured before a completed return mutates the card. */
+export interface ReturnInventoryStateSnapshot {
+  status: CardStatus;
+  warehouseLocation: string;
+  salesPrice?: number;
+  salesTime?: string;
+  salesInvoiceId?: string;
+  buyerName?: string;
+  remarks?: string;
+}
+
 export interface ReturnOrderItem {
   sourceInventoryId: string;
   sourceSalesItemId?: string;
@@ -868,6 +895,7 @@ export interface ReturnOrderItem {
   sourcePurchaseItemId?: string;
   sourcePurchaseItemIndex?: number;
   sourcePurchaseItemSnapshot?: PurchaseItem;
+  sourceInventorySnapshot?: ReturnInventoryStateSnapshot;
   productId?: string;
   productName?: string;
   sn?: string;
@@ -883,6 +911,8 @@ export interface ReturnOrderBatchItemInput {
 export interface ReturnOrder {
   id: string;
   returnNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   type: ReturnOrderType;
   status: ReturnOrderStatus;
   date: string;
@@ -898,6 +928,7 @@ export interface ReturnOrder {
   sourcePurchaseItemId?: string;
   sourcePurchaseItemIndex?: number;
   sourcePurchaseItemSnapshot?: PurchaseItem;
+  sourceInventorySnapshot?: ReturnInventoryStateSnapshot;
   productId?: string;
   productName?: string;
   sn?: string;
@@ -934,6 +965,9 @@ export interface ReturnOrder {
 
 export interface PaymentOutRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  /** Canonical accounting event linking this payment to its ledger entries. */
+  accountingEventId?: string;
   supplierId?: string;
   supplierName?: string;
   customerId?: string;
@@ -958,6 +992,9 @@ export interface PaymentOutRecord {
 
 export interface AccountTransferRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  /** One event covers the source movement, destination movement and fee entry. */
+  accountingEventId?: string;
   fromAccountId: string;
   fromAccountName: string;
   toAccountId: string;

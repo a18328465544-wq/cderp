@@ -4,6 +4,7 @@ import type {
   PaymentOutRecord,
   PurchaseItem,
   ReturnOrder,
+  ReturnInventoryStateSnapshot,
   SalesItem,
 } from "../src/types.ts";
 import {ConflictError, NotFoundError} from "./errors.ts";
@@ -32,6 +33,30 @@ export type ReturnDeletionDependencies = Pick<
   returnRefundPayments: (order: ReturnOrder) => PaymentInRecord[] | PaymentOutRecord[];
 };
 
+export type ReturnDeletionOptions = {
+  /** Keep generated refund payment documents as 作废 rows when reversing a posted return. */
+  preserveVoidedPayments?: boolean;
+};
+
+function restoreInventoryCard(
+  card: CardInventory,
+  snapshot: ReturnInventoryStateSnapshot | undefined,
+  fallbackStatus: CardInventory["status"],
+  fallbackLocation: string,
+) {
+  if (!snapshot) return {...card, status: fallbackStatus, warehouseLocation: fallbackLocation};
+  return {
+    ...card,
+    status: snapshot.status,
+    warehouseLocation: snapshot.warehouseLocation,
+    salesPrice: snapshot.salesPrice,
+    salesTime: snapshot.salesTime,
+    salesInvoiceId: snapshot.salesInvoiceId,
+    buyerName: snapshot.buyerName,
+    remarks: snapshot.remarks,
+  };
+}
+
 export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependencies) {
   const {
     state,
@@ -46,14 +71,14 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     returnRefundPayments,
   } = dependencies;
 
-  const restoreDeletedSalesReturnBatch = (order: ReturnOrder) => {
+  const restoreDeletedSalesReturnBatch = (order: ReturnOrder, options?: ReturnDeletionOptions) => {
     const invoice = state.salesInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const batchItems = order.items || [];
     if (!invoice) throw new NotFoundError(`销售退货关联销售单不存在: ${order.relatedDocNo}`);
     if (batchItems.length < 1) throw new ConflictError("整单销售退货缺少有效商品明细，不能冲销");
     const payments = returnRefundPayments(order) as PaymentOutRecord[];
     const cashRefundAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    payments.forEach((payment) => deletePaymentOut(payment.id, {skipInvoiceUpdate: true}));
+    payments.forEach((payment) => deletePaymentOut(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments}));
 
     const restoredLines = batchItems.map((batchItem) => {
       const returnedCard = findReturnInventory(batchItem);
@@ -117,12 +142,16 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
       });
     }
     const restoredCardIds = new Set(restoredLines.map((line) => line.returnedCard.id));
-    state.inventory = state.inventory.map((card) => restoredCardIds.has(card.id)
-      ? {...card, status: "已售出", warehouseLocation: card.warehouseLocation === "退货待检测区" ? "发货区" : card.warehouseLocation, salesPrice: restoredLines.find((line) => line.returnedCard.id === card.id)?.restoredSellPrice || card.salesPrice, salesInvoiceId: invoice.invoiceNo, buyerName: invoice.customerName, salesTime: invoice.outboundTime || invoice.date || order.date, remarks: removeReturnRemark(card.remarks, order.returnNo)}
-      : card);
+    state.inventory = state.inventory.map((card) => {
+      if (!restoredCardIds.has(card.id)) return card;
+      const line = restoredLines.find((candidate) => candidate.returnedCard.id === card.id);
+      const snapshot = line?.batchItem.sourceInventorySnapshot || order.items?.find((item) => item.sourceInventoryId === card.id)?.sourceInventorySnapshot;
+      const restored = restoreInventoryCard(card, snapshot, "已售出", card.warehouseLocation === "退货待检测区" ? "发货区" : card.warehouseLocation);
+      return {...restored, salesPrice: line?.restoredSellPrice ?? restored.salesPrice, salesInvoiceId: invoice.invoiceNo, buyerName: invoice.customerName, salesTime: invoice.outboundTime || invoice.date || order.date, remarks: snapshot?.remarks ?? removeReturnRemark(card.remarks, order.returnNo)};
+    });
   };
 
-  const restoreDeletedPurchaseReturnBatch = (order: ReturnOrder) => {
+  const restoreDeletedPurchaseReturnBatch = (order: ReturnOrder, options?: ReturnDeletionOptions) => {
     const invoice = state.purchaseInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
     const batchItems = order.items || [];
     if (!invoice) throw new NotFoundError(`进货退货关联采购单不存在: ${order.relatedDocNo}`);
@@ -130,7 +159,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const payments = returnRefundPayments(order) as PaymentInRecord[];
     const refundedCash = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const cashRefundAmount = Number(order.cashReleasedAmount ?? refundedCash ?? (order.settlementMode === "直接冲销" ? order.reversedPaymentSnapshot?.amount : 0) ?? 0);
-    payments.forEach((payment) => deletePaymentIn(payment.id, {skipInvoiceUpdate: true}));
+    payments.forEach((payment) => deletePaymentIn(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments}));
     if (order.settlementMode === "直接冲销" && order.reversedPaymentSnapshot) {
       const snapshot = order.reversedPaymentSnapshot;
       createPaymentOut({supplierId: snapshot.supplierId, supplierName: snapshot.supplierName, customerId: snapshot.customerId, customerName: snapshot.customerName, accountId: snapshot.accountId, amount: snapshot.amount, handler: snapshot.handler, paymentMethod: snapshot.paymentMethod, businessType: snapshot.businessType, relatedDocType: snapshot.relatedDocType, relatedDocNo: snapshot.relatedDocNo, time: snapshot.time, remarks: snapshot.remarks}, {skipInvoiceUpdate: true});
@@ -211,14 +240,17 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
       });
     }
     const restoredCardIds = new Set(restoredLines.map((line) => line.returnedCard.id));
-    state.inventory = state.inventory.map((card) => restoredCardIds.has(card.id)
-      ? {...card, status: "已入库", warehouseLocation: card.warehouseLocation === "已退回供应商" ? "待检测区" : card.warehouseLocation, remarks: removeReturnRemark(card.remarks, order.returnNo)}
-      : card);
+    state.inventory = state.inventory.map((card) => {
+      if (!restoredCardIds.has(card.id)) return card;
+      const line = restoredLines.find((candidate) => candidate.returnedCard.id === card.id);
+      const snapshot = line?.batchItem.sourceInventorySnapshot || order.items?.find((item) => item.sourceInventoryId === card.id)?.sourceInventorySnapshot;
+      return restoreInventoryCard(card, snapshot, "待检测", card.warehouseLocation === "已退回供应商" ? "待检测区" : card.warehouseLocation);
+    });
   };
 
-  const restoreDeletedSalesReturn = (order: ReturnOrder) => {
+  const restoreDeletedSalesReturn = (order: ReturnOrder, options?: ReturnDeletionOptions) => {
     if (order.items?.length) {
-      restoreDeletedSalesReturnBatch(order);
+      restoreDeletedSalesReturnBatch(order, options);
       return;
     }
     const invoice = state.salesInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
@@ -228,7 +260,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
 
     const payments = returnRefundPayments(order) as PaymentOutRecord[];
     const cashRefundAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    payments.forEach((payment) => deletePaymentOut(payment.id, { skipInvoiceUpdate: true }));
+    payments.forEach((payment) => deletePaymentOut(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments }));
 
     const restoredSellPrice = Number(order.sourceSalesItemSnapshot?.sellPrice || order.amount || returnedCard.salesPrice || 0);
     const restoredCost = Number(order.sourceSalesItemSnapshot?.costPrice || returnedCard.costPrice || 0);
@@ -311,22 +343,13 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     }
 
     state.inventory = state.inventory.map((card) => card.id === returnedCard.id
-      ? {
-          ...card,
-          status: "已售出",
-          warehouseLocation: card.warehouseLocation === "退货待检测区" ? "发货区" : card.warehouseLocation,
-          salesPrice: restoredSellPrice,
-          salesInvoiceId: invoice.invoiceNo,
-          buyerName: invoice.customerName,
-          salesTime: invoice.outboundTime || invoice.date || order.date,
-          remarks: removeReturnRemark(card.remarks, order.returnNo),
-        }
+      ? {...restoreInventoryCard(card, order.sourceInventorySnapshot, "已售出", card.warehouseLocation === "退货待检测区" ? "发货区" : card.warehouseLocation), salesPrice: restoredSellPrice, salesInvoiceId: invoice.invoiceNo, buyerName: invoice.customerName, salesTime: invoice.outboundTime || invoice.date || order.date, remarks: order.sourceInventorySnapshot?.remarks ?? removeReturnRemark(card.remarks, order.returnNo)}
       : card);
   };
 
-  const restoreDeletedPurchaseReturn = (order: ReturnOrder) => {
+  const restoreDeletedPurchaseReturn = (order: ReturnOrder, options?: ReturnDeletionOptions) => {
     if (order.items?.length) {
-      restoreDeletedPurchaseReturnBatch(order);
+      restoreDeletedPurchaseReturnBatch(order, options);
       return;
     }
     const invoice = state.purchaseInvoices.find((item) => item.invoiceNo === order.relatedDocNo || item.id === order.relatedDocNo);
@@ -337,7 +360,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const payments = returnRefundPayments(order) as PaymentInRecord[];
     const refundedCash = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const cashRefundAmount = Number(order.cashReleasedAmount ?? refundedCash ?? (order.settlementMode === "直接冲销" ? order.reversedPaymentSnapshot?.amount : 0) ?? 0);
-    payments.forEach((payment) => deletePaymentIn(payment.id, { skipInvoiceUpdate: true }));
+    payments.forEach((payment) => deletePaymentIn(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments }));
     if (order.settlementMode === "直接冲销" && order.reversedPaymentSnapshot) {
       const snapshot = order.reversedPaymentSnapshot;
       createPaymentOut({
@@ -456,26 +479,22 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     }
 
     state.inventory = state.inventory.map((card) => card.id === returnedCard.id
-      ? {
-          ...card,
-          status: "已入库",
-          warehouseLocation: card.warehouseLocation === "已退回供应商" ? "待检测区" : card.warehouseLocation,
-          remarks: removeReturnRemark(card.remarks, order.returnNo),
-        }
+      ? restoreInventoryCard(card, order.sourceInventorySnapshot, "待检测", card.warehouseLocation === "已退回供应商" ? "待检测区" : card.warehouseLocation)
       : card);
   };
 
-  const deleteReturnOrder = (id: string) => {
+  const deleteReturnOrder = (id: string, options?: ReturnDeletionOptions) => {
     const existing = state.returnOrders.find((item) => item.id === id || item.returnNo === id);
     if (!existing) throw new NotFoundError(`退货单不存在: ${id}`);
+    if (existing.status === "已作废") throw new ConflictError("已作废退货单不能删除，请保留原单作为审计凭证");
     if (existing.status === "已完成" && existing.type === "进货退货" && existing.settlementMode === "直接冲销" && !existing.reversedPaymentSnapshot) {
       throw new ConflictError("该历史直接冲销记录缺少原付款快照，不能自动还原；请先在付款流水中人工核对后处理");
     }
     if (existing.status === "已完成") {
       if (existing.type === "销售退货") {
-        restoreDeletedSalesReturn(existing);
+        restoreDeletedSalesReturn(existing, options);
       } else {
-        restoreDeletedPurchaseReturn(existing);
+        restoreDeletedPurchaseReturn(existing, options);
       }
     }
     state.returnOrders = state.returnOrders.filter((item) => item.id !== existing.id);

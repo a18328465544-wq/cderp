@@ -17,6 +17,8 @@ test("finance ledger reconciliation requires the finance menu", () => {
     asyncRoute: (handler) => handler,
     getState: () => ({}) as never,
     actions: () => ({}) as never,
+    claimMutationIdempotency: async () => null,
+    releaseMutationIdempotency: async () => undefined,
   });
 
   assert.deepEqual(registered, [

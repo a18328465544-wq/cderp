@@ -1,6 +1,8 @@
 import type {PaymentOutRecord} from "./finance-records";
 import type {PurchaseItem} from "./purchase";
 import type {SalesItem} from "./sales";
+import type {AccountingDocumentStatus} from "./accounting";
+import type {CardStatus} from "./core";
 
 export const returnMenuValues = ["return_sales", "return_purchase", "return_orders"] as const;
 export const returnOrderTypeValues = ["销售退货", "进货退货"] as const;
@@ -26,6 +28,21 @@ export interface ReturnRefundAllocation {
 }
 
 /**
+ * Inventory lifecycle state captured before a completed return mutates the
+ * card. It makes delete/reversal deterministic instead of guessing that every
+ * returned purchase was already入库 or every returned sale belonged in发货区.
+ */
+export interface ReturnInventoryStateSnapshot {
+  status: CardStatus;
+  warehouseLocation: string;
+  salesPrice?: number;
+  salesTime?: string;
+  salesInvoiceId?: string;
+  buyerName?: string;
+  remarks?: string;
+}
+
+/**
  * A return order may contain several physical inventory lines when the whole
  * source document is being returned. The snapshot is kept so a completed
  * return can still be reversed safely even after the source invoice changes.
@@ -38,6 +55,7 @@ export interface ReturnOrderItem {
   sourcePurchaseItemId?: string;
   sourcePurchaseItemIndex?: number;
   sourcePurchaseItemSnapshot?: PurchaseItem;
+  sourceInventorySnapshot?: ReturnInventoryStateSnapshot;
   productId?: string;
   productName?: string;
   sn?: string;
@@ -50,9 +68,25 @@ export interface ReturnOrderBatchItemInput {
   sourcePurchaseItemIndex?: number;
 }
 
+/**
+ * Safe, display-only projection of a physical line in a batch return.
+ * Keep snapshots and settlement internals out of paginated list consumers.
+ */
+export interface ReturnOrderLineSummary {
+  sourceInventoryId: string;
+  sourceSalesItemIndex?: number;
+  sourcePurchaseItemIndex?: number;
+  productId?: string;
+  productName: string;
+  sn: string;
+  amount: number;
+}
+
 export interface ReturnOrder {
   id: string;
   returnNo: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   type: ReturnOrderType;
   status: ReturnOrderStatus;
   date: string;
@@ -68,6 +102,7 @@ export interface ReturnOrder {
   sourcePurchaseItemId?: string;
   sourcePurchaseItemIndex?: number;
   sourcePurchaseItemSnapshot?: PurchaseItem;
+  sourceInventorySnapshot?: ReturnInventoryStateSnapshot;
   productId?: string;
   productName?: string;
   sn?: string;
@@ -128,6 +163,8 @@ export interface SalesReturnListFilters {
   status: "" | SalesReturnStatus;
   page: number;
   pageSize: number;
+  sortKey?: string;
+  sortDirection?: "asc" | "desc";
 }
 
 export interface SalesReturnListItem {
@@ -140,6 +177,10 @@ export interface SalesReturnListItem {
   sourceInventoryId: string;
   /** All inventory cards covered by a whole-document return. */
   sourceInventoryIds?: string[];
+  /** Batch marker preserved from the server so the list never looks like a single-item return. */
+  batchMode?: "多件退货" | "整单退货";
+  /** Physical lines projected for list/detail rendering. */
+  returnItems?: ReturnOrderLineSummary[];
   productId: string;
   productName: string;
   sn: string;

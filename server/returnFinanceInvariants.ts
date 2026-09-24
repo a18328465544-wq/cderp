@@ -31,6 +31,7 @@ export type ReturnFinanceOrderLike = {
 
 export type ReturnFinancePaymentLike = {
   id?: string;
+  accountingStatus?: string;
   accountId?: string;
   amount?: number | string | null;
   handler?: string;
@@ -134,6 +135,10 @@ function isRelatedToOrder(record: { id?: string; relatedDocNo?: string }, order:
   return paymentIds.has(text(record.id)) || documentNumbers.has(text(record.relatedDocNo));
 }
 
+function isPostedPayment(payment: ReturnFinancePaymentLike) {
+  return text(payment.accountingStatus) !== "作废";
+}
+
 function isReturnDocumentType(value: unknown) {
   return text(value) === "退货单";
 }
@@ -164,8 +169,8 @@ function issue(order: ReturnFinanceOrderLike, code: string, message: string, pay
 
 function linkedPayments(state: ReturnFinanceStateLike, order: ReturnFinanceOrderLike) {
   return {
-    paymentIns: state.paymentInRecords.filter((payment) => isRelatedToOrder(payment, order)),
-    paymentOuts: state.paymentOutRecords.filter((payment) => isRelatedToOrder(payment, order)),
+    paymentIns: state.paymentInRecords.filter((payment) => isPostedPayment(payment) && isRelatedToOrder(payment, order)),
+    paymentOuts: state.paymentOutRecords.filter((payment) => isPostedPayment(payment) && isRelatedToOrder(payment, order)),
   };
 }
 
@@ -318,6 +323,14 @@ export function inspectReturnFinancialOrder(
     ? paymentIns.filter((payment) => text(payment.businessType) === expectedType)
     : paymentOuts.filter((payment) => text(payment.businessType) === expectedType);
 
+  if (text(order.status) === "已作废") {
+    const activeArtifacts = findExistingReturnFinancialArtifacts(state, order);
+    if (activeArtifacts.length) {
+      issues.push(issue(order, "RETURN_VOIDED_ACTIVE_ARTIFACT", `已作废退货 ${returnNo} 仍存在未作废资金流水，不能视为已清账。`, activeArtifacts.map((artifact) => artifact.id)));
+    }
+    return issues;
+  }
+
   if (text(order.status) !== "已完成") {
     const pendingArtifacts = findExistingReturnFinancialArtifacts(state, order);
     if (pendingArtifacts.length || listedIds.length) {
@@ -416,8 +429,8 @@ export function inspectReturnFinancialConsistency(state: ReturnFinanceStateLike)
       });
     }
   };
-  state.paymentInRecords.forEach((payment) => inspectOrphanPayment(payment, "payment-in"));
-  state.paymentOutRecords.forEach((payment) => inspectOrphanPayment(payment, "payment-out"));
+  state.paymentInRecords.filter(isPostedPayment).forEach((payment) => inspectOrphanPayment(payment, "payment-in"));
+  state.paymentOutRecords.filter(isPostedPayment).forEach((payment) => inspectOrphanPayment(payment, "payment-out"));
 
   const inspectOrphanLedger = (ledger: ReturnFinanceSettlementLedgerLike | ReturnFinanceLedgerLike, kind: "settlement-ledger" | "finance-ledger") => {
     const related = kind === "settlement-ledger" ? text((ledger as ReturnFinanceSettlementLedgerLike).relatedDocNo) : text((ledger as ReturnFinanceLedgerLike).relatedId);
@@ -453,7 +466,7 @@ export function buildReturnFinanceRepairPlan(state: ReturnFinanceStateLike): Ret
     if (!returnNo || cashReleasedAmount === undefined || cashReleasedAmount <= EPSILON) return;
 
     const documents = orderDocumentNumbers(order);
-    const linkedIncome = state.paymentInRecords.filter((payment) => documents.has(text(payment.relatedDocNo)));
+    const linkedIncome = state.paymentInRecords.filter((payment) => isPostedPayment(payment) && documents.has(text(payment.relatedDocNo)));
     if (linkedIncome.some((payment) => text(payment.businessType) === RETURN_PURCHASE_REFUND_TYPE)) return;
     const candidates = linkedIncome.filter((payment) => {
       const businessType = text(payment.businessType);

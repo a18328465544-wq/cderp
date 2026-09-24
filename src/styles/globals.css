@@ -508,6 +508,13 @@ input[inputmode="numeric"] {
 [data-erp-component="dashboard-section"] > [data-erp-region="section-header"] [data-erp-region="section-actions"] {
   flex-shrink: 0;
 }
+/* A results line belongs to the table beneath it, not to the preceding
+   filter card. Keep the desktop list rhythm consistent across features. */
+@media (min-width: 1280px) {
+  [data-erp-region="page-content"] > [data-erp-region="table-results"]:not(:last-child) {
+    margin-block-end: var(--erp-space-2);
+  }
+}
 [data-erp-region="section-actions"] > a {
   display: inline-flex;
   min-height: var(--erp-control-height-filter);

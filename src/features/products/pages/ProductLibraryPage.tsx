@@ -18,13 +18,14 @@ import {useNavigate} from "@tanstack/react-router";
 import {createProductColumns} from "../product.columns";
 import {defaultProductFilters, parseProductFilters, productFiltersToSearch} from "../product.filters";
 import {parseProductImportCsv, productCsv, productImportHeaders, type ProductImportRow} from "../product.import";
+import {productDisplayName} from "@/src/lib/productName";
 
 function useProductUrlState() {
   return useUrlSearchState({defaultValue: defaultProductFilters, parse: parseProductFilters, serialize: productFiltersToSearch});
 }
 
 function toProductLedgerSubject(product: ProductLibraryItem): ProductLedgerSubject {
-  return {key: product.id, productName: product.name, category: product.category, brand: product.brand, model: product.model, version: product.version, vram: product.vram, currentStock: product.currentStock, imageUrl: product.imageUrls[0]};
+  return {key: product.id, productName: productDisplayName(product), category: product.category, brand: product.brand, model: product.model, version: product.version, vram: product.vram, currentStock: product.currentStock, imageUrl: product.imageUrls[0]};
 }
 
 export function ProductLibraryPage() {
@@ -68,7 +69,7 @@ function ProductLibraryContent({session, query, filters, sorting, onSortingChang
   };
   const saveMutation = useMutation({
     mutationFn: ({values, product}: {values: ProductTemplateFormValues; product: ProductLibraryItem | null}) => product ? productsApi.update(product.id, values, session.permissions) : productsApi.create(values, session.permissions),
-    onSuccess: async (product) => {notify.success(`${product.name} 已保存`); setDialogOpen(false); setEditing(null); await invalidate();},
+    onSuccess: async (product) => {notify.success(`${productDisplayName(product)} 已保存`); setDialogOpen(false); setEditing(null); await invalidate();},
     onError: handleMutationError,
   });
   const deleteMutation = useMutation({mutationFn: (id: string) => productsApi.remove(id), onSuccess: async () => {notify.success("商品模板已删除"); setConfirmState(null); await invalidate();}, onError: handleMutationError});
@@ -103,7 +104,7 @@ function ProductLibraryContent({session, query, filters, sorting, onSortingChang
     link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
   };
   const downloadTemplate = () => download("商品库导入模板.csv", productCsv([productImportHeaders, ["SP-EXAMPLE", "显卡", "华硕 RTX 4090 猛禽 24G", "RTX 4090", "华硕", "猛禽", "24G", 18000, 19500, "示例行，导入前删除"]]));
-  const exportProducts = () => download("商品库-当前页.csv", productCsv([["配件ID", "分类", "商品名称", "核心型号", "品牌", "版本/系列", "规格参数", ...(session.permissions.showCost ? ["参考回收价"] : []), ...(session.permissions.showProfit ? ["参考销售价"] : []), "当前库存", "备注"], ...products.map((item) => [item.id, item.category, item.name, item.model, item.brand, item.version, item.vram, ...(session.permissions.showCost ? [item.refBuyPrice || 0] : []), ...(session.permissions.showProfit ? [item.refSellPrice || 0] : []), item.currentStock, item.remarks || ""])]));
+  const exportProducts = () => download("商品库-当前页.csv", productCsv([["配件ID", "分类", "商品名称", "核心型号", "品牌", "版本/系列", "规格参数", ...(session.permissions.showCost ? ["参考回收价"] : []), ...(session.permissions.showProfit ? ["参考销售价"] : []), "当前库存", "备注"], ...products.map((item) => [item.id, item.category, productDisplayName(item), item.model, item.brand, item.version, item.vram, ...(session.permissions.showCost ? [item.refBuyPrice || 0] : []), ...(session.permissions.showProfit ? [item.refSellPrice || 0] : []), item.currentStock, item.remarks || ""])]));
 
   const quickStatus: QuickStatusItemData[] = [
     {icon: <Layers3 className="h-4 w-4" />, label: "模板总数", value: `${total} 款`, description: `${query.data?.categories.length || 0} 个品类`, tone: "info"},
@@ -143,5 +144,5 @@ function MetricCard({label, value, detail, icon, tone = "info"}: {label: string;
 
 function ConfirmationDialog({state, pending, onClose, onConfirm}: {state: {kind: "delete"; product: ProductLibraryItem} | {kind: "import"; rows: ProductImportRow[]; overwrite: number} | null; pending: boolean; onClose: () => void; onConfirm: () => void}) {
   const deleting = state?.kind === "delete";
-  return <ErpConfirmDialog open={Boolean(state)} onOpenChange={(open) => {if (!open && !pending) onClose();}} title={deleting ? "删除商品模板" : "导入将覆盖已有模板"} description={deleting ? "被库存或单据引用的模板会由服务端拒绝删除。" : `本次共识别 ${state?.kind === "import" ? state.rows.length : 0} 行，其中 ${state?.kind === "import" ? state.overwrite : 0} 个配件 ID 已存在。继续后将按现有后端规则覆盖模板，但不改写历史单据名称。`} documentName={deleting && state?.kind === "delete" ? state.product.name : undefined} confirmLabel={deleting ? "确认删除" : "继续导入"} pendingLabel="处理中…" confirmVariant={deleting ? "danger" : "primary"} pending={pending} onConfirm={onConfirm} />;
+  return <ErpConfirmDialog open={Boolean(state)} onOpenChange={(open) => {if (!open && !pending) onClose();}} title={deleting ? "删除商品模板" : "导入将覆盖已有模板"} description={deleting ? "被库存或单据引用的模板会由服务端拒绝删除。" : `本次共识别 ${state?.kind === "import" ? state.rows.length : 0} 行，其中 ${state?.kind === "import" ? state.overwrite : 0} 个配件 ID 已存在。继续后将按现有后端规则覆盖模板，但不改写历史单据名称。`} documentName={deleting && state?.kind === "delete" ? productDisplayName(state.product) : undefined} confirmLabel={deleting ? "确认删除" : "继续导入"} pendingLabel="处理中…" confirmVariant={deleting ? "danger" : "primary"} pending={pending} onConfirm={onConfirm} />;
 }

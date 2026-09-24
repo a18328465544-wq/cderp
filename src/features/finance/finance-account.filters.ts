@@ -18,7 +18,7 @@ export function parseFinanceAccountFilters(search: string): FinanceAccountFilter
     owner: (params.get("owner") || "").trim(),
     platform: (params.get("platform") || "").trim(),
     type: financeAccountTypes.includes(rawType as FinanceAccountType) ? rawType as FinanceAccountType : "all",
-    status: rawStatus === "enabled" || rawStatus === "disabled" || rawStatus === "difference" ? rawStatus : "all",
+    status: rawStatus === "enabled" || rawStatus === "disabled" || rawStatus === "pending" || rawStatus === "difference" ? rawStatus : "all",
     page: positiveInteger(params.get("page"), 1),
     pageSize: [20, 50, 100].includes(pageSize) ? pageSize : 20,
   };
@@ -44,6 +44,7 @@ export function filterFinanceAccounts(accounts: FinanceAccountItem[], filters: F
     if (filters.type !== "all" && account.type !== filters.type) return false;
     if (filters.status === "enabled" && !account.enabled) return false;
     if (filters.status === "disabled" && account.enabled) return false;
+    if (filters.status === "pending" && !(account.enabled && account.actualBalance === undefined && account.frozenAmount <= 0 && !(account.difference !== undefined && Math.abs(account.difference) > 0.009))) return false;
     if (filters.status === "difference" && !(account.difference !== undefined && Math.abs(account.difference) > 0.009)) return false;
     if (owner && !account.owner.toLocaleLowerCase("zh-CN").includes(owner)) return false;
     if (platform && !account.platform.toLocaleLowerCase("zh-CN").includes(platform)) return false;

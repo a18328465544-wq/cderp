@@ -14,7 +14,7 @@ export interface ErpPageFrameProps extends HTMLAttributes<HTMLDivElement> {
 
 const densityClasses: Record<ErpPageFrameDensity, string> = {
   compact: "space-y-[var(--erp-page-gap-compact)]",
-  standard: "space-y-[var(--erp-page-gap)]",
+  standard: "space-y-[var(--erp-page-gap)] xl:space-y-[var(--erp-page-gap-comfortable)]",
   comfortable: "space-y-[var(--erp-page-gap-comfortable)]",
 };
 
@@ -43,7 +43,7 @@ export interface ErpPageTopbarProps extends HTMLAttributes<HTMLElement> {
 
 export function ErpPageTopbar({className, children, ...props}: ErpPageTopbarProps) {
   return (
-    <header {...props} data-erp-region="page-topbar" className={cn("flex min-w-0 max-w-full flex-col gap-3 xl:flex-row xl:items-start xl:justify-between", className)}>
+    <header {...props} data-erp-region="page-topbar" className={cn("flex min-w-0 max-w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-between", className)}>
       {children}
     </header>
   );
@@ -82,6 +82,14 @@ export function ErpPageContext({className, children, ...props}: HTMLAttributes<H
 export function ErpPageToolbar({className, children, ...props}: HTMLAttributes<HTMLElement> & {children?: ReactNode}) {
   if (!children) return null;
   return <section {...props} data-erp-region="page-toolbar" className={cn("min-w-0", className)}>{children}</section>;
+}
+
+/** A single alignment line between a list filter and its table. */
+export function ErpTableResultsBar({summary, actions, className, ...props}: HTMLAttributes<HTMLElement> & {summary?: ReactNode; actions: ReactNode}) {
+  return <section {...props} data-erp-region="table-results" className={cn("flex min-h-[var(--erp-control-height-filter)] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-2 sm:px-4", className)}>
+    {summary ? <div data-erp-region="table-results-summary" className="min-w-0 text-xs text-[var(--erp-color-text-secondary)]">{summary}</div> : null}
+    <div data-erp-region="table-results-actions" className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+  </section>;
 }
 
 export function ErpPageContent({className, children, ...props}: HTMLAttributes<HTMLElement> & {children?: ReactNode}) {

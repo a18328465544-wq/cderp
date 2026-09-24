@@ -1,5 +1,6 @@
 import type {FinanceIncomeListResponseDto, FinanceIncomeMutationResponseDto, FinanceIncomeRequestDto} from "../dto/finance-income.dto";
 import type {FinanceIncomeCollection, FinanceIncomeFilters, FinanceIncomeFormValues, FinanceIncomeItem} from "@/src/types/finance-income";
+import {normalizeAccountingDocumentStatus} from "@/src/types/accounting";
 
 function record(value: unknown): Record<string, unknown> {return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};}
 function text(value: unknown, fallback = "") {return typeof value === "string" ? value : value === undefined || value === null ? fallback : String(value);}
@@ -20,17 +21,18 @@ export function adaptFinanceIncome(value: unknown): FinanceIncomeItem {
   const dto = record(value);
   const relatedDocNo = optionalText(dto.relatedDocNo);
   const businessType = text(dto.businessType, "其他收入");
-  const editable = !relatedDocNo && businessType !== "采购退款";
+  const accountingStatus = normalizeAccountingDocumentStatus(dto.accountingStatus);
+  const editable = accountingStatus !== "作废" && !relatedDocNo && businessType !== "采购退款";
   return {
-    id: text(dto.id), source: text(dto.customerName || dto.supplierName, "未记录来源"), accountId: text(dto.accountId), accountName: text(dto.accountName, "未记录账户"), amount: amount(dto.amount), handler: text(dto.handler, "未记录"), paymentMethod: text(dto.paymentMethod, "其他"), businessType, referenceNo: optionalText(dto.referenceNo), time: text(dto.time), images: stringArray(dto.images), remarks: optionalText(dto.remarks), editable, deletable: editable,
-    ...(!editable ? {restrictionReason: relatedDocNo ? "关联业务单据的收入必须从原业务流程调整" : "采购退款必须从采购退货流程调整"} : {}),
+    id: text(dto.id), accountingStatus, source: text(dto.customerName || dto.supplierName, "未记录来源"), accountId: text(dto.accountId), accountName: text(dto.accountName, "未记录账户"), amount: amount(dto.amount), handler: text(dto.handler, "未记录"), paymentMethod: text(dto.paymentMethod, "其他"), businessType, referenceNo: optionalText(dto.referenceNo), time: text(dto.time), images: stringArray(dto.images), remarks: optionalText(dto.remarks), editable, deletable: editable,
+    ...(!editable ? {restrictionReason: accountingStatus === "作废" ? "已作废记录仅保留审计，不可继续编辑或冲销" : relatedDocNo ? "关联业务单据的收入必须从原业务流程调整" : "采购退款必须从采购退货流程调整"} : {}),
   };
 }
 
 export function adaptFinanceIncomeSnapshot(response: FinanceIncomeListResponseDto): FinanceIncomeItem[] {
   const state = record(response.data);
   const raw = Array.isArray(state.paymentInRecords) ? state.paymentInRecords : [];
-  return raw.filter(isNonOperatingIncomeDto).map(adaptFinanceIncome).filter((item) => Boolean(item.id)).sort((a, b) => b.time.localeCompare(a.time));
+  return raw.filter(isNonOperatingIncomeDto).map(adaptFinanceIncome).filter((item) => Boolean(item.id) && item.accountingStatus !== "作废").sort((a, b) => b.time.localeCompare(a.time));
 }
 
 export function filterFinanceIncomeCollection(snapshot: FinanceIncomeItem[], filters: FinanceIncomeFilters): FinanceIncomeCollection {
@@ -50,7 +52,7 @@ export function adaptFinanceIncomeCollection(response: FinanceIncomeListResponse
   // Keep this guard even when the API is paged. It protects the non-operating
   // income screen from stale/older servers that may still return business
   // refund rows in a page.
-  const items = response.data.filter(isNonOperatingIncomeDto).map(adaptFinanceIncome).filter((item) => Boolean(item.id));
+  const items = response.data.filter(isNonOperatingIncomeDto).map(adaptFinanceIncome).filter((item) => Boolean(item.id) && item.accountingStatus !== "作废");
   return {items, total: Math.max(items.length, amount(meta.total)), totalAmount: amount(meta.totalAmount), page: Math.max(1, amount(meta.page) || filters.page), pageSize: Math.max(1, amount(meta.pageSize) || filters.pageSize), source: "database-page"};
 }
 

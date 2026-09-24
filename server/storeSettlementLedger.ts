@@ -11,6 +11,7 @@ export type SettlementState = {
 };
 
 export type FinanceSettlementLedgerInput = {
+  accountingEventId?: string;
   relatedId?: string;
   type: string;
   paymentWay: string;
@@ -25,6 +26,7 @@ export type FinanceSettlementLedgerInput = {
 };
 
 export type SettlementMovementInput = {
+  accountingEventId?: string;
   accountId: string;
   direction: SettlementDirection;
   amount: number;
@@ -77,6 +79,8 @@ export function createSettlementLedgerHelpers(dependencies: SettlementLedgerDepe
     });
     const ledgerItem: FinanceLedger = {
       id: genId("LS"),
+      accountingStatus: "已入账",
+      accountingEventId: entry.accountingEventId,
       time: entry.time || nowStamp(),
       relatedId: entry.relatedId,
       type: entry.type,
@@ -142,6 +146,8 @@ export function createSettlementLedgerHelpers(dependencies: SettlementLedgerDepe
     const time = movement.time || nowStamp();
     const ledger: SettlementLedger = {
       id: genId("SL"),
+      accountingStatus: "已入账",
+      accountingEventId: movement.accountingEventId,
       accountId: account.id,
       accountName: account.name,
       accountType: account.type,

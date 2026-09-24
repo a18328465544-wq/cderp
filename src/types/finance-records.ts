@@ -2,6 +2,7 @@ import type {FinanceExpenseCategory} from "./finance-expense";
 import type {FinanceIncomeCategory} from "./finance-income";
 import type {FinanceLedgerDirection} from "./finance-ledger";
 import type {CustomerPartnerType} from "./customer";
+import type {AccountingDocumentStatus} from "./accounting";
 import {financeLedgerBusinessTypes} from "./finance-ledger";
 
 export type SettlementDirection = FinanceLedgerDirection;
@@ -11,6 +12,8 @@ export type SettlementBusinessType = (typeof financeLedgerBusinessTypes)[number]
 
 export interface PaymentInRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   customerId?: string;
   customerPartnerType?: CustomerPartnerType;
   customerName: string;
@@ -34,6 +37,8 @@ export interface PaymentInRecord {
 
 export interface PaymentOutRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   supplierId?: string;
   supplierName?: string;
   customerId?: string;
@@ -56,6 +61,8 @@ export interface PaymentOutRecord {
 
 export interface AccountTransferRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   fromAccountId: string;
   fromAccountName: string;
   toAccountId: string;

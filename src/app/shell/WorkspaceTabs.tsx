@@ -18,6 +18,9 @@ export function WorkspaceTabs() {
     pendingDirtyClose,
     cancelDirtyClose,
     confirmDirtyClose,
+    pendingDirtySwitch,
+    cancelDirtySwitch,
+    confirmDirtySwitch,
   } = useWorkspaceTabWorkspace();
   // WorkspaceTabWorkspace resolves the current route, including detail pages,
   // to one active Tab. Keep the chrome aligned with that single source of
@@ -110,6 +113,13 @@ export function WorkspaceTabs() {
         })}
       </nav>
       <ErpUnsavedChangesDialog open={Boolean(pendingDirtyClose)} onStay={cancelDirtyClose} onLeave={confirmDirtyClose} />
+      <ErpUnsavedChangesDialog
+        open={Boolean(pendingDirtySwitch)}
+        onStay={cancelDirtySwitch}
+        onLeave={confirmDirtySwitch}
+        description="打开新的页面需要移除一个已打开的页面；离开后当前表单中的修改会丢失。"
+        message="请确认是否放弃当前修改并打开新页面。"
+      />
     </>
   );
 }

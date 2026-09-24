@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type {OnChangeFn, SortingState} from "@tanstack/react-table";
 import {
   CalendarRange,
   CircleDollarSign,
@@ -18,6 +19,7 @@ import {ErpSearchInput} from "@/src/components/common";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {notify} from "@/src/utils/notification";
@@ -33,6 +35,7 @@ import {
 } from "@/src/components/common";
 import {
   ApiError,
+  createIdempotencyKey,
   financeAccountsApi,
   financeExpenseApi,
   queryKeys,
@@ -135,6 +138,7 @@ function FinanceExpenseContent({
   const [editing, setEditing] = useState<FinanceExpenseItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<FinanceExpenseItem | null>(null);
+  const saveIdempotencyKeyRef = useRef(createIdempotencyKey("finance-expense"));
   const collection = loadedCollection || {items: [], total: 0, totalAmount: 0, page: filters.page, pageSize: filters.pageSize, source: "database-page" as const};
   const invalidate = () => invalidateErpDomains(queryClient, ["finance"]);
   const mutationError = (caught: Error) => {
@@ -145,26 +149,29 @@ function FinanceExpenseContent({
     mutationFn: ({
       values,
       item,
+      idempotencyKey,
     }: {
       values: FinanceExpenseFormValues;
       item: FinanceExpenseItem | null;
+      idempotencyKey: string;
     }) =>
       item
-        ? financeExpenseApi.update(item.id, values, item.handler)
-        : financeExpenseApi.create(values, session.user.displayName),
+        ? financeExpenseApi.update(item.id, values, item.handler, {idempotencyKey})
+        : financeExpenseApi.create(values, session.user.displayName, {idempotencyKey}),
     onSuccess: async (item, variables) => {
       notify.success(`${item.businessType}已保存`);
       setDialogOpen(false);
       setEditing(null);
+      saveIdempotencyKeyRef.current = createIdempotencyKey("finance-expense");
       setDetail(item);
       await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient));
     },
     onError: mutationError,
   });
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => financeExpenseApi.remove(id),
+    mutationFn: (id: string) => financeExpenseApi.reverse(id),
     onSuccess: async () => {
-      notify.success("支出记录已删除并由服务端回滚账户流水");
+      notify.success("支出记录已冲销，账户与流水已反向修正");
       setDeleting(null);
       setDetail(null);
       await invalidate();
@@ -173,11 +180,13 @@ function FinanceExpenseContent({
   });
   const openCreate = () => {
     saveMutation.reset();
+    saveIdempotencyKeyRef.current = createIdempotencyKey("finance-expense");
     setEditing(null);
     setDialogOpen(true);
   };
   const openEdit = (item: FinanceExpenseItem) => {
     saveMutation.reset();
+    saveIdempotencyKeyRef.current = createIdempotencyKey("finance-expense");
     setEditing(item);
     setDialogOpen(true);
   };
@@ -195,6 +204,17 @@ function FinanceExpenseContent({
   );
   const update = (partial: Partial<FinanceExpenseFilters>) =>
     onFiltersChange({ ...filters, ...partial, page: partial.page ?? 1 });
+  const sorting: SortingState = filters.sortKey
+    ? [{id: filters.sortKey, desc: filters.sortDirection === "desc"}]
+    : [];
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const next = typeof updater === "function" ? updater(sorting) : updater;
+    const first = next[0];
+    update({
+      sortKey: first?.id || undefined,
+      sortDirection: first ? (first.desc ? "desc" : "asc") : undefined,
+    });
+  };
   const currentMonth = storeDate().slice(0, 7);
   const monthItems = collection.items.filter((item) =>
     item.time.startsWith(currentMonth),
@@ -425,6 +445,9 @@ function FinanceExpenseContent({
           emptyDescription: "当前筛选条件下没有非经营支出记录。",
           onRetry: () => void expenseQuery.refetch(),
           onRowClick: setDetail,
+          manualSorting: true,
+          sorting,
+          onSortingChange: handleSortingChange,
           page: collection.page,
           pageSize: collection.pageSize,
           total: collection.total,
@@ -465,7 +488,7 @@ function FinanceExpenseContent({
           if (!open) setEditing(null);
         }}
         onSubmit={async (values) => {
-          await saveMutation.mutateAsync({ values, item: editing });
+          await saveMutation.mutateAsync({ values, item: editing, idempotencyKey: saveIdempotencyKeyRef.current });
         }}
       />
       <FinanceEntryDeleteDrawer

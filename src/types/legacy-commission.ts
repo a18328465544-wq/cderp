@@ -3,6 +3,7 @@
  * New finance API code should prefer src/types/finance-remaining.ts.
  */
 import type {CommissionAdjustment, CommissionSettlementStatus} from "./commission";
+import type {AccountingDocumentStatus} from "./accounting";
 export type {CommissionAdjustment, CommissionMode, CommissionSettlementStatus} from "./commission";
 
 export type PurchaseCommissionStatus = CommissionSettlementStatus;
@@ -60,6 +61,8 @@ export interface CommissionCalculationResult {
 
 export interface PurchaseCommissionRecord {
   id: string;
+  accountingStatus?: AccountingDocumentStatus;
+  accountingEventId?: string;
   inventoryId: string;
   sn: string;
   productId: string;
