@@ -1,0 +1,159 @@
+:root {
+  /* Qianwen-inspired surface language: a quiet canvas keeps white cards and
+     business signals readable without relying on decorative gradients. */
+  --erp-color-canvas: #f7f8fb;
+  --erp-color-surface: #ffffff;
+  --erp-color-surface-muted: #f5f7fb;
+  --erp-color-border: #e2e8f0;
+  --erp-color-border-soft: #edf1f6;
+  --erp-color-border-strong: #cbd5e1;
+  --erp-color-text: #172033;
+  --erp-color-text-secondary: #506078;
+  --erp-color-text-muted: #64748b;
+  --erp-color-primary: #0a84ff;
+  --erp-color-primary-hover: #006edc;
+  --erp-color-info-soft: #eaf3ff;
+  --erp-color-success: #12805c;
+  --erp-color-success-soft: #e8f7f0;
+  --erp-color-warning: #b45309;
+  --erp-color-warning-soft: #fff4e5;
+  --erp-color-danger: #c2410c;
+  --erp-color-danger-soft: #fff0ed;
+  /* Semantic aliases keep feature-level status language on the same palette. */
+  --erp-color-info: var(--erp-color-primary);
+  --erp-color-primary-soft: var(--erp-color-info-soft);
+  /* Global business semantic aliases. Keep status tokens as the single
+     palette source; these names make transaction meaning explicit across
+     finance, sales, purchase, inventory and CRM surfaces. */
+  --erp-color-income: var(--erp-color-success);
+  --erp-color-income-soft: var(--erp-color-success-soft);
+  --erp-color-expense: var(--erp-color-danger);
+  --erp-color-expense-soft: var(--erp-color-danger-soft);
+  --erp-color-net: var(--erp-color-primary);
+  --erp-color-risk: var(--erp-color-warning);
+  --erp-color-risk-soft: var(--erp-color-warning-soft);
+  --erp-color-backdrop: rgb(15 23 42 / 0.3);
+  --erp-color-selection: rgb(10 132 255 / 0.18);
+  --erp-color-focus-ring: rgb(10 132 255 / 0.28);
+  --erp-color-focus-ring-soft: rgb(10 132 255 / 0.22);
+  /* Typography is one global contract. Inter owns Latin glyphs and tabular
+     data where available; CJK glyphs fall through to the platform UI fonts. */
+  --erp-font-sans: "Inter", "PingFang SC", "PingFang TC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  /* Technical identifiers may opt into erp-tech-code; financial and
+     operational numbers always use --erp-font-sans. */
+  --erp-font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --erp-font-regular: 400;
+  --erp-font-medium: 500;
+  --erp-font-semibold: 600;
+  --erp-text-xs: 12px;
+  --erp-text-sm: 13px;
+  --erp-text-base: 14px;
+  --erp-text-lg: 16px;
+  --erp-text-xl: 18px;
+  --erp-text-2xl: 20px;
+  --erp-text-3xl: 24px;
+  --erp-text-4xl: 28px;
+  --erp-text-5xl: 32px;
+  --erp-line-xs: 1.35;
+  --erp-line-sm: 1.4;
+  --erp-line-base: 1.5;
+  --erp-line-table: 1.4;
+  --erp-space-1: 4px;
+  --erp-space-2: 8px;
+  --erp-space-3: 12px;
+  --erp-space-4: 16px;
+  --erp-space-5: 20px;
+  --erp-space-6: 24px;
+  --erp-space-8: 32px;
+  --erp-space-10: 40px;
+  --erp-space-12: 48px;
+  --erp-space-16: 64px;
+  --erp-radius-sm: 6px;
+  --erp-radius-xs: 4px;
+  --erp-radius-md: 8px;
+  --erp-radius-lg: 12px;
+  --erp-radius-xl: 16px;
+  --erp-radius-card: 18px;
+  --erp-radius-control: 10px;
+  --erp-radius-pill: 9999px;
+  --erp-shadow-card: 0 1px 2px rgb(15 23 42 / 0.035), 0 4px 16px rgb(15 23 42 / 0.028);
+  --erp-shadow-popover: 0 16px 48px rgb(15 23 42 / 0.16);
+  --erp-shadow-sticky-edge: -8px 0 12px -12px rgb(15 23 42 / 0.32);
+  --erp-shadow-metric: 0 1px 2px rgb(15 23 42 / 0.025);
+  --erp-shadow-login: 0 24px 80px rgb(15 23 42 / 0.12);
+  --erp-shadow-primary: 0 8px 18px rgb(10 132 255 / 0.2);
+  --erp-shadow-brand: 0 8px 20px rgb(3 37 65 / 0.3);
+  --erp-metric-min-width: 200px;
+  /* Metric values use three typography tiers; card dimensions stay owned by
+     the page grid instead of shrinking to fit individual values. */
+  --erp-font-metric-primary-large: var(--erp-text-5xl);
+  --erp-font-metric-primary-medium: var(--erp-text-4xl);
+  --erp-font-metric-primary-small: var(--erp-text-3xl);
+  --erp-font-metric-compact-large: var(--erp-text-3xl);
+  --erp-font-metric-compact-medium: var(--erp-text-2xl);
+  --erp-font-metric-compact-small: var(--erp-text-xl);
+  --erp-card-padding: 20px;
+  --erp-card-padding-compact: 16px;
+  --erp-card-gap: 12px;
+  --erp-font-page-title: var(--erp-text-2xl);
+  --erp-font-section-title: var(--erp-text-lg);
+  --erp-font-body: var(--erp-text-base);
+  --erp-font-caption: var(--erp-text-xs);
+  --erp-line-body: var(--erp-line-base);
+  /* Optional helper/annotation copy always owns one stable line. */
+  --erp-annotation-height: 16px;
+  --erp-control-height: 40px;
+  /* Compact controls are shared by filters, dense tables and responsive
+     toolbars. Keep the geometry at 36px so every control remains readable
+     and meets the touch/keyboard baseline without page-level height patches. */
+  --erp-control-height-compact: 36px;
+  --erp-control-height-filter: 36px;
+  --erp-chart-grid: #edf0f7;
+  --erp-chart-axis: #8995aa;
+  /* Chart language is deliberately separate from action-button blue: a
+     calm indigo keeps data visible without making every chart look like a
+     primary CTA. Semantic accents stay reserved for financial direction. */
+  --erp-chart-primary: #6474ee;
+  --erp-chart-muted: #b9c2df;
+  --erp-chart-positive: #2aa879;
+  --erp-chart-warning: #e7a23b;
+  --erp-chart-negative: #dc6d78;
+  --erp-chart-track: #f3f5fa;
+  --erp-chart-tooltip-bg: var(--erp-color-surface);
+  --erp-chart-tooltip-border: var(--erp-color-border);
+  --erp-chart-stroke-width: 2px;
+  --erp-chart-bar-radius: 12px;
+  --erp-chart-bar-gap: 28%;
+  --erp-chart-area-opacity: 0.07;
+  --erp-chart-animation-duration: 180ms;
+  /* Quick Status is a single-line summary. These shared geometry tokens keep
+     every Page Header dense without page-specific height or spacing patches. */
+  --erp-quick-status-height: 32px;
+  --erp-quick-status-icon-size: 24px;
+  --erp-quick-status-gap: 12px;
+  --erp-motion-fast: 120ms;
+  --erp-motion-normal: 180ms;
+  --erp-motion-slow: 240ms;
+  /* Global shell geometry and layer contract. The workspace bar is always the
+     highest application layer; drawers begin below it and must never cover it. */
+  --erp-workspace-bar-height: 48px;
+  --erp-page-max-width: 1720px;
+  --erp-page-gap-compact: 12px;
+  --erp-page-gap: 16px;
+  --erp-page-gap-comfortable: 20px;
+  /* Overlay geometry is shared by dialogs, option lists and drawers. Keep
+     these values in one place so narrow-window behavior does not drift by
+     component or feature. */
+  --erp-overlay-gutter: 12px;
+  --erp-overlay-mobile-height: calc(100dvh - var(--erp-workspace-bar-height) - (var(--erp-overlay-gutter) * 2));
+  --erp-drawer-mobile-width: min(22rem, calc(100vw - 1rem));
+  --erp-drawer-max-width: 880px;
+  --erp-layer-tab-navigation: 1000;
+  --erp-layer-popover: 950;
+  --erp-layer-modal: 925;
+  --erp-layer-drawer-backdrop: 890;
+  --erp-layer-drawer: 900;
+  --erp-layer-content-sticky: 10;
+  --erp-empty-min-height: 192px;
+  --erp-empty-min-height-compact: 112px;
+}

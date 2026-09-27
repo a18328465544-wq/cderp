@@ -1,0 +1,10 @@
+[Unit]
+Description=GPU ERP AI daily sales report
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/gpu-erp
+ExecStart=/usr/bin/bash /home/ubuntu/gpu-erp/scripts/send_daily_report.sh

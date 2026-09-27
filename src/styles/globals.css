@@ -1,0 +1,913 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme inline {
+  --font-sans: var(--erp-font-sans);
+  --font-mono: var(--erp-font-mono);
+  /* Keep Tailwind's familiar utilities as aliases of the ERP scale so pages
+     do not accidentally introduce a second, default typography system. */
+  --text-xs: var(--erp-text-xs);
+  --text-xs--line-height: var(--erp-line-xs);
+  --text-sm: var(--erp-text-base);
+  --text-sm--line-height: var(--erp-line-base);
+  --text-base: var(--erp-text-base);
+  --text-base--line-height: var(--erp-line-base);
+  --text-lg: var(--erp-text-lg);
+  --text-lg--line-height: var(--erp-line-base);
+  --text-xl: var(--erp-text-xl);
+  --text-xl--line-height: var(--erp-line-base);
+  --text-2xl: var(--erp-text-2xl);
+  --text-2xl--line-height: 1.3;
+  --text-3xl: var(--erp-text-3xl);
+  --text-3xl--line-height: 1.25;
+  --text-4xl: var(--erp-text-4xl);
+  --text-4xl--line-height: 1.2;
+  --text-5xl: var(--erp-text-5xl);
+  --text-5xl--line-height: 1.2;
+  --text-erp-xs: var(--erp-text-xs);
+  --text-erp-xs--line-height: var(--erp-line-xs);
+  --text-erp-sm: var(--erp-text-sm);
+  --text-erp-sm--line-height: var(--erp-line-sm);
+  --text-erp-base: var(--erp-text-base);
+  --text-erp-base--line-height: var(--erp-line-base);
+  --text-erp-lg: var(--erp-text-lg);
+  --text-erp-lg--line-height: var(--erp-line-base);
+  --text-erp-xl: var(--erp-text-xl);
+  --text-erp-xl--line-height: var(--erp-line-base);
+  --text-erp-2xl: var(--erp-text-2xl);
+  --text-erp-2xl--line-height: 1.3;
+  --text-erp-3xl: var(--erp-text-3xl);
+  --text-erp-3xl--line-height: 1.25;
+  --text-erp-4xl: var(--erp-text-4xl);
+  --text-erp-4xl--line-height: 1.2;
+  --text-erp-5xl: var(--erp-text-5xl);
+  --text-erp-5xl--line-height: 1.2;
+  --font-weight-regular: var(--erp-font-regular);
+  --font-weight-normal: var(--erp-font-regular);
+  --font-weight-medium: var(--erp-font-medium);
+  --font-weight-semibold: var(--erp-font-semibold);
+  --font-weight-bold: var(--erp-font-semibold);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; max-width: 100%; }
+html, body { overflow-x: hidden; }
+body {
+  background: var(--erp-color-canvas);
+  color: var(--erp-color-text);
+  font-family: var(--erp-font-sans);
+  font-size: var(--erp-font-body);
+  line-height: var(--erp-line-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button, input, textarea, select { font: inherit; }
+svg text { font-family: var(--erp-font-sans); }
+button, a { -webkit-tap-highlight-color: transparent; }
+::selection { background: var(--erp-color-selection); }
+strong, b { font-weight: var(--erp-font-semibold); }
+label.text-xs,
+label.text-sm,
+label.text-base {
+  font-size: var(--erp-text-sm);
+  line-height: var(--erp-line-sm);
+  font-weight: var(--erp-font-medium);
+}
+button.font-semibold,
+button.font-bold {
+  font-weight: var(--erp-font-medium);
+}
+/* Legacy utility compatibility: existing font-bold markup now resolves to
+   the approved semibold tier without introducing a fourth weight. */
+.font-bold { font-weight: var(--erp-font-semibold); }
+.erp-tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.erp-data-number {
+  font-family: var(--erp-font-sans);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+input[type="number"],
+input[inputmode="decimal"],
+input[inputmode="numeric"] {
+  font-family: var(--erp-font-sans);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.erp-tech-code {
+  font-family: var(--erp-font-mono);
+}
+[data-erp-component="data-table"],
+[data-erp-region="metric-value"],
+[data-erp-region="metric-comparison"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+[data-erp-component="data-table"] {
+  line-height: var(--erp-line-table);
+}
+.erp-focus-ring:focus-visible { outline: 3px solid var(--erp-color-focus-ring); outline-offset: 2px; }
+.erp-form-control {
+  height: var(--erp-control-height);
+  border-radius: var(--erp-radius-control);
+}
+.erp-search-control {
+  height: var(--erp-control-height);
+  border-radius: var(--erp-radius-control);
+}
+/* Search controls fill a narrow toolbar row on phones even when a desktop
+   feature keeps a comfortable minimum width. The important override is
+   scoped to the shared shell so other controls keep their intentional width. */
+@media (max-width: 639px) {
+  [data-erp-component="search-input"].erp-search-input-shell {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+.erp-filter-control {
+  height: var(--erp-control-height-filter);
+  border-radius: var(--erp-radius-control);
+}
+/* A compact filter bar owns the density of the controls it contains. This
+   keeps pages from having to repeat size props on every search/select field;
+   standalone controls continue to use their own density contract. */
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="input"],
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="select"],
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="amount-input"] {
+  height: var(--erp-control-height-filter);
+}
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="date-picker"],
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="date-range-picker"],
+[data-erp-component="filter-bar"][data-density="compact"] [data-erp-component="date-time-picker"] {
+  height: var(--erp-control-height-filter);
+}
+/* Filter bars use one predictable desktop contract: the search field gets
+   the flexible space, while bounded selects and date ranges keep their
+   intrinsic width. Pages can still opt into a deliberate custom width with
+   an explicit max-width on the child. */
+@media (min-width: 640px) {
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="search-input"] {
+    flex: 1 1 18rem;
+    min-width: min(18rem, 100%);
+    max-width: 32rem;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-range-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-time-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] {
+    flex: 0 1 18rem;
+    min-width: 16rem;
+    max-width: 24rem;
+  }
+}
+.erp-card-surface {
+  border-radius: var(--erp-radius-card);
+  border-color: var(--erp-color-border);
+  background: var(--erp-color-surface);
+  box-shadow: var(--erp-shadow-card);
+}
+.erp-card-action {
+  display: inline-flex;
+  min-height: var(--erp-control-height-filter);
+  align-items: center;
+  gap: var(--erp-space-2);
+  border: 1px solid var(--erp-color-border);
+  border-radius: var(--erp-radius-pill);
+  padding: 0 var(--erp-space-3);
+  color: var(--erp-color-text-secondary);
+  font-size: var(--erp-font-caption);
+  font-weight: var(--erp-font-medium);
+  transition: border-color var(--erp-motion-fast) ease, background-color var(--erp-motion-fast) ease, color var(--erp-motion-fast) ease;
+}
+.erp-card-action:hover {
+  border-color: var(--erp-color-border-strong);
+  background: var(--erp-color-surface-muted);
+  color: var(--erp-color-text);
+}
+.erp-card-action:focus-visible { outline: 3px solid var(--erp-color-focus-ring-soft); outline-offset: 2px; }
+.erp-annotation-slot {
+  display: block;
+  height: var(--erp-annotation-height);
+  overflow: hidden;
+  line-height: var(--erp-annotation-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.erp-annotation-slot[data-empty="true"] { visibility: hidden; }
+.erp-table-cards-view { display: block; }
+.erp-skip-link {
+  position: fixed;
+  left: var(--erp-space-3);
+  top: var(--erp-space-3);
+  z-index: calc(var(--erp-layer-tab-navigation) + 20);
+  transform: translateY(-180%);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-color-text);
+  color: var(--erp-color-surface);
+  padding: var(--erp-space-2) var(--erp-space-3);
+  font-size: var(--erp-font-caption);
+  font-weight: var(--erp-font-semibold);
+  transition: transform var(--erp-motion-fast) ease;
+}
+.erp-skip-link:focus { transform: translateY(0); }
+.erp-scrollbar::-webkit-scrollbar { width: 7px; height: 7px; }
+.erp-scrollbar::-webkit-scrollbar-thumb { border-radius: var(--erp-radius-pill); background: var(--erp-color-border-strong); }
+.erp-workspace-tabs { scrollbar-width: thin; }
+.erp-workspace-tabs > [data-erp-workspace-tab] {
+  /* Browser-like tabs consume the available bar first, then compress to a
+     readable minimum before the bar starts scrolling. */
+  flex: 1 1 clamp(72px, 12vw, 180px);
+  min-width: 72px;
+  max-width: 180px;
+}
+@media (min-width: 640px) {
+  .erp-workspace-tabs > [data-erp-workspace-tab] { min-width: 88px; }
+}
+.erp-horizontal-scroll {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Editable transaction rows need every field to remain reachable. The desktop
+   table is intentionally wide for scanning, but it must not force a narrow
+   primary column to become a horizontal-only form. Use the actual available
+   inline size (not just the viewport) so the same rule works beside the
+   sticky payment summary and inside tablet layouts. */
+.erp-transaction-line-items {
+  container: erp-transaction-line-items / inline-size;
+}
+.erp-transaction-line-items-table { display: block; }
+.erp-transaction-line-items-cards { display: none; }
+@container erp-transaction-line-items (max-width: 1099px) {
+  .erp-transaction-line-items-table { display: none; }
+  .erp-transaction-line-items-cards { display: block; }
+}
+/* Keep a viewport fallback for older embedded webviews that do not implement
+   container queries yet. It matches the narrow transaction breakpoint used by
+   the shell and is harmless when the container rule is also supported. */
+@media (max-width: 1279px) {
+  .erp-transaction-line-items-table { display: none; }
+  .erp-transaction-line-items-cards { display: block; }
+}
+/* Restore the legacy wide table on desktop canvases. The table keeps its
+   horizontal scroll for narrow primary columns beside the payment summary;
+   tablet and phone canvases remain on the complete card layout above. */
+@media (min-width: 1280px) {
+  .erp-transaction-line-items-table { display: block; }
+  .erp-transaction-line-items-cards { display: none; }
+}
+.erp-safe-area-bottom {
+  padding-bottom: max(var(--erp-space-4), env(safe-area-inset-bottom));
+}
+.erp-main-content {
+  padding-bottom: max(var(--erp-space-6), env(safe-area-inset-bottom));
+  overflow-x: hidden;
+}
+
+/* Global application-layer contract:
+   - Workspace Tabs are the highest application layer.
+   - Side drawers stay below that bar and start at its bottom edge.
+   - No drawer may cover, blur, or intercept the Workspace Tabs. */
+.erp-tab-navigation {
+  position: sticky;
+  top: 0;
+  z-index: var(--erp-layer-tab-navigation);
+}
+
+.erp-popover-layer {
+  z-index: var(--erp-layer-popover);
+}
+
+.erp-modal-layer {
+  z-index: var(--erp-layer-modal);
+}
+
+.erp-drawer-backdrop-layer {
+  z-index: var(--erp-layer-drawer-backdrop);
+}
+
+.erp-drawer-layer {
+  z-index: var(--erp-layer-drawer);
+}
+
+.erp-dialog-backdrop {
+  top: var(--erp-workspace-bar-height);
+}
+
+.erp-dialog-viewport {
+  top: var(--erp-workspace-bar-height);
+  min-height: calc(100dvh - var(--erp-workspace-bar-height));
+  overscroll-behavior: contain;
+}
+
+.erp-dialog-popup {
+  /* Keep the viewport guard here, but let each dialog's own max-w-* class
+     control its intended width. A global max-width would override those
+     component-level constraints and stretch short dialogs to the viewport. */
+  width: min(100%, calc(100vw - (var(--erp-overlay-gutter) * 2)));
+  min-width: 0;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.erp-dialog-popup > form,
+.erp-dialog-popup > form > * {
+  min-width: 0;
+}
+
+.erp-dialog-viewport:not(.erp-drawer-viewport) > .erp-dialog-popup {
+  max-height: var(--erp-overlay-mobile-height);
+}
+
+@media (min-width: 640px) {
+  /* Center short dialogs, but clamp tall dialogs to the first usable pixel
+     below the workspace tabs instead of letting flex centering push them
+     underneath the highest application layer. */
+  .erp-dialog-viewport:not(.erp-drawer-viewport) {
+    overflow-y: auto;
+  }
+  .erp-dialog-viewport:not(.erp-drawer-viewport) > .erp-dialog-popup {
+    margin-block: auto;
+  }
+}
+
+.erp-option-positioner {
+  min-width: 0;
+  max-width: calc(100vw - (var(--erp-overlay-gutter) * 2));
+}
+
+.erp-option-popup {
+  min-width: 0;
+  max-width: calc(100vw - (var(--erp-overlay-gutter) * 2));
+  overscroll-behavior: contain;
+}
+
+.erp-popover-positioner {
+  min-width: 0;
+  max-width: calc(100vw - (var(--erp-overlay-gutter) * 2));
+}
+
+.erp-popover-surface {
+  min-width: 0;
+  max-width: calc(100vw - (var(--erp-overlay-gutter) * 2));
+  overscroll-behavior: contain;
+}
+
+.erp-picker-listbox {
+  min-width: 0;
+  max-width: calc(100vw - (var(--erp-overlay-gutter) * 2));
+  overscroll-behavior: contain;
+}
+
+.erp-drawer-viewport {
+  min-height: calc(100dvh - var(--erp-workspace-bar-height));
+}
+
+/* Data-heavy detail drawers can opt into a bounded desktop width. The panel
+   stays anchored to the right while its left edge is adjusted by the shared
+   resize handle. An 82vw cap gives the ledger enough room for dense facts
+   while the token max and overlay gutter keep a stored preference bounded. */
+.erp-resizable-drawer {
+  max-width: min(var(--erp-drawer-max-width, 880px), 82vw, calc(100vw - var(--erp-overlay-gutter)));
+}
+/* The product ledger is a workspace-level browsing surface. It keeps the
+   same right-anchored resize interaction but may grow all the way across the
+   viewport when the user needs the dense movement table. */
+.erp-resizable-drawer[data-erp-drawer-full-width="true"] {
+  max-width: min(var(--erp-drawer-max-width, 4096px), 100vw);
+}
+.erp-drawer-resize-handle {
+  /* Keep the invisible hit target comfortably larger than the 1px visual
+     divider. This mirrors accessible panel separators used by mature
+     resizable-layout primitives and is especially important on touchpads. */
+  width: 20px;
+  min-width: 20px;
+  touch-action: none;
+  cursor: ew-resize;
+  user-select: none;
+  z-index: 1;
+}
+
+.erp-drawer-backdrop,
+.erp-drawer-viewport {
+  top: var(--erp-workspace-bar-height);
+}
+
+/* Content-local stacking contexts stay below every application overlay. */
+.erp-refresh-indicator-layer,
+.erp-sticky-action-layer {
+  z-index: 20;
+}
+.erp-submit-bar-reserve {
+  padding-bottom: max(var(--erp-space-3), env(safe-area-inset-bottom));
+}
+
+.erp-content-sticky-layer {
+  z-index: 10;
+}
+
+.erp-table-sticky-edge-layer {
+  z-index: 30;
+}
+
+/* Keep the row action reachable after horizontal scrolling. The content
+   columns remain scrollable, while the single action column stays pinned to
+   the table edge on touchpads and narrow desktop windows. */
+@media (min-width: 768px) {
+  [data-erp-component="data-table"] th[data-erp-sticky-action="true"],
+  [data-erp-component="data-table"] td[data-erp-sticky-action="true"] {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    background: var(--erp-color-surface);
+    box-shadow: var(--erp-shadow-sticky-edge);
+  }
+  [data-erp-component="data-table"] thead th[data-erp-sticky-action="true"] {
+    z-index: 4;
+    background: var(--erp-color-surface-muted);
+  }
+}
+
+/* Inspection copy is information-dense, but Chinese labels and status text
+   must stay on the shared sans stack. Technical identifiers can opt into
+   erp-tech-code; business numbers stay on the sans stack. */
+.erp-inspection-page {
+  font-family: var(--erp-font-sans);
+}
+
+/* Finance uses a denser analysis rhythm than transactional pages. These rules
+   stay scoped to the finance frame so the shared primitives remain unchanged
+   everywhere else. */
+[data-page-frame="finance"] > [data-erp-component="page-header"] {
+  gap: var(--erp-space-3);
+  border-bottom: 1px solid var(--erp-color-border);
+  padding-bottom: var(--erp-space-3);
+}
+[data-page-frame="finance"] [data-erp-component="metrics-region"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}
+[data-page-frame="finance"] [data-erp-component="metrics-region"] > section {
+  border-radius: var(--erp-radius-lg);
+  box-shadow: var(--erp-shadow-metric);
+}
+[data-page-frame="finance"] [data-erp-component="metrics-region"] > section > div {
+  min-height: 96px;
+  padding: 14px 16px;
+}
+[data-page-frame="finance"] > [data-erp-component="filter-bar"] {
+  box-shadow: none;
+}
+[data-page-frame="finance"] [data-erp-component="dashboard-section"] {
+  padding: var(--erp-space-4);
+}
+[data-page-frame="finance"] [data-erp-component="dashboard-section"] > [data-erp-region="section-header"] {
+  padding-bottom: var(--erp-space-3);
+}
+[data-page-frame="finance"] [data-erp-component="dashboard-section"] > [data-erp-region="section-content"] {
+  padding-top: var(--erp-space-3);
+}
+[data-page-frame="finance"] [data-erp-component="dashboard-section"] > [data-erp-region="section-content"]:only-child {
+  padding-top: 0;
+}
+
+/* The analytics card language follows the Qianwen reference: one clear
+   decision per surface, a quiet header/action row and a compact data footer. */
+[data-erp-component="card"],
+[data-erp-component="dashboard-section"],
+[data-erp-component="data-table"] {
+  border-radius: var(--erp-radius-card);
+}
+[data-erp-component="metric-card"] {
+  overflow: hidden;
+}
+[data-erp-component="metric-card"] [data-erp-region="metric-label"] {
+  letter-spacing: 0.01em;
+}
+[data-erp-component="metric-card"] [data-erp-region="metric-value"] {
+  max-width: 100%;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+[data-erp-component="metric-card"] [data-erp-region="metric-detail"] {
+  display: -webkit-box;
+  max-width: 100%;
+  min-height: var(--erp-annotation-height);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+[data-erp-component="dashboard-section"] > [data-erp-region="section-header"] {
+  align-items: center;
+}
+[data-erp-component="dashboard-section"] > [data-erp-region="section-header"] [data-erp-region="section-actions"] {
+  flex-shrink: 0;
+}
+/* A results line belongs to the table beneath it, not to the preceding
+   filter card. Keep the desktop list rhythm consistent across features. */
+@media (min-width: 1280px) {
+  [data-erp-region="page-content"] > [data-erp-region="table-results"]:not(:last-child) {
+    margin-block-end: var(--erp-space-2);
+  }
+}
+[data-erp-region="section-actions"] > a {
+  display: inline-flex;
+  min-height: var(--erp-control-height-filter);
+  align-items: center;
+  gap: var(--erp-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--erp-radius-pill);
+  padding: 0 var(--erp-space-3);
+  color: var(--erp-color-primary);
+  font-size: var(--erp-font-caption);
+  font-weight: var(--erp-font-medium);
+  transition: border-color var(--erp-motion-fast) ease, background-color var(--erp-motion-fast) ease;
+}
+[data-erp-region="section-actions"] > a:hover {
+  border-color: var(--erp-color-border);
+  background: var(--erp-color-surface-muted);
+}
+[data-erp-region="section-actions"] > a:focus-visible { outline: 3px solid var(--erp-color-focus-ring-soft); outline-offset: 2px; }
+[data-erp-component="chart-meta"] {
+  border-top-color: var(--erp-color-border-soft);
+}
+[data-erp-component="analytics-insight-item"] {
+  border-bottom-color: var(--erp-color-border-soft);
+}
+[data-erp-region="analytics-kpis"] [data-analytics-tier="supporting"][data-mobile-collapsed="true"] {
+  display: grid;
+}
+
+/* Analytics owns the vertical rhythm and makes both main slots fill the same
+   row without asking a feature to add height or margin hacks. */
+[data-page-frame="analytics"] [data-erp-region="analytics-visualization"],
+[data-page-frame="analytics"] [data-erp-region="analytics-insights"] {
+  min-width: 0;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-visualization"] > [data-erp-component="dashboard-section"],
+[data-page-frame="analytics"] [data-erp-region="analytics-insights"] > [data-erp-component="dashboard-section"] {
+  height: 100%;
+}
+
+/* The reference analytics layout uses one surface for the page header and
+   one compact surface for the filter toolbar. Keeping these rules scoped to
+   the frame means transaction/list headers keep their own contracts. */
+[data-page-frame="analytics"] > [data-erp-component="page-header"] {
+  gap: var(--erp-space-3);
+  border: 1px solid var(--erp-color-border);
+  border-radius: var(--erp-radius-xl);
+  background: var(--erp-color-surface);
+  padding: var(--erp-space-4) var(--erp-space-5);
+  box-shadow: var(--erp-shadow-card);
+}
+[data-page-frame="analytics"] > [data-erp-component="page-header"] h1 {
+  font-size: var(--erp-text-2xl);
+  line-height: 1.25;
+}
+[data-page-frame="analytics"] > [data-erp-component="page-header"] p {
+  font-size: var(--erp-font-caption);
+}
+[data-page-frame="analytics"] [data-erp-component="quick-status-group"] > div:first-child {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-kpis"] [data-analytics-tier="core"] [data-erp-component="metric-card"] {
+  min-width: 0;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-kpis"] [data-analytics-tier="supporting"] [data-erp-component="metric-card"] {
+  min-width: 0;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-toolbar"] [data-erp-component="filter-bar"] {
+  border-color: var(--erp-color-border);
+  border-radius: var(--erp-radius-xl);
+  box-shadow: var(--erp-shadow-card);
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-visualization"] > [data-erp-component="dashboard-section"],
+[data-page-frame="analytics"] [data-erp-region="analytics-insights"] > [data-erp-component="dashboard-section"] {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-visualization"] > [data-erp-component="dashboard-section"] > [data-erp-region="section-content"],
+[data-page-frame="analytics"] [data-erp-region="analytics-insights"] > [data-erp-component="dashboard-section"] > [data-erp-region="section-content"] {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-detail"] > [data-erp-component="dashboard-section"] {
+  overflow: hidden;
+}
+[data-page-frame="analytics"] [data-erp-region="analytics-detail"] [data-erp-region="section-header"] {
+  align-items: center;
+}
+
+/* Compact dashboard sections contain cards, charts and short summaries. Their
+   empty states should not reserve a full table-sized panel. A section that
+   explicitly opts into the default density keeps the larger reading area. */
+[data-erp-component="dashboard-section"][data-density="compact"] [data-erp-component="empty-state"] {
+  min-height: var(--erp-empty-min-height-compact);
+  padding: var(--erp-space-4);
+}
+
+@media (max-width: 1023px) {
+  /* Every modal becomes a bottom sheet below the workspace tabs. The drawer
+     contract is excluded because drawers already own their right/full-width
+     geometry. */
+  .erp-dialog-viewport:not(.erp-drawer-viewport) {
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+  }
+  .erp-dialog-viewport:not(.erp-drawer-viewport) > .erp-dialog-popup {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - var(--erp-workspace-bar-height));
+    margin-block: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Form actions remain reachable when the soft keyboard or a short viewport
+     reduces the dialog body. Feature forms opt in with the shared class while
+     the dialog itself continues to own scrolling. */
+  .erp-dialog-popup .erp-form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: var(--erp-layer-content-sticky, 10);
+    margin-inline: calc(var(--erp-space-4) * -1);
+    margin-bottom: calc(var(--erp-space-4) * -1);
+    padding: var(--erp-space-3) var(--erp-space-4) max(var(--erp-space-3), env(safe-area-inset-bottom));
+    background: var(--erp-color-surface);
+  }
+  /* The action bar sits outside the dialog's scroll region. Reserve its
+     height in form dialogs so the last field can still scroll fully above the
+     sticky actions instead of being covered by them on short phone screens. */
+  .erp-dialog-popup[data-erp-dialog-has-footer="true"] > .erp-scrollbar {
+    padding-bottom: calc(var(--erp-space-16) + max(var(--erp-space-4), env(safe-area-inset-bottom)));
+  }
+  .erp-form-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .erp-form-actions[data-erp-single-action="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .erp-form-actions > button {
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  /* Base UI calculates option-list coordinates inline. Fixed positioning here
+     gives every shared select/combobox the same usable bottom-sheet surface on
+     phones while retaining the anchored desktop menu. */
+  .erp-option-positioner {
+    position: fixed !important;
+    inset-inline: var(--erp-overlay-gutter) !important;
+    top: auto !important;
+    bottom: var(--erp-overlay-gutter) !important;
+    width: auto !important;
+    max-width: none;
+    transform: none !important;
+  }
+  .erp-option-positioner::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    background: var(--erp-color-backdrop);
+    content: "";
+  }
+  .erp-option-popup {
+    width: 100% !important;
+    max-width: none;
+    max-height: var(--erp-overlay-mobile-height);
+    border-radius: var(--erp-radius-xl);
+    padding-bottom: max(var(--erp-space-2), env(safe-area-inset-bottom));
+  }
+
+  .erp-popover-positioner {
+    position: fixed !important;
+    inset-inline: var(--erp-overlay-gutter) !important;
+    top: auto !important;
+    bottom: var(--erp-overlay-gutter) !important;
+    width: auto !important;
+    max-width: none;
+    transform: none !important;
+  }
+  .erp-popover-positioner::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    background: var(--erp-color-backdrop);
+    content: "";
+  }
+  /* Date controls render one explicit closeable backdrop from the shared
+     overlay shell; avoid stacking the generic pseudo backdrop a second time. */
+  .erp-date-popover-positioner::before { display: none; }
+  .erp-popover-surface {
+    width: 100% !important;
+    max-width: none;
+    max-height: var(--erp-overlay-mobile-height);
+    overflow-y: auto;
+    border-radius: var(--erp-radius-xl);
+    padding-bottom: max(var(--erp-space-2), env(safe-area-inset-bottom));
+  }
+
+  .erp-picker-listbox {
+    left: var(--erp-overlay-gutter) !important;
+    right: var(--erp-overlay-gutter) !important;
+    top: auto !important;
+    bottom: var(--erp-overlay-gutter) !important;
+    width: auto !important;
+    max-width: none;
+    max-height: var(--erp-overlay-mobile-height) !important;
+    border-radius: var(--erp-radius-xl);
+    padding-bottom: max(var(--erp-space-2), env(safe-area-inset-bottom));
+  }
+  .erp-picker-listbox::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    background: var(--erp-color-backdrop);
+    content: "";
+  }
+
+  /* Mobile is a reading surface first: keep ordinary KPI groups two-up, but
+     give finance's primary cash value a full-width card so money is never
+     hidden behind an ellipsis. */
+  [data-erp-component="metrics-region"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: var(--erp-space-2);
+  }
+  [data-erp-component="metrics-region"] > [data-erp-component="metric-card"] > div {
+    min-height: 92px !important;
+    gap: var(--erp-space-2);
+    padding: var(--erp-space-3) !important;
+  }
+  [data-erp-component="metrics-region"] [data-erp-component="metric-card"] > div > span {
+    height: 2rem;
+    width: 2rem;
+  }
+
+  [data-erp-component="filter-bar"] {
+    gap: var(--erp-space-2);
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > * {
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="search-input"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-range-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-time-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-actions"] {
+    width: 100%;
+    justify-content: stretch;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-actions"] > * {
+    flex: 1 1 auto;
+  }
+
+  [data-erp-component="page-header"] [data-erp-region="page-actions"] {
+    width: 100%;
+  }
+  [data-erp-component="page-header"] [data-erp-region="page-actions"] > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  [data-erp-region="analytics-kpis"] [data-analytics-tier="supporting"][data-mobile-collapsed="true"] {
+    display: none;
+  }
+  [data-page-frame="finance"] > [data-erp-component="page-header"] [data-erp-region="page-actions"] > button {
+    flex: 1 1 auto;
+  }
+  [data-page-frame="finance"] [data-erp-component="dashboard-section"] {
+    padding: var(--erp-space-3);
+  }
+  [data-page-frame="finance"] [data-erp-component="dashboard-section"] > [data-erp-region="section-header"] {
+    align-items: stretch;
+  }
+  [data-page-frame="finance"] [data-erp-component="dashboard-section"] > [data-erp-region="section-content"] {
+    min-width: 0;
+  }
+  [data-page-frame="finance"] [data-erp-component="page-header"] [data-erp-region="page-actions"] {
+    gap: var(--erp-space-2);
+  }
+  [data-page-frame="finance"] [data-erp-component="page-header"] [data-erp-region="page-actions"] > div {
+    width: 100%;
+  }
+  [data-page-frame="finance"] [data-erp-component="page-header"] [data-erp-region="page-actions"] > div > button {
+    min-height: 44px;
+    flex: 1 1 0;
+  }
+  /* Default transaction headers keep their explanation useful without
+     pushing the action row below the fold on narrow screens. */
+  [data-erp-component="page-header"][data-density="default"] [data-erp-region="page-identity"] > p {
+    max-width: 100%;
+    white-space: normal;
+    height: auto;
+    min-height: var(--erp-annotation-height);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (max-width: 767px) {
+  /* Horizontal resizing is not useful on a phone and conflicts with browser
+     navigation and table gestures. Resizable drawers become a full-width
+     sheet while preserving the same header/body/footer contract. */
+  .erp-resizable-drawer {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .erp-drawer-resize-handle {
+    display: none;
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  /* Tablets still use the touch-friendly stacked filter shell, but a strict
+     one-column grid wastes the right half of the available canvas. Keep the
+     high-information controls (search and date) full-width, then pair the
+     bounded selects/inputs so every filter remains readable without forcing
+     a horizontal scroll. */
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="search-input"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-range-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="date-time-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] {
+    grid-column: 1 / -1;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="select"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-component="input"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > label > [data-erp-component="select"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > label > [data-erp-component="input"] {
+    width: 100%;
+    max-width: none;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] [data-erp-component="date-range-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] [data-erp-component="date-picker"],
+  [data-erp-component="filter-bar"] [data-erp-region="filter-content"] > [data-erp-filter-field="date-range"] [data-erp-component="date-time-picker"] {
+    width: 100%;
+    max-width: none;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-actions"] {
+    justify-content: flex-end;
+  }
+  [data-erp-component="filter-bar"] [data-erp-region="filter-actions"] > * {
+    flex: 0 0 auto;
+  }
+}
+@media (min-width: 640px) and (max-width: 1199px) {
+  /* The application sidebar reduces the usable canvas at tablet widths. Keep
+     every KPI group two-up so the last card cannot become a single-column
+     orphan on an otherwise empty row. */
+  [data-erp-component="metrics-region"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 1199px) {
+  /* Odd KPI counts use the full row for the final card. This keeps inventory
+     (five cards) and other uneven groups visually balanced on tablet and phone. */
+  [data-erp-component="metrics-region"][data-metric-parity="odd"] > [data-erp-component="metric-card"]:last-child,
+  [data-erp-component="metrics-region"][data-mobile-primary-full-width="true"] > [data-erp-component="metric-card"]:first-child,
+  [data-erp-component="metrics-region"][data-mobile-primary-full-width="true"] > [data-erp-component="metric-card"]:last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 1200px) and (max-width: 1439px) {
+  /* The sidebar leaves a little over 1,000px for content at narrow desktop
+     widths. Six auto-fit cards otherwise become five plus one orphan; use a
+     deliberate three-up layout for even groups and four-up for seven/eight
+     cards so every row stays balanced before the full desktop breakpoint. */
+  [data-erp-component="metrics-region"][data-metric-count="6"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  [data-erp-component="metrics-region"][data-metric-count="7"],
+  [data-erp-component="metrics-region"][data-metric-count="8"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+@media (min-width: 1280px) {
+  [data-page-frame="analytics"] [data-erp-region="analytics-toolbar"] [data-erp-component="filter-bar"] > div:first-child {
+    flex-wrap: nowrap;
+  }
+}

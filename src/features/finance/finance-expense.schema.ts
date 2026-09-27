@@ -1,0 +1,3 @@
+import {z} from "zod";
+import {financeExpenseCategories} from "@/src/types/finance-expense";
+export const financeExpenseSchema = z.object({party: z.string().trim().min(1, "请输入支出对象").max(80, "支出对象不能超过 80 字"), accountId: z.string().min(1, "请选择结算账户"), amount: z.number().positive("支出金额必须大于 0"), paymentMethod: z.string().min(1, "请选择支付方式"), businessType: z.enum(financeExpenseCategories), referenceNo: z.string().trim().max(80, "参考号不能超过 80 字"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "请选择有效日期"), remarks: z.string().trim().max(300, "备注不能超过 300 字"), images: z.array(z.string()).max(6, "最多上传 6 张凭证")});

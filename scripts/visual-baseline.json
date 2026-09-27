@@ -1,0 +1,13 @@
+{
+  "screenshots": {
+    "desktop-navigation.png": {"width": 1440, "height": 900, "sha256": "c7bf565fdc97b0ed9f9c310325afd35e91c014db507adf3f6b4f19c208b16967"},
+    "desktop-purchase-form.png": {"width": 1440, "height": 900, "sha256": "3563036d2255ff83496de0f98560ad46267c7e2dfa905a92afc4fde5c6c962bd"},
+    "desktop-sales-detail-drawer.png": {"width": 1440, "height": 900, "sha256": "7e6e3ab67738f6538010e28ac3fff5f42f6f1182a4b9031ed32f6514d7e7e333"},
+    "tablet-dashboard.png": {"width": 1024, "height": 768, "sha256": "f69bee2eeae8582503f814599e77ddad89132068547fe401cb195a38a4817e4a"},
+    "mobile-navigation.png": {"width": 390, "height": 844, "sha256": "29ba24e3f3fb5487eb6452f685c849f1822f95ec33e461dea45edda385a35949"},
+    "mobile-purchase-form.png": {"width": 390, "height": 844, "sha256": "bc1978ce9f6dcd280a4cd21296159a09dce41bb1854dbd6e33384b3242029354"},
+    "mobile-finance-date-picker.png": {"width": 390, "height": 844, "sha256": "b6b917aa6eb87ca356d2897d2ce526cb741090d66d5da1d11ee706533bbfed6e"},
+    "mobile-commission-confirmation.png": {"width": 390, "height": 844, "sha256": "508868e26ad41abebe8c80dc194495b882a4fc8efd4f3f6c31d1bcf3706f52ef"},
+    "mobile-scanner-error-state.png": {"width": 390, "height": 844, "sha256": "1ade3f97228e618f67c42efc009c8e401f14f17742021da5f273c256c9e0eb2c"}
+  }
+}

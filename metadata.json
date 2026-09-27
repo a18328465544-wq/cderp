@@ -2,7 +2,5 @@
   "name": "Remix: Remix: 二手显卡进销存管理系统",
   "description": "专为电脑硬件门店设计的智能化、一卡一档二手显卡进销存管理系统。支持回收、同行采购、批量录入、单卡质检、库存风控、销售管理、行情波动分析及售后和财务统计。",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

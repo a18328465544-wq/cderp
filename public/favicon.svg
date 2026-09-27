@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="gpu-blue" x1="12" y1="10" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#0f172a"/>
+  <path d="M14 21.5c0-3 2.5-5.5 5.5-5.5h25c3 0 5.5 2.5 5.5 5.5v20c0 3-2.5 5.5-5.5 5.5h-25c-3 0-5.5-2.5-5.5-5.5v-20Z" fill="url(#gpu-blue)"/>
+  <path d="M50 28h4.5c1.9 0 3.5 1.6 3.5 3.5v6c0 1.9-1.6 3.5-3.5 3.5H50" fill="none" stroke="#38bdf8" stroke-linecap="round" stroke-width="3"/>
+  <path d="M17 12v4M25 12v4M33 12v4M41 12v4M17 48v4M25 48v4M33 48v4M41 48v4" stroke="#94a3b8" stroke-linecap="round" stroke-width="3"/>
+  <circle cx="27" cy="31.5" r="8.5" fill="#0f172a"/>
+  <circle cx="27" cy="31.5" r="4.2" fill="#e0f2fe"/>
+  <path d="M39 24.5h4M39 31.5h4M39 38.5h4" stroke="#e0f2fe" stroke-linecap="round" stroke-width="3"/>
+</svg>

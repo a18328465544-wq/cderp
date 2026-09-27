@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GPU ERP PostgreSQL backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=10m
+Unit=gpu-erp-backup.service
+
+[Install]
+WantedBy=timers.target

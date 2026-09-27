@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GPU ERP AI daily sales report every evening
+
+[Timer]
+OnCalendar=*-*-* 20:05:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=2m
+Unit=gpu-erp-daily-report.service
+
+[Install]
+WantedBy=timers.target

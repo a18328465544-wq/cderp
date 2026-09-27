@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "baseUrl": "."
+  },
+  "include": [
+    "src/app/**/*.ts",
+    "src/app/**/*.tsx",
+    "src/components/ui/**/*.ts",
+    "src/components/ui/**/*.tsx",
+    "src/components/common/**/*.ts",
+    "src/components/common/**/*.tsx",
+    "src/components/domain/**/*.ts",
+    "src/components/domain/**/*.tsx",
+    "src/features/**/*.ts",
+    "src/features/**/*.tsx",
+    "src/lib/**/*.ts",
+    "src/services/**/*.ts",
+    "src/hooks/**/*.ts",
+    "src/stores/**/*.ts",
+    "src/types/index.ts",
+    "src/types/inventory.ts"
+  ],
+  "exclude": ["node_modules", "server-dist", "dist"]
+}

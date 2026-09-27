@@ -1,0 +1,328 @@
+import type { PoolClient } from "pg";
+
+/**
+ * CRM foundation schema.
+ *
+ * The existing gpu_customers/gpu_vendors/gpu_crm_* tables remain the legacy
+ * document source during migration. These relational tables are additive and
+ * deliberately do not add foreign keys to the JSONB business tables yet.
+ */
+export const CRM_FOUNDATION_SCHEMA_VERSION = "crm-foundation-v2";
+
+export const CRM_FOUNDATION_SQL = `
+  CREATE TABLE IF NOT EXISTS gpu_schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_accounts (
+    id TEXT PRIMARY KEY,
+    account_type TEXT NOT NULL CHECK (account_type IN ('individual', 'company')),
+    display_name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'archived')),
+    level TEXT,
+    owner_id TEXT,
+    source TEXT,
+    primary_phone TEXT,
+    primary_wechat TEXT,
+    primary_qq TEXT,
+    city TEXT,
+    company_name TEXT,
+    notes TEXT,
+    legacy_customer_id TEXT,
+    legacy_vendor_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_account_roles (
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('customer', 'supplier', 'peer', 'recycle_source', 'buyer', 'seller')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account_id, role)
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_contacts (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    phone TEXT,
+    wechat TEXT,
+    qq TEXT,
+    contact_role TEXT,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_account_requirements (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    product_demand TEXT NOT NULL,
+    budget NUMERIC(14, 2) CHECK (budget IS NULL OR budget >= 0),
+    intent TEXT,
+    stage TEXT,
+    source TEXT,
+    owner_id TEXT,
+    expected_deal_at DATE,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'won', 'lost', 'closed', 'archived')),
+    remarks TEXT,
+    legacy_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_opportunities (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    requirement_id TEXT REFERENCES gpu_crm_account_requirements(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    stage TEXT NOT NULL DEFAULT 'new',
+    amount NUMERIC(14, 2) CHECK (amount IS NULL OR amount >= 0),
+    probability NUMERIC(5, 2) CHECK (probability IS NULL OR (probability >= 0 AND probability <= 100)),
+    owner_id TEXT,
+    expected_close_at DATE,
+    lost_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_quotes (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    opportunity_id TEXT REFERENCES gpu_crm_opportunities(id) ON DELETE SET NULL,
+    quote_no TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'accepted', 'rejected', 'expired', 'cancelled')),
+    total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+    valid_until DATE,
+    owner_id TEXT,
+    remarks TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (quote_no, version)
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_quote_items (
+    id TEXT PRIMARY KEY,
+    quote_id TEXT NOT NULL REFERENCES gpu_crm_quotes(id) ON DELETE CASCADE,
+    product_id TEXT,
+    product_name TEXT NOT NULL,
+    quantity NUMERIC(12, 3) NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    unit_price NUMERIC(14, 2) NOT NULL CHECK (unit_price >= 0),
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+    remarks TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_followups (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    contact_id TEXT REFERENCES gpu_crm_contacts(id) ON DELETE SET NULL,
+    opportunity_id TEXT REFERENCES gpu_crm_opportunities(id) ON DELETE SET NULL,
+    contact_method TEXT NOT NULL,
+    content TEXT NOT NULL,
+    result TEXT,
+    handler_id TEXT,
+    follow_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    next_follow_time TIMESTAMPTZ,
+    remarks TEXT,
+    legacy_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_leads (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    matched_account_id TEXT REFERENCES gpu_crm_accounts(id) ON DELETE SET NULL,
+    source_type TEXT NOT NULL DEFAULT 'manual' CHECK (source_type IN ('manual', 'chat', 'voice')),
+    source TEXT,
+    intent_type TEXT,
+    product_category TEXT,
+    product_name TEXT,
+    product_model TEXT,
+    product_id TEXT,
+    quantity NUMERIC(12, 3) CHECK (quantity IS NULL OR quantity > 0),
+    expected_price NUMERIC(14, 2) CHECK (expected_price IS NULL OR expected_price >= 0),
+    quoted_price NUMERIC(14, 2) CHECK (quoted_price IS NULL OR quoted_price >= 0),
+    transaction_type TEXT,
+    delivery_method TEXT,
+    follow_up_at TIMESTAMPTZ,
+    priority TEXT NOT NULL DEFAULT '中' CHECK (priority IN ('低', '中', '高')),
+    stage TEXT NOT NULL DEFAULT '新线索' CHECK (stage IN ('新线索', '需求确认', '报价中', '已成交', '已关闭')),
+    tags TEXT[] NOT NULL DEFAULT '{}',
+    note TEXT,
+    raw_text TEXT,
+    confidence NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 100),
+    missing_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+    conflicts JSONB NOT NULL DEFAULT '[]'::jsonb,
+    idempotency_key TEXT UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_tasks (
+    id TEXT PRIMARY KEY,
+    lead_id TEXT NOT NULL REFERENCES gpu_crm_leads(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    task_type TEXT NOT NULL DEFAULT '客户跟进',
+    title TEXT NOT NULL,
+    due_at TIMESTAMPTZ,
+    status TEXT NOT NULL DEFAULT '待处理' CHECK (status IN ('待处理', '已完成', '已取消')),
+    assignee_id TEXT,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_quick_capture_audits (
+    id TEXT PRIMARY KEY,
+    raw_text TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'manual' CHECK (source_type IN ('manual', 'chat', 'voice')),
+    parsed_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    final_payload JSONB,
+    status TEXT NOT NULL DEFAULT 'parsed' CHECK (status IN ('parsed', 'confirmed', 'failed')),
+    model_version TEXT,
+    source_page TEXT NOT NULL DEFAULT 'crm',
+    actor_id TEXT,
+    lead_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    confirmed_at TIMESTAMPTZ
+  );
+
+  ALTER TABLE gpu_crm_accounts ADD COLUMN IF NOT EXISTS primary_qq TEXT;
+  ALTER TABLE gpu_crm_accounts ADD COLUMN IF NOT EXISTS city TEXT;
+  ALTER TABLE gpu_crm_accounts ADD COLUMN IF NOT EXISTS company_name TEXT;
+  ALTER TABLE gpu_crm_contacts ADD COLUMN IF NOT EXISTS qq TEXT;
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_entity_links (
+    id BIGSERIAL PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT 'related',
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (account_id, entity_type, entity_id, relation_type)
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_timeline_events (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    actor_id TEXT,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    idempotency_key TEXT UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_crm_legacy_map (
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES gpu_crm_accounts(id) ON DELETE CASCADE,
+    source_hash TEXT,
+    migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (source_type, source_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_media_assets (
+    id TEXT PRIMARY KEY,
+    mime_type TEXT NOT NULL CHECK (mime_type LIKE 'image/%'),
+    original_name TEXT,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 110000),
+    width INTEGER CHECK (width IS NULL OR width > 0),
+    height INTEGER CHECK (height IS NULL OR height > 0),
+    sha256 TEXT NOT NULL,
+    content BYTEA NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS gpu_media_relations (
+    asset_id TEXT NOT NULL REFERENCES gpu_media_assets(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    relation_role TEXT NOT NULL DEFAULT 'attachment',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (asset_id, entity_type, entity_id, relation_role)
+  );
+
+  CREATE INDEX IF NOT EXISTS gpu_crm_accounts_name_idx
+    ON gpu_crm_accounts (normalized_name, updated_at DESC)
+    WHERE deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_accounts_phone_idx
+    ON gpu_crm_accounts (primary_phone)
+    WHERE primary_phone IS NOT NULL AND deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_accounts_wechat_idx
+    ON gpu_crm_accounts (primary_wechat)
+    WHERE primary_wechat IS NOT NULL AND deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_accounts_qq_idx
+    ON gpu_crm_accounts (primary_qq)
+    WHERE primary_qq IS NOT NULL AND deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_accounts_city_name_idx
+    ON gpu_crm_accounts (city, normalized_name, updated_at DESC)
+    WHERE deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_roles_role_idx
+    ON gpu_crm_account_roles (role, account_id);
+  CREATE INDEX IF NOT EXISTS gpu_crm_contacts_account_primary_idx
+    ON gpu_crm_contacts (account_id, is_primary DESC, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_account_requirements_account_status_idx
+    ON gpu_crm_account_requirements (account_id, status, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_account_requirements_owner_stage_idx
+    ON gpu_crm_account_requirements (owner_id, stage, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_opportunities_owner_stage_idx
+    ON gpu_crm_opportunities (owner_id, stage, expected_close_at);
+  CREATE INDEX IF NOT EXISTS gpu_crm_quotes_account_status_idx
+    ON gpu_crm_quotes (account_id, status, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_followups_account_time_idx
+    ON gpu_crm_followups (account_id, follow_time DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_followups_next_time_idx
+    ON gpu_crm_followups (next_follow_time)
+    WHERE next_follow_time IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS gpu_crm_leads_account_stage_idx
+    ON gpu_crm_leads (account_id, stage, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_leads_follow_up_idx
+    ON gpu_crm_leads (follow_up_at, priority, stage)
+    WHERE follow_up_at IS NOT NULL AND stage NOT IN ('已成交', '已关闭');
+  CREATE INDEX IF NOT EXISTS gpu_crm_leads_product_idx
+    ON gpu_crm_leads (product_id, product_model, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_tasks_due_status_idx
+    ON gpu_crm_tasks (due_at, status, assignee_id);
+  CREATE INDEX IF NOT EXISTS gpu_crm_tasks_account_idx
+    ON gpu_crm_tasks (account_id, status, due_at);
+  CREATE INDEX IF NOT EXISTS gpu_crm_quick_capture_audits_created_idx
+    ON gpu_crm_quick_capture_audits (created_at DESC, actor_id);
+  CREATE INDEX IF NOT EXISTS gpu_crm_entity_links_account_time_idx
+    ON gpu_crm_entity_links (account_id, occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_entity_links_entity_idx
+    ON gpu_crm_entity_links (entity_type, entity_id, occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_timeline_account_time_idx
+    ON gpu_crm_timeline_events (account_id, occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_timeline_source_idx
+    ON gpu_crm_timeline_events (source_type, source_id, occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS gpu_crm_legacy_account_idx
+    ON gpu_crm_legacy_map (account_id, source_type);
+  CREATE INDEX IF NOT EXISTS gpu_media_relations_entity_idx
+    ON gpu_media_relations (entity_type, entity_id, sort_order, created_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS gpu_media_assets_sha256_idx
+    ON gpu_media_assets (sha256);
+
+  INSERT INTO gpu_schema_migrations (version)
+  VALUES ('${CRM_FOUNDATION_SCHEMA_VERSION}')
+  ON CONFLICT (version) DO NOTHING;
+`;
+
+export async function applyCrmFoundationSchema(client: PoolClient) {
+  await client.query(CRM_FOUNDATION_SQL);
+}

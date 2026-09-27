@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "strict": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false
+  },
+  "include": ["server/**/*.ts"],
+  "exclude": ["node_modules", "dist", "server-dist"]
+}
