@@ -272,7 +272,6 @@ function InspectionWorkspaceContent({session, query, onAuthExpired}: {session: A
 function InspectionFormDrawer({candidate, form, editing, onCancel, onOpenCamera, onSubmit, submitting, errorMessage, duplicateOwner, media}: {candidate: InspectionCandidate; form: UseFormReturn<InspectionFormValues>; editing: boolean; onCancel: () => void; onOpenCamera: () => void; onSubmit: FormEventHandler<HTMLFormElement>; submitting: boolean; errorMessage: string; duplicateOwner: string | null; media: ReturnType<typeof useInspectionMediaUpload>}) {
   const isGpu = form.watch("isGpu");
   const isBrandNew = form.watch("condition") === "全新";
-  const inWarranty = form.watch("inWarranty");
   const temperature = form.watch("temperature");
   const validationErrorCount = Object.keys(form.formState.errors).length;
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -284,14 +283,14 @@ function InspectionFormDrawer({candidate, form, editing, onCancel, onOpenCamera,
     return () => cancelAnimationFrame(frame);
   }, [candidate.id, editing]);
   return <>
-    <form onSubmit={onSubmit} className="relative space-y-4 overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-4">
+    <form onSubmit={onSubmit} className="erp-inspection-form relative space-y-4 overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-4">
       <div className="relative rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] p-4">
         <span className="absolute right-3 top-3"><Badge className="rounded-[var(--erp-radius-xs)] px-2 py-0.5 text-xs font-semibold" tone={isBrandNew ? "success" : "info"}>{isBrandNew ? "全新快速入库" : isGpu ? "显卡完整检测" : "其他配件简易检测"}</Badge></span>
         <h3 className="pr-32 text-sm font-semibold text-[var(--erp-color-text)]">{candidate.productName}</h3>
         <div className="mt-2.5 grid grid-cols-1 gap-4 text-xs sm:grid-cols-3"><div><span className="block text-[var(--erp-color-text-muted)]">独立库存编号</span><span className="erp-data-number font-semibold text-[var(--erp-color-text-secondary)]">{candidate.id}</span></div><div><span className="block text-[var(--erp-color-text-muted)]">PCB物理序列号</span><span className="font-semibold text-[var(--erp-color-primary)]">{candidate.serialNumber ? <span className="erp-data-number">{candidate.serialNumber}</span> : "待检测录入"}</span></div><div><span className="block text-[var(--erp-color-text-muted)]">检测类型</span><span className="text-[var(--erp-color-text-secondary)]">{isBrandNew ? "全新快速入库" : isGpu ? "显卡检测入库" : "其他配件检测"}</span></div></div>
       </div>
 
-      <div className="grid grid-cols-1 items-end gap-4 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-primary)] bg-[var(--erp-color-info-soft)] p-4 md:grid-cols-[1fr_1.2fr]">
+      <div className="erp-inspection-sn-grid rounded-[var(--erp-radius-md)] border border-[var(--erp-color-primary)] bg-[var(--erp-color-info-soft)] p-4">
         <Field label="入库 SN 录入" error={form.formState.errors.serialNumber?.message}><div className="flex gap-2"><Input {...serialRegistration} ref={(element) => {serialRegistration.ref(element); serialInputRef.current = element;}} className={`erp-data-number placeholder:font-sans ${duplicateOwner ? "border-[var(--erp-color-danger)]" : ""}`} placeholder={candidate.expressNo ? `快递 ${candidate.expressNo} 到货后录入实物SN` : "扫描或输入实物 SN"} /><Button type="button" size="icon" variant="primary" onClick={onOpenCamera} aria-label="调用摄像头扫码录入 SN"><Camera className="h-4 w-4" /></Button></div></Field>
         <div className="text-xs leading-relaxed text-[var(--erp-color-text-secondary)]">{isBrandNew ? "全新商品只需录入实物 SN，无需烤机或跑分；质保与库位可在补充信息中调整。" : isGpu ? "显卡检测录入会写入 SN，并按检测结论更新为已入库、维修中或已退货。" : "其他配件只做简易检测：SN、成色、是否带盒、保修期，提交后写入库存档案。"}{candidate.expressNo && <span className="mt-1 block text-[var(--erp-color-primary)]">关联快递单号：<span className="erp-data-number">{candidate.expressNo}</span></span>}{duplicateOwner && <span className="mt-1 block font-semibold text-[var(--erp-color-danger)]">SN 已被 {duplicateOwner} 占用，请重新扫码或核对标签。</span>}</div>
       </div>
@@ -301,20 +300,10 @@ function InspectionFormDrawer({candidate, form, editing, onCancel, onOpenCamera,
       {isBrandNew ? <details className="space-y-3 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] p-4">
         <summary className="erp-focus-ring cursor-pointer text-sm font-medium text-[var(--erp-color-text-secondary)]">补充信息（可选）</summary>
         <p className="text-xs text-[var(--erp-color-text-secondary)]">沿用当前质保、带盒与默认库位，无需重复录入。</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
-          <CheckField label={inWarranty ? "在保" : "无保"} checked={inWarranty} onChange={(checked) => form.setValue("inWarranty", checked, {shouldDirty: true, shouldValidate: true})} />
-          <Field label="质保截止日期" error={form.formState.errors.warrantyDate?.message}><Controller control={form.control} name="warrantyDate" render={({field}) => <ErpDatePicker value={field.value} onChange={field.onChange} disabled={!inWarranty} placeholder={inWarranty ? "选择质保截止日期" : "无保，无需填写"} aria-label="保修截止日期" />} /></Field>
-        </div>
-        <Field label="最终存放位置" error={form.formState.errors.warehouseLocation?.message}><Input {...form.register("warehouseLocation")} placeholder="A区货架-01" /></Field>
-        <CheckField label="带盒" checked={form.watch("fullBox")} onChange={(checked) => form.setValue("fullBox", checked, {shouldDirty: true})} />
-        <Field label="入库备注（可选）" error={form.formState.errors.remarks?.message}><Textarea {...form.register("remarks")} className="min-h-16 resize-none" placeholder="可补充质保来源或包装情况" /></Field>
+        <InspectionIntakeFields form={form} showRepair={false} includeRemarks />
       </details> : <div className="space-y-3 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-4">
         <div><h3 className="text-sm font-semibold text-[var(--erp-color-text)]">入库属性确认</h3><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">{isGpu ? "成色、保修、拆修、带盒和最终存放位置以检测录入为准，提交后写入库存档案。" : "其他配件只确认 SN、成色、带盒、保修期和最终存放位置。"}</p></div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Field label="最终存放位置" error={form.formState.errors.warehouseLocation?.message}><Input {...form.register("warehouseLocation")} placeholder="A区货架-01" /></Field>
-          <div className="md:col-span-2 xl:col-span-2"><Field label="保修期" error={form.formState.errors.warrantyDate?.message}><div className="flex flex-col gap-2 sm:flex-row"><CheckField label="在保" checked={inWarranty} onChange={(checked) => form.setValue("inWarranty", checked, {shouldDirty: true, shouldValidate: true})} className="sm:w-24" /><Controller control={form.control} name="warrantyDate" render={({field}) => <ErpDatePicker value={field.value} onChange={field.onChange} disabled={!inWarranty} placeholder="选择保修截止日期" aria-label="保修截止日期" className="min-w-0 flex-1" />} /></div></Field></div>
-          <Field label={isGpu ? "拆修 / 带盒" : "是否带盒"}><div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 py-2">{isGpu && <ErpCheckboxField variant="inline" checked={form.watch("repaired")} onChange={(event) => form.setValue("repaired", event.target.checked, {shouldDirty: true})} label={<span className="whitespace-nowrap text-sm font-semibold text-[var(--erp-color-text-secondary)]">曾拆修</span>} className="p-0" />}<ErpCheckboxField variant="inline" checked={form.watch("fullBox")} onChange={(event) => form.setValue("fullBox", event.target.checked, {shouldDirty: true})} label={<span className="whitespace-nowrap text-sm font-semibold text-[var(--erp-color-text-secondary)]">{form.watch("fullBox") ? "带盒" : "无盒"}</span>} className="p-0" /></div></Field>
-        </div>
+        <InspectionIntakeFields form={form} showRepair={isGpu} />
       </div>}
 
       {!isBrandNew && !isGpu && <div className="rounded-[var(--erp-radius-md)] border border-[var(--erp-color-primary)] bg-[var(--erp-color-info-soft)] p-4"><h3 className="text-sm font-semibold text-[var(--erp-color-primary)]">其他配件检测池子</h3><p className="mt-1 text-xs leading-relaxed text-[var(--erp-color-text-secondary)]">当前为配件简易检测，不需要录入烤机、跑分、显存和功耗。确认 SN、成色、带盒、保修期后即可完成检测归档。</p></div>}
@@ -341,18 +330,33 @@ function InspectionFormDrawer({candidate, form, editing, onCancel, onOpenCamera,
   </>;
 }
 
+/** All intake modes share field geometry; only their business fields differ. */
+function InspectionIntakeFields({form, showRepair, includeRemarks = false}: {form: UseFormReturn<InspectionFormValues>; showRepair: boolean; includeRemarks?: boolean}) {
+  const inWarranty = form.watch("inWarranty");
+  return <div data-inspection-region="intake-fields" className="erp-inspection-field-grid">
+    <Field label="保修状态"><CheckField label={inWarranty ? "在保" : "无保"} checked={inWarranty} onChange={(checked) => form.setValue("inWarranty", checked, {shouldDirty: true, shouldValidate: true})} /></Field>
+    <Field label="质保截止日期" error={form.formState.errors.warrantyDate?.message}><Controller control={form.control} name="warrantyDate" render={({field}) => <ErpDatePicker value={field.value} onChange={field.onChange} disabled={!inWarranty} placeholder={inWarranty ? "选择质保截止日期" : "无保，无需填写"} aria-label="保修截止日期" />} /></Field>
+    <Field label="最终存放位置" error={form.formState.errors.warehouseLocation?.message}><Input {...form.register("warehouseLocation")} placeholder="A区货架-01" /></Field>
+    <Field label={showRepair ? "拆修 / 带盒" : "包装附件"}><div className="flex min-h-[var(--erp-control-height)] flex-wrap items-start gap-2">
+      {showRepair && <CheckField label="曾拆修" checked={form.watch("repaired")} onChange={(checked) => form.setValue("repaired", checked, {shouldDirty: true})} />}
+      <CheckField label="带盒" checked={form.watch("fullBox")} onChange={(checked) => form.setValue("fullBox", checked, {shouldDirty: true})} />
+    </div></Field>
+    {includeRemarks && <Field wide label="入库备注（可选）" error={form.formState.errors.remarks?.message}><Textarea {...form.register("remarks")} className="min-h-16 resize-none" placeholder="可补充质保来源或包装情况" /></Field>}
+  </div>;
+}
+
 function GpuInspectionFields({form, temperature}: {form: UseFormReturn<InspectionFormValues>; temperature: number}) {
   return <>
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <div className="erp-inspection-field-grid">
       <Field label="1. 物理外观与挡板腐蚀筛选"><Controller control={form.control} name="exteriorCheck" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "完美无瑕", label: "完美无瑕 (PCB板无焦无垢、散热鳍片笔直)"}, {value: "轻微刮花", label: "轻微刮花 (外壳正常插拔轻微划伤)"}, {value: "氧化发黄", label: "氧化发黄 (PCB略微渗油、核心背部发黄)"}, {value: "挡板生锈", label: "挡板生锈 (空气潮湿、接口氧化)"}, {value: "严重磕碰", label: "严重磕碰 (鳍片损角、变形凹陷)"}]} aria-label="外观检查" />} /></Field>
       <Field label="2. 风扇轴承 & 侧LCD屏"><Controller control={form.control} name="fanCheck" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "静音顺畅", label: "静音顺畅 (满负载静音平稳、阻值正常)"}, {value: "轻微异响", label: "轻微异响 (叶片略带灰尘、轻微轴噪声)"}, {value: "抖动偏摆", label: "抖动偏摆 (塑料框架轻微断裂、叶片晃动)"}, {value: "风扇停转", label: "风扇停转 (轴承烧毁、无PWM控制信号)"}]} aria-label="风扇检查" />} /></Field>
       <Field label="3. 信号接口检查 (DP/HDMI)"><Controller control={form.control} name="portsCheck" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "全部正常", label: "全部正常 (全部DP与HDMI满帧握手)"}, {value: "部分接口无信号", label: "部分接口无信号 (某一DP断路失联、插槽松脱)"}, {value: "物理变形", label: "物理变形 (插头撞击下沉、金属片脱裂)"}]} aria-label="接口检查" />} /></Field>
       <Field label="4. GPU-Z 官方数据库一致性"><Controller control={form.control} name="gpuzCheck" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "核对一致", label: "核对一致 (核心、BIOS厂商、频率通道均通过验证)"}, {value: "规格异常 / 假卡山寨", label: "规格异常 / 假卡山寨 (核心降规格、刷假BIOS假显存)"}]} aria-label="GPU-Z 检查" />} /></Field>
     </div>
-    <div className="grid grid-cols-1 gap-4 border-t border-[var(--erp-color-border)] pt-3 md:grid-cols-2"><Field label="5. FurMark (甜甜圈烘烤表现评价)" error={form.formState.errors.furmarkResult?.message}><div className="relative"><Input {...form.register("furmarkResult")} className="pr-28" /><span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 text-xs uppercase text-[var(--erp-color-danger)]"><Flame className="h-3 w-3" />STRESS ACTIVE</span></div></Field><Field label="6. 3DMark 压力测试(TimeSpy跑分)" error={form.formState.errors.threedMarkResult?.message}><Input {...form.register("threedMarkResult")} /></Field></div>
-    <div className="grid grid-cols-1 gap-4 border-t border-[var(--erp-color-border)] pt-3 md:grid-cols-3"><Field label="显存单元 bit-error 测试"><Controller control={form.control} name="vramResult" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "全显存测试通过", label: "全显存通道校验[PASS] (无坏点块)"}, {value: "某显卡测试通道错误", label: "某通道损坏 / 高阻值 (显卡有坏存、易花屏)"}, {value: "黄屏/花屏", label: "严重显存黄屏/花屏 (芯片虚焊过热劣化)"}]} aria-label="显存测试" />} /></Field><Field label="最大核心温度 (°C)" error={form.formState.errors.temperature?.message}><Input type="number" min={1} max={150} step={1} {...form.register("temperature", {valueAsNumber: true})} className={`erp-data-number font-semibold ${temperature > 83 ? "border-[var(--erp-color-danger)] text-[var(--erp-color-danger)]" : "text-[var(--erp-color-primary)]"}`} /></Field><Field label="最大烤机功耗瓦数 (W)" error={form.formState.errors.wattage?.message}><Input type="number" min={1} max={2000} step={1} {...form.register("wattage", {valueAsNumber: true})} className="erp-data-number font-semibold" /></Field></div>
+    <div className="erp-inspection-field-grid border-t border-[var(--erp-color-border)] pt-3"><Field label="5. FurMark (甜甜圈烘烤表现评价)" error={form.formState.errors.furmarkResult?.message}><div className="relative"><Input {...form.register("furmarkResult")} className="pr-28" /><span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 text-xs uppercase text-[var(--erp-color-danger)]"><Flame className="h-3 w-3" />STRESS ACTIVE</span></div></Field><Field label="6. 3DMark 压力测试(TimeSpy跑分)" error={form.formState.errors.threedMarkResult?.message}><Input {...form.register("threedMarkResult")} /></Field></div>
+    <div className="erp-inspection-field-grid erp-inspection-measurements border-t border-[var(--erp-color-border)] pt-3"><Field label="显存单元 bit-error 测试"><Controller control={form.control} name="vramResult" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={[{value: "全显存测试通过", label: "全显存通道校验[PASS] (无坏点块)"}, {value: "某显卡测试通道错误", label: "某通道损坏 / 高阻值 (显卡有坏存、易花屏)"}, {value: "黄屏/花屏", label: "严重显存黄屏/花屏 (芯片虚焊过热劣化)"}]} aria-label="显存测试" />} /></Field><Field label="最大核心温度 (°C)" error={form.formState.errors.temperature?.message}><Input type="number" min={1} max={150} step={1} {...form.register("temperature", {valueAsNumber: true})} className={`erp-data-number font-semibold ${temperature > 83 ? "border-[var(--erp-color-danger)] text-[var(--erp-color-danger)]" : "text-[var(--erp-color-primary)]"}`} /></Field><Field label="最大烤机功耗瓦数 (W)" error={form.formState.errors.wattage?.message}><Input type="number" min={1} max={2000} step={1} {...form.register("wattage", {valueAsNumber: true})} className="erp-data-number font-semibold" /></Field></div>
     <div className="flex flex-wrap items-center gap-6 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] p-3.5 text-xs text-[var(--erp-color-text-secondary)]"><ErpCheckboxField variant="inline" checked={form.watch("repaired")} onChange={(event) => form.setValue("repaired", event.target.checked, {shouldDirty: true})} label={<span className="font-semibold">探针发现 PCB 板曾有第三方吹焊维修金手修复痕迹</span>} className="p-0 text-xs" /><ErpCheckboxField variant="inline" checked={form.watch("hiddenDefects")} onChange={(event) => form.setValue("hiddenDefects", event.target.checked, {shouldDirty: true})} label={<span className="font-semibold">存在偶发隐匿故障 (例如：接双流开多屏时可能偶发掉驱动)</span>} className="p-0 text-xs" /></div>
-    <div className="grid grid-cols-1 gap-4 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] p-4 md:grid-cols-2"><Field label="物理评定检测结论去向"><Controller control={form.control} name="resultStatus" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={inspectionResultOptions.map((option) => ({...option, label: resultLabel(option.value)}))} aria-label="检测结论" />} /></Field><Field label="物理质检人员签名"><Input {...form.register("inspector")} disabled /></Field></div>
+    <div className="erp-inspection-field-grid rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] p-4"><Field label="物理评定检测结论去向"><Controller control={form.control} name="resultStatus" render={({field}) => <Select value={field.value} onValueChange={field.onChange} options={inspectionResultOptions.map((option) => ({...option, label: resultLabel(option.value)}))} aria-label="检测结论" />} /></Field><Field label="物理质检人员签名"><Input {...form.register("inspector")} disabled /></Field></div>
   </>;
 }
 
@@ -361,10 +365,10 @@ function resultLabel(value: string) {
   return labels[value] || value;
 }
 
-function Field({label, error, children}: {label: string; error?: string; children: ReactNode}) {
-  return <ErpField label={label} error={error} reserveErrorSpace>{children}</ErpField>;
+function Field({label, error, children, wide = false}: {label: string; error?: string; children: ReactNode; wide?: boolean}) {
+  return <ErpField label={label} error={error} reserveErrorSpace className={`erp-inspection-field${wide ? " erp-inspection-field-wide" : ""}`}>{children}</ErpField>;
 }
 
-function CheckField({label, checked, onChange, className = ""}: {label: string; checked: boolean; onChange: (checked: boolean) => void; className?: string}) {
-  return <ErpCheckboxField variant="inline" checked={checked} onChange={(event) => onChange(event.target.checked)} label={label} className={`min-h-10 items-center justify-center rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 text-sm font-semibold ${className}`} />;
+function CheckField({label, checked, onChange, className = "", id}: {label: string; checked: boolean; onChange: (checked: boolean) => void; className?: string; id?: string}) {
+  return <ErpCheckboxField id={id} variant="card" checked={checked} onChange={(event) => onChange(event.target.checked)} label={label} className={`w-fit self-start bg-[var(--erp-color-surface-muted)] ${className}`} />;
 }
