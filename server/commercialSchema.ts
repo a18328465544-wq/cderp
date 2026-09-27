@@ -49,18 +49,29 @@ const ACCOUNTING_EVENT_PROJECTION_SQL = ACCOUNTING_EVENT_SOURCE_TABLES.map(({tab
   INSERT INTO gpu_accounting_events
     (id, tenant_id, store_id, event_type, status, effective_date, total_amount, currency,
      reversal_of_event_id, actor, source_type, source_id, source_no, payload, created_at, updated_at)
-  SELECT COALESCE(NULLIF(data->>'accountingEventId', ''), 'AE-legacy-${sourceType}-' || id),
-         tenant_id, store_id, '${eventType}',
-         CASE WHEN data->>'accountingStatus' IN ('草稿', '已提交', '已入账', '作废') THEN data->>'accountingStatus' ELSE '已入账' END,
-         gpu_accounting_safe_date(data, created_at), gpu_accounting_amount(data), 'CNY',
-         NULLIF(data->>'reversalOfEventId', ''),
-         COALESCE(NULLIF(data->>'handler', ''), NULLIF(data->>'operator', ''), NULLIF(data->>'createdBy', '')),
-         '${sourceType}', id,
-         COALESCE(NULLIF(data->>'invoiceNo', ''), NULLIF(data->>'returnNo', ''), NULLIF(data->>'recordNo', ''), NULLIF(data->>'transferNo', ''), id),
-         jsonb_build_object('sourceType', '${sourceType}', 'sourceId', id, 'sourceNo', COALESCE(NULLIF(data->>'invoiceNo', ''), NULLIF(data->>'returnNo', ''), NULLIF(data->>'recordNo', ''), NULLIF(data->>'transferNo', ''), id), 'direction', '${direction}', 'amount', gpu_accounting_amount(data)),
+  SELECT DISTINCT ON (tenant_id, store_id, event_id)
+         event_id, tenant_id, store_id, event_type, status, effective_date,
+         SUM(amount) OVER event_scope, 'CNY', reversal_of_event_id, actor,
+         source_type, source_id, source_no,
+         jsonb_build_object('sourceType', source_type, 'sourceId', source_id, 'sourceNo', source_no,
+           'direction', direction, 'amount', SUM(amount) OVER event_scope,
+           'sourceCount', COUNT(*) OVER event_scope),
          created_at, NOW()
-    FROM ${table}
-   WHERE COALESCE(NULLIF(data->>'accountingEventId', ''), '') <> ''
+    FROM (
+      SELECT COALESCE(NULLIF(data->>'accountingEventId', ''), 'AE-legacy-${sourceType}-' || id) AS event_id,
+             tenant_id, store_id, '${eventType}' AS event_type,
+             CASE WHEN data->>'accountingStatus' IN ('草稿', '已提交', '已入账', '作废') THEN data->>'accountingStatus' ELSE '已入账' END AS status,
+             gpu_accounting_safe_date(data, created_at) AS effective_date,
+             gpu_accounting_amount(data) AS amount, NULLIF(data->>'reversalOfEventId', '') AS reversal_of_event_id,
+             COALESCE(NULLIF(data->>'handler', ''), NULLIF(data->>'operator', ''), NULLIF(data->>'createdBy', '')) AS actor,
+             '${sourceType}' AS source_type, id AS source_id,
+             COALESCE(NULLIF(data->>'invoiceNo', ''), NULLIF(data->>'returnNo', ''), NULLIF(data->>'recordNo', ''), NULLIF(data->>'transferNo', ''), id) AS source_no,
+             '${direction}' AS direction, created_at
+        FROM ${table}
+       WHERE COALESCE(NULLIF(data->>'accountingEventId', ''), '') <> ''
+    ) AS source_rows
+   WINDOW event_scope AS (PARTITION BY tenant_id, store_id, event_id)
+   ORDER BY tenant_id, store_id, event_id, created_at ASC, source_id ASC
   ON CONFLICT (id) DO UPDATE SET
     tenant_id = EXCLUDED.tenant_id, store_id = EXCLUDED.store_id,
     event_type = EXCLUDED.event_type, status = EXCLUDED.status,
@@ -82,12 +93,19 @@ const ACCOUNTING_EVENT_PROJECTION_SQL = ACCOUNTING_EVENT_SOURCE_TABLES.map(({tab
 
   INSERT INTO gpu_accounting_event_lines
     (id, tenant_id, store_id, event_id, line_key, line_type, direction, amount, description, source_type, source_id, payload)
-  SELECT 'AEL-' || COALESCE(NULLIF(data->>'accountingEventId', ''), 'AE-legacy-${sourceType}-' || id) || '-total', tenant_id, store_id,
-         COALESCE(NULLIF(data->>'accountingEventId', ''), 'AE-legacy-${sourceType}-' || id),
-         'total', 'document_total', '${direction}', gpu_accounting_amount(data), '${eventType}合计', '${sourceType}', id,
-         jsonb_build_object('sourceTable', '${table}')
-    FROM ${table}
-   WHERE COALESCE(NULLIF(data->>'accountingEventId', ''), '') <> ''
+  SELECT DISTINCT ON (tenant_id, store_id, event_id)
+         'AEL-' || event_id || '-total', tenant_id, store_id, event_id,
+         'total', 'document_total', direction, SUM(amount) OVER event_scope, '${eventType}合计', source_type, source_id,
+         jsonb_build_object('sourceTable', '${table}', 'sourceCount', COUNT(*) OVER event_scope)
+    FROM (
+      SELECT COALESCE(NULLIF(data->>'accountingEventId', ''), 'AE-legacy-${sourceType}-' || id) AS event_id,
+             tenant_id, store_id, '${direction}' AS direction, gpu_accounting_amount(data) AS amount,
+             '${sourceType}' AS source_type, id AS source_id, created_at
+        FROM ${table}
+       WHERE COALESCE(NULLIF(data->>'accountingEventId', ''), '') <> ''
+    ) AS source_rows
+   WINDOW event_scope AS (PARTITION BY tenant_id, store_id, event_id)
+   ORDER BY tenant_id, store_id, event_id, created_at ASC, source_id ASC
   ON CONFLICT (tenant_id, store_id, event_id, line_key) DO UPDATE SET
     event_id = EXCLUDED.event_id, direction = EXCLUDED.direction, amount = EXCLUDED.amount,
     description = EXCLUDED.description, payload = EXCLUDED.payload;
