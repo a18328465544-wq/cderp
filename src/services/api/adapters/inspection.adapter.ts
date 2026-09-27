@@ -184,7 +184,7 @@ export function toInspectionCreateRequestDto(values: InspectionFormValues): Insp
     const existingRemarks = values.remarks.trim();
     const quickInboundRemarks = existingRemarks.includes("全新商品快速入库")
       ? existingRemarks
-      : `全新商品快速入库：仅核验 SN 与质保。${existingRemarks ? ` ${existingRemarks}` : ""}`;
+      : `全新商品快速入库：仅核验 SN，质保沿用或按补充信息更新。${existingRemarks ? ` ${existingRemarks}` : ""}`;
     return {
       inventoryId: values.inventoryId,
       sn: values.serialNumber.trim(),
@@ -192,7 +192,7 @@ export function toInspectionCreateRequestDto(values: InspectionFormValues): Insp
       inWarranty: values.inWarranty,
       warrantyDate: values.inWarranty ? values.warrantyDate || undefined : undefined,
       fullBox: values.fullBox,
-      warehouseLocation: values.warehouseLocation.trim(),
+      warehouseLocation: values.warehouseLocation.trim() || "A区货架-01",
       inspector: values.inspector.trim(),
       exteriorCheck: "完美无瑕",
       fanCheck: "静音顺畅",

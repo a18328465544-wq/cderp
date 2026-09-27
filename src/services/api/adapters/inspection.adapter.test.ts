@@ -85,7 +85,7 @@ test("brand-new inspection request records a quick SN and warranty verification"
   assert.equal(request.wattage, 0);
   assert.equal(request.furmarkResult, "全新商品快速核验，不拆封烤机");
   assert.equal(request.threedMarkResult, "全新商品快速核验，不做跑分");
-  assert.match(request.remarks || "", /仅核验 SN 与质保/);
+  assert.match(request.remarks || "", /仅核验 SN/);
 });
 
 test("accessory inspection request uses the existing simple inspection contract", () => {
@@ -97,6 +97,21 @@ test("accessory inspection request uses the existing simple inspection contract"
   assert.equal(request.repaired, false);
   assert.equal(request.hiddenDefects, false);
   assert.match(request.remarks || "", /其他配件简易检测/);
+});
+
+test("quick inbound normalizes stale GPU fields and supplies the default optional warehouse", () => {
+  const values = {...gpuValues(), condition: "全新" as const, warehouseLocation: " ", warrantyDate: "", temperature: 190, wattage: 2500, repaired: true, hiddenDefects: true, resultStatus: "需要维修" as const};
+  const request = toInspectionCreateRequestDto(values);
+  assert.equal(request.warehouseLocation, "A区货架-01");
+  assert.equal(request.inWarranty, true);
+  assert.equal(request.warrantyDate, undefined);
+  assert.equal(request.repaired, false);
+  assert.equal(request.hiddenDefects, false);
+  assert.equal(request.temperature, 0);
+  assert.equal(request.wattage, 0);
+  assert.equal(request.resultStatus, "通过");
+  // Switching modes must not overwrite the user's unsaved measurement inputs.
+  assert.equal(values.temperature, 190);
 });
 
 test("inspection create response excludes state patches", () => {

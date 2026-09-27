@@ -538,7 +538,7 @@ test("brand-new inventory is normalized to quick SN and warranty verification", 
   const report = actions.submitInspection({
     inventoryId: pendingCard.id,
     sn: "NEW-SN-001",
-    condition: "95新",
+    condition: "全新",
     inWarranty: true,
     warrantyDate: "2029-06-04",
     fullBox: false,
@@ -564,7 +564,7 @@ test("brand-new inventory is normalized to quick SN and warranty verification", 
   assert.equal(report.recordVersion, 1);
   assert.equal(report.temperature, 0);
   assert.equal(report.wattage, 0);
-  assert.match(report.remarks || "", /仅核验 SN 与质保/);
+  assert.match(report.remarks || "", /仅核验 SN/);
   const stockedCard = state.inventory.find((item) => item.id === pendingCard.id);
   assert.equal(stockedCard?.status, "已入库");
   assert.equal(stockedCard?.sn, "NEW-SN-001");

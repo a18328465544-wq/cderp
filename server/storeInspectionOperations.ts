@@ -28,7 +28,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
       throw new NotFoundError(`库存档案不存在: ${report.inventoryId}`);
     }
     const isGpuInspection = (targetCard.category || "显卡") === "显卡";
-    const isBrandNewInspection = targetCard.condition === "全新";
+    const isBrandNewInspection = (report.condition ?? targetCard.condition) === "全新";
     const normalizedReport = isBrandNewInspection ? {
       ...report,
       condition: "全新" as const,
@@ -45,7 +45,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
       repaired: false,
       hiddenDefects: false,
       resultStatus: "通过" as const,
-      remarks: report.remarks?.trim() || "全新商品快速入库：仅核验 SN 与质保。",
+      remarks: report.remarks?.trim() || "全新商品快速入库：仅核验 SN，质保沿用或按补充信息更新。",
     } : report;
     assertSnUnique(sn, report.inventoryId);
     const newReport: InspectionRecord = { ...normalizedReport, sn, id: genId("JC"), inspectTime: nowStamp(), recordVersion: 1 };
@@ -65,12 +65,12 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
         status: statusMap[normalizedReport.resultStatus],
         condition: normalizedReport.condition || card.condition,
         inWarranty: normalizedReport.inWarranty ?? card.inWarranty,
-        warrantyDate: normalizedReport.inWarranty ? normalizedReport.warrantyDate : undefined,
+        warrantyDate: (normalizedReport.inWarranty ?? card.inWarranty) ? normalizedReport.warrantyDate ?? card.warrantyDate : undefined,
         repaired: normalizedReport.repaired,
         fullBox: normalizedReport.fullBox ?? card.fullBox,
         warehouseLocation: normalizedReport.warehouseLocation?.trim() || card.warehouseLocation,
         costPrice: normalizedReport.resultStatus === "降价入库" ? Math.round(card.costPrice * 0.9) : card.costPrice,
-        remarks: `${card.remarks || ""} (${isBrandNewInspection ? "全新商品快速核验完成，SN 与质保已确认。" : isGpuInspection ? `质检结果: ${normalizedReport.resultStatus}. 烤机高热: ${normalizedReport.temperature}℃.` : "其他配件简易检测完成."} ${normalizedReport.remarks || ""})`,
+        remarks: `${card.remarks || ""} (${isBrandNewInspection ? "全新商品快速核验完成，SN 已确认。" : isGpuInspection ? `质检结果: ${normalizedReport.resultStatus}. 烤机高热: ${normalizedReport.temperature}℃.` : "其他配件简易检测完成."} ${normalizedReport.remarks || ""})`,
       };
     });
     addLog(
@@ -79,7 +79,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
       "提交检测单",
       `序列号: ${report.sn}`,
       "状态: 待检测",
-      isBrandNewInspection ? "全新商品快速入库：SN 与质保已确认" : isGpuInspection ? `质检状态: ${normalizedReport.resultStatus}` : `其他配件简易检测完成，成色: ${normalizedReport.condition || targetCard.condition}`,
+      isBrandNewInspection ? "全新商品快速入库：SN 已确认" : isGpuInspection ? `质检状态: ${normalizedReport.resultStatus}` : `其他配件简易检测完成，成色: ${normalizedReport.condition || targetCard.condition}`,
     );
     return newReport;
   };
@@ -97,7 +97,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
     if (!targetCard) {
       throw new NotFoundError(`库存档案不存在: ${existing.inventoryId}`);
     }
-    const isBrandNewInspection = targetCard.condition === "全新" || existing.condition === "全新";
+    const isBrandNewInspection = (updates.condition ?? existing.condition ?? targetCard.condition) === "全新";
     const sn = String(updates.sn ?? existing.sn).trim();
     if (!sn) {
       throw new ValidationError("入库检测单必须保留SN");
@@ -120,7 +120,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
       repaired: false,
       hiddenDefects: false,
       resultStatus: "通过",
-      remarks: updates.remarks?.trim() || existing.remarks || "全新商品快速入库：仅核验 SN 与质保。",
+      remarks: updates.remarks?.trim() || existing.remarks || "全新商品快速入库：仅核验 SN，质保沿用或按补充信息更新。",
     } : updates;
     const updated: InspectionRecord = {
       ...existing,
