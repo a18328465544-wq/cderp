@@ -475,6 +475,75 @@ input[inputmode="numeric"] {
   }
 }
 
+@media (max-width: 767px) {
+  .erp-inspection-mobile-editing > [data-erp-component="page-header"] {
+    display: none;
+  }
+  .erp-inspection-form {
+    overflow: visible;
+    padding: var(--erp-space-3);
+  }
+  .erp-inspection-identity {
+    padding: var(--erp-space-3);
+    border: 0;
+    background: transparent;
+  }
+  .erp-inspection-identity > span,
+  .erp-inspection-identity > div {
+    display: none;
+  }
+  .erp-inspection-identity > h3 {
+    padding-right: 0;
+    overflow-wrap: anywhere;
+  }
+  .erp-inspection-form .erp-inspection-sn-grid {
+    gap: var(--erp-space-2);
+    padding: var(--erp-space-3);
+  }
+  .erp-inspection-section {
+    border-top: 1px solid var(--erp-color-border);
+  }
+  .erp-inspection-section > summary {
+    list-style: none;
+  }
+  .erp-inspection-section > summary::-webkit-details-marker {
+    display: none;
+  }
+  .erp-inspection-section[open] > summary svg {
+    transform: rotate(90deg);
+  }
+  .erp-inspection-section .erp-inspection-intake-panel {
+    border: 0;
+    padding: 0;
+  }
+  .erp-inspection-intake-panel > div:first-child {
+    display: none;
+  }
+  .erp-inspection-submit {
+    position: sticky;
+    bottom: 0;
+    background: var(--erp-color-surface);
+    padding: var(--erp-space-3) 0 max(var(--erp-space-3), env(safe-area-inset-bottom));
+  }
+  .erp-inspection-submit > button:last-child {
+    flex: 1;
+    min-width: 0;
+  }
+  .erp-inspection-form[data-keyboard-open] .erp-inspection-submit {
+    position: static;
+  }
+  .erp-inspection-page button,
+  .erp-inspection-page input:not([type="checkbox"]):not([aria-hidden="true"]),
+  .erp-inspection-page summary {
+    min-height: var(--erp-control-height);
+  }
+  .erp-inspection-form input,
+  .erp-inspection-form textarea {
+    /* iOS must not zoom the viewport when editing a dense ERP field. */
+    font-size: var(--erp-text-lg);
+  }
+}
+
 /* Finance uses a denser analysis rhythm than transactional pages. These rules
    stay scoped to the finance frame so the shared primitives remain unchanged
    everywhere else. */

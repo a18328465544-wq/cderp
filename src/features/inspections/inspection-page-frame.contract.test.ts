@@ -51,3 +51,23 @@ test("inspection grids follow form width and share label control and error track
   assert.doesNotMatch(gpuFields, /md:grid-cols|xl:grid-cols/);
   assert.match(gpuFields, /erp-inspection-measurements/);
 });
+
+test("phone inspection keeps a single form alive while returning to its queue", () => {
+  assert.ok(source.includes('if ((selectedId || form.getValues("inventoryId")) === candidate.id && !editingHistory) {'));
+  assert.match(source, /const activeInventoryId = selectedId \|\| formInventoryId/);
+  assert.equal((source.match(/<InspectionFormDrawer /g) || []).length, 1);
+  assert.match(source, /hidden=\{mobile && \(!selectedCandidate \|\| showMobileList\)\}/);
+  assert.match(source, /onBack=\{\(\) => setShowMobileList\(true\)\}/);
+  assert.match(source, /unsavedChanges.requestLeave\(applySelection\)/);
+  assert.match(source, /setCompletedInventoryId\(variables.values.inventoryId\)/);
+});
+
+test("phone groups expose errors and leave desktop fields flat", () => {
+  assert.match(source, /if \(!mobile\) return <>\{children\}<\/>/);
+  assert.match(source, /if \(errors && sectionRef.current\) sectionRef.current.open = true/);
+  for (const title of ["入库信息", "外观与接口", "性能测试", "结论与附件"]) assert.ok(source.includes(`title="${title}"`));
+  assert.match(source, /<form noValidate/);
+  assert.match(source, /if \(mobile\) return;\s*const frame = requestAnimationFrame/);
+  assert.match(styles, /\.erp-inspection-submit \{[^}]*position: sticky;[^}]*env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /\.erp-inspection-form\[data-keyboard-open\] \.erp-inspection-submit/);
+});
