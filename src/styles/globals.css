@@ -438,6 +438,43 @@ input[inputmode="numeric"] {
   font-family: var(--erp-font-sans);
 }
 
+/* The right-hand workspace can be narrow even on a desktop viewport. All
+   inspection modes size their fields from the form, not the browser width. */
+.erp-inspection-form {
+  container: inspection-form / inline-size;
+}
+.erp-inspection-form .erp-inspection-field-grid,
+.erp-inspection-form .erp-inspection-sn-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--erp-space-4);
+  align-items: start;
+}
+.erp-inspection-form .erp-inspection-field-wide {
+  grid-column: 1 / -1;
+}
+/* Share label/control/error tracks per row: wrapped labels or validation
+   messages cannot move one control relative to its neighbours. */
+.erp-inspection-form .erp-inspection-field-grid > .erp-inspection-field {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+  row-gap: 0;
+}
+@container inspection-form (min-width: 600px) {
+  .erp-inspection-form .erp-inspection-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .erp-inspection-form .erp-inspection-sn-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+}
+@container inspection-form (min-width: 960px) {
+  .erp-inspection-form .erp-inspection-field-grid.erp-inspection-measurements {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 /* Finance uses a denser analysis rhythm than transactional pages. These rules
    stay scoped to the finance frame so the shared primitives remain unchanged
    everywhere else. */
