@@ -64,7 +64,8 @@ test("accounting control plane creates immutable projections and DB period guard
   }
   assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /gpu_accounting_period_guard_trigger/);
   assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /BEFORE INSERT OR UPDATE OR DELETE/);
-  assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /'AEL-' \|\| COALESCE/);
+  assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /'AEL-' \|\| event_id \|\| '-total'/);
+  assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /DISTINCT ON \(tenant_id, store_id, event_id\)/);
   assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /ON CONFLICT \(tenant_id, store_id, event_id, line_key\)/);
   assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /gpu_accounting_safe_date/);
   assert.match(ACCOUNTING_CONTROL_PLANE_SQL, /accountingEventId.*accountingStatus/s);
