@@ -13,7 +13,9 @@ import {inventoryReturnBlockedStatusValues} from "../src/types/inventory.ts";
 import {financeExpenseCategories, legacyFinanceExpenseCategories} from "../src/types/finance-expense.ts";
 import {financeIncomeCategories} from "../src/types/finance-income.ts";
 import {storeDateAfterDays} from "../src/utils/storeTime.ts";
-import {tokenizeSearchText} from "../src/utils/search.ts";
+import {compactSearchText, tokenizeSearchText} from "../src/utils/search.ts";
+import {productModelCode} from "../src/utils/productSearch.ts";
+import {productIdentitySearchSql} from "./productSearchSql.ts";
 
 export type FinanceRecordKind = "settlement" | "income" | "expense";
 export type FinanceProfitFlowKind = "income" | "expense";
@@ -31,11 +33,10 @@ function normalizedPage(value: number | undefined, fallback: number) {
 // 这样排序、筛选和返回给前端的数值保持同一口径。
 const inventoryStorageDaysExpression = `GREATEST(CASE WHEN LEFT(COALESCE(data->>'entryTime', ''), 10) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date - LEFT(data->>'entryTime', 10)::date ELSE 0 END, 0)`;
 
-// Keep the paginated list's keyword semantics aligned with the in-memory inventory
-// summary: normalize separators, then require every query token to occur in the
-// combined searchable fields. A brand and model may be stored in separate fields
-// even when the user types them together (e.g. 技嘉RTX4090).
-const inventorySearchTextExpression = `regexp_replace(lower(normalize(CONCAT_WS(' ', id, op_product_id, data->>'productName', data->>'model', op_brand, data->>'version', data->>'vram', op_sn, data->>'expressNo', data->>'supplierName', op_warehouse, data->>'remarks'), NFKC)), '[[:space:][:punct:]，。、·・：；（）【】《》“”‘’—]+', '', 'g')`;
+// Product identity search and exact GPU model variants share the product
+// search contract. Identifiers remain searchable without letting supplier or
+// remarks text turn an unrelated GPU into a product-name result.
+const inventoryIdentifierTextExpression = `REGEXP_REPLACE(LOWER(NORMALIZE(CONCAT_WS(' ', id, op_product_id, op_sn, data->>'expressNo'), NFKC)), '[[:space:][:punct:]，。、·・：；（）【】《》“”‘’—]+', '', 'g')`;
 
 export function buildInventoryPageQuery(filters: InventoryPageFilters = {}) {
   const page = normalizedPage(filters.page, 1);
@@ -67,6 +68,7 @@ export function buildInventoryPageQuery(filters: InventoryPageFilters = {}) {
   }
   if (filters.category && filters.category !== "all") clauses.push(`op_category = ${bind(filters.category)}`);
   if (filters.brand && filters.brand !== "all") clauses.push(`op_brand = ${bind(filters.brand)}`);
+  if (filters.supplierName?.trim()) clauses.push(`data->>'supplierName' ILIKE ${bind(`%${filters.supplierName.trim()}%`)}`);
   if (filters.model && filters.model !== "all") clauses.push(`data->>'model' = ${bind(filters.model)}`);
   if (filters.condition && filters.condition !== "all") clauses.push(`data->>'condition' = ${bind(filters.condition)}`);
   if (filters.warehouseLocation) clauses.push(`op_warehouse = ${bind(filters.warehouseLocation)}`);
@@ -91,9 +93,12 @@ export function buildInventoryPageQuery(filters: InventoryPageFilters = {}) {
     clauses.push(`COALESCE(NULLIF(data->>'costPrice', '')::numeric, 0) > 0 AND COALESCE(NULLIF(data->>'estSellPrice', '')::numeric, 0) >= COALESCE(NULLIF(data->>'costPrice', '')::numeric, 0) * ${bind(1 + filters.minProfitMargin)}`);
   }
   if (keyword) {
-    for (const token of tokenizeSearchText(keyword)) {
-      clauses.push(`STRPOS(${inventorySearchTextExpression}, ${bind(token)}) > 0`);
-    }
+    const identity = productIdentitySearchSql({id: "op_product_id", name: "data->>'productName'", category: "op_category", brand: "op_brand", model: "data->>'model'", version: "data->>'version'", vram: "data->>'vram'"}, keyword, bind).join(" AND ") || "FALSE";
+    const exactIdentifier = `(${["id", "op_product_id", "op_sn", "data->>'expressNo'"].map((field) => `REGEXP_REPLACE(LOWER(NORMALIZE(COALESCE(${field}, ''), NFKC)), '[[:space:][:punct:]，。、·・：；（）【】《》“”‘’—]+', '', 'g') = ${bind(compactSearchText(keyword))}`).join(" OR ")})`;
+    const identifier = productModelCode(keyword)
+      ? exactIdentifier
+      : `(${exactIdentifier} OR ${tokenizeSearchText(keyword).map((token) => `STRPOS(${inventoryIdentifierTextExpression}, ${bind(token)}) > 0`).join(" AND ") || "FALSE"})`;
+    clauses.push(`((${identity}) OR ${identifier})`);
   }
   const sortExpressions: Record<string, string> = {
     id: "id",

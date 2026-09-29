@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import test from "node:test";
-import { assertTestDatabaseConfigured, acquireStateWriteLock, createDatabaseSessionStore, withDatabaseTransaction } from "./db.ts";
+import { assertTestDatabaseConfigured, acquireStateWriteLock, createDatabaseSessionStore, withDatabaseTransaction, buildInventoryPageQuery } from "./db.ts";
 import { OPERATIONAL_PROJECTION_SCHEMA_VERSION } from "./operationalSchema.ts";
 
 const integrationEnabled = Boolean(
@@ -193,6 +193,28 @@ test("PostgreSQL-backed inventory pages survive a state revision change", {
   } finally {
     await closeServer(server);
   }
+});
+
+test("inventory SQL keeps 4090 exact, excludes supplier-only matches, and finds a full SN", {
+  skip: !integrationEnabled,
+}, async () => {
+  const fixtures = `WITH gpu_inventory (id, op_product_id, op_category, op_brand, op_sn, op_status, data) AS (
+    VALUES
+      ('KC-4090', 'P-4090', '显卡', '微星', 'SN-4090-A', '已入库', jsonb_build_object('productName', '微星 RTX4090 魔龙 24G', 'model', 'RTX4090', 'supplierName', '普通供货商')),
+      ('KC-4090D', 'P-4090D', '显卡', '微星', 'SN-4090D-A', '已入库', jsonb_build_object('productName', '微星 RTX4090D 魔龙 24G', 'model', 'RTX4090D', 'supplierName', '普通供货商')),
+      ('KC-5090', 'P-5090', '显卡', '微星', 'T4Y4090ABC', '已入库', jsonb_build_object('productName', '微星 RTX5090 魔龙 32G', 'model', 'RTX5090', 'supplierName', '4090 型号供货商', 'remarks', '曾询价 4090'))
+  )`;
+  const findIds = async (keyword: string, supplierName?: string) => {
+    const query = buildInventoryPageQuery({keyword, supplierName});
+    return withDatabaseTransaction(async (client) => {
+      const result = await client.query<{id: string}>(`${fixtures} SELECT id FROM gpu_inventory ${query.where} ORDER BY id`, query.values);
+      return result.rows.map((row) => row.id);
+    });
+  };
+  assert.deepEqual(await findIds("4090"), ["KC-4090"]);
+  assert.deepEqual(await findIds("4090D"), ["KC-4090D"]);
+  assert.deepEqual(await findIds("T4Y4090ABC"), ["KC-5090"]);
+  assert.deepEqual(await findIds("", "4090"), ["KC-5090"]);
 });
 
 test("sales outbound pool is PostgreSQL paged and omits cost and profit fields", {

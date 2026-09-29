@@ -72,6 +72,7 @@ export type InventoryPageFilters = {
   status?: string;
   category?: string;
   brand?: string;
+  supplierName?: string;
   model?: string;
   condition?: string;
   entryStart?: string;

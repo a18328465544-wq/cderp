@@ -1,6 +1,7 @@
 import type { CardInventory } from "../types";
 import {inventoryReturnBlockedStatusValues, inventorySellableStatusValues} from "../types/inventory";
-import { matchesKeyword } from "./search";
+import {compactSearchText, matchesKeyword} from "./search";
+import {productModelCode, productSearchMatches} from "./productSearch";
 import { storeDate, storeDateDiffDays } from "./storeTime";
 
 export type InventoryRiskFilter = "mined" | "upturned" | "high";
@@ -13,6 +14,7 @@ export type InventoryListFilters = {
   category?: string;
   status?: string;
   brand?: string;
+  supplierName?: string;
   model?: string;
   condition?: string;
   warehouseLocation?: string;
@@ -76,7 +78,7 @@ export function normalizeInventoryListFilters(filters: InventoryListFilters | Re
   if (activeOnly !== undefined) normalized.activeOnly = activeOnly;
   if (sellableOnly !== undefined) normalized.sellableOnly = sellableOnly;
 
-  for (const key of ["category", "status", "brand", "model", "condition", "warehouseLocation", "entryStart", "entryEnd", "keyword"] as const) {
+  for (const key of ["category", "status", "brand", "supplierName", "model", "condition", "warehouseLocation", "entryStart", "entryEnd", "keyword"] as const) {
     const value = raw[key];
     if (typeof value === "string" && value.trim()) normalized[key] = value.trim();
   }
@@ -121,26 +123,21 @@ export function matchesInventoryListFilters(
   if (normalizedFilters.status && normalizedFilters.status !== "all" && card.status !== normalizedFilters.status) return false;
   if (normalizedFilters.category && normalizedFilters.category !== "all" && (card.category || "显卡") !== normalizedFilters.category) return false;
   if (normalizedFilters.brand && normalizedFilters.brand !== "all" && card.brand !== normalizedFilters.brand) return false;
+  if (normalizedFilters.supplierName && !matchesKeyword(card.supplierName, normalizedFilters.supplierName)) return false;
   if (normalizedFilters.model && normalizedFilters.model !== "all" && card.model !== normalizedFilters.model) return false;
   if (normalizedFilters.condition && normalizedFilters.condition !== "all" && card.condition !== normalizedFilters.condition) return false;
   if (normalizedFilters.warehouseLocation && normalizedFilters.warehouseLocation !== "all" && card.warehouseLocation !== normalizedFilters.warehouseLocation) return false;
   const entryDate = String(card.entryTime || "").slice(0, 10);
   if (normalizedFilters.entryStart && (!entryDate || entryDate < normalizedFilters.entryStart)) return false;
   if (normalizedFilters.entryEnd && (!entryDate || entryDate > normalizedFilters.entryEnd)) return false;
-  if (!matchesKeyword([
-    card.id,
-    card.productId,
-    card.productName,
-    card.model,
-    card.brand,
-    card.version,
-    card.vram,
-    card.sn,
-    card.expressNo,
-    card.supplierName,
-    card.warehouseLocation,
-    card.remarks,
-  ], normalizedFilters.keyword)) return false;
+  if (normalizedFilters.keyword) {
+    const keyword = normalizedFilters.keyword;
+    const identifiers = [card.id, card.productId, card.sn, card.expressNo];
+    const exactIdentifier = identifiers.some((value) => Boolean(value) && compactSearchText(value) === compactSearchText(keyword));
+    const identityMatch = productSearchMatches({id: card.productId, productName: card.productName, category: card.category, brand: card.brand, model: card.model, version: card.version, vram: card.vram}, keyword);
+    const partialIdentifier = !productModelCode(keyword) && matchesKeyword(identifiers, keyword);
+    if (!exactIdentifier && !identityMatch && !partialIdentifier) return false;
+  }
 
   const marketLoss = hasInventoryMarketLoss(card);
   if (normalizedFilters.risk === "mined" && !card.gpuRisk) return false;

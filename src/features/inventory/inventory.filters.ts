@@ -5,6 +5,7 @@ export const defaultInventoryFilters: InventoryFilters = {
   keyword: "",
   category: "",
   brand: "",
+  supplierName: "",
   model: "",
   warehouseLocation: "",
   condition: "",
@@ -46,6 +47,7 @@ export function parseInventoryFilters(search: string): InventoryFilters {
     keyword: text(params, "keyword"),
     category: inventoryCategories.includes(text(params, "category") as (typeof inventoryCategories)[number]) ? text(params, "category") as InventoryFilters["category"] : "",
     brand: text(params, "brand"),
+    supplierName: text(params, "supplierName"),
     model: text(params, "model"),
     warehouseLocation: text(params, "warehouseLocation"),
     condition: text(params, "condition"),
@@ -75,6 +77,7 @@ export function inventoryFiltersToSearch(filters: InventoryFilters) {
   set("keyword", filters.keyword);
   set("category", filters.category);
   set("brand", filters.brand);
+  set("supplierName", filters.supplierName);
   set("model", filters.model);
   set("warehouseLocation", filters.warehouseLocation);
   set("condition", filters.condition);

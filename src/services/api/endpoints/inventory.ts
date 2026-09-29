@@ -24,6 +24,7 @@ export function toInventoryQueryParams(filters: InventoryFilters, includePaging 
   set("keyword", filters.keyword);
   set("category", filters.category);
   set("brand", filters.brand);
+  set("supplierName", filters.supplierName);
   set("model", filters.model);
   set("warehouseLocation", filters.warehouseLocation);
   set("status", filters.status || filters.inspectionStatus);
@@ -78,6 +79,7 @@ export const inventoryApi = {
       keyword: id,
       category: "",
       brand: "",
+      supplierName: "",
       model: "",
       warehouseLocation: "",
       condition: "",

@@ -80,9 +80,11 @@ test("collection sync scope never deletes rows from another tenant or store", ()
 
 test("indexed pages include both tenant and store predicates", () => {
   const inventory = buildInventoryPageQuery({tenantId: "tenant_a", storeId: "store_b", keyword: "4090"});
-  assert.deepEqual(inventory.values, ["tenant_a", "store_b", "4090"]);
+  assert.deepEqual(inventory.values.slice(0, 2), ["tenant_a", "store_b"]);
+  assert.ok(inventory.values.includes("4090"));
   assert.match(inventory.where, /tenant_id = \$1/);
   assert.match(inventory.where, /store_id = \$2/);
+  assert.doesNotMatch(inventory.where, /supplierName|remarks/);
 
   const logs = buildLogPageQuery({tenantId: "tenant_a", storeId: "store_b", keyword: "登录"});
   assert.deepEqual(logs.values, ["tenant_a", "store_b", "%登录%"]);
@@ -93,6 +95,15 @@ test("indexed pages include both tenant and store predicates", () => {
   assert.deepEqual(invoices.values, ["tenant_a", "store_b", "%XS-1%"]);
   assert.match(invoices.where, /tenant_id = \$1/);
   assert.match(invoices.where, /store_id = \$2/);
+});
+
+test("inventory keyword SQL excludes supplier metadata and requires an exact GPU variant", () => {
+  const query = buildInventoryPageQuery({keyword: "4090", supplierName: "渠道商"});
+  assert.match(query.where, /supplierName.*ILIKE/);
+  assert.match(query.where, /CASE WHEN.*model/);
+  assert.ok(query.values.some((value) => typeof value === "string" && value.includes("4090") && value.includes("?!")));
+  assert.doesNotMatch(buildInventoryPageQuery({keyword: "4090"}).where, /supplierName|remarks|op_warehouse/);
+  assert.ok(query.values.includes("%渠道商%"));
 });
 
 test("indexed inventory query applies filters and caps server-side pagination", () => {
@@ -108,10 +119,11 @@ test("indexed inventory query applies filters and caps server-side pagination", 
   assert.equal(query.page, 3);
   assert.equal(query.pageSize, 200);
   assert.equal(query.offset, 400);
-  assert.deepEqual(query.values, ["已入库", "显卡", "A-01", "rtx", "4090"]);
+  assert.deepEqual(query.values.slice(0, 3), ["已入库", "显卡", "A-01"]);
+  assert.ok(query.values.includes("rtx"));
+  assert.ok(query.values.includes("4090"));
   assert.match(query.where, /op_status = \$1/);
-  assert.match(query.where, /STRPOS\(regexp_replace\(.+?, \$4\) > 0/);
-  assert.match(query.where, /STRPOS\(regexp_replace\(.+?, \$5\) > 0/);
+  assert.match(query.where, /CASE WHEN.*model/);
   assert.match(query.where, /<> '已售出'/);
   assert.match(query.select, /jsonb_build_object\('storageDays'/);
   assert.match(query.select, /CURRENT_TIMESTAMP AT TIME ZONE 'Asia\/Shanghai'/);
@@ -119,15 +131,20 @@ test("indexed inventory query applies filters and caps server-side pagination", 
 
 test("inventory keyword search matches a compact brand and model without losing scoped pagination", () => {
   const query = buildInventoryPageQuery({tenantId: "tenant_a", storeId: "store_b", category: "显卡", keyword: "技嘉RTX4090", page: 2, pageSize: 10});
-  assert.deepEqual(query.values, ["tenant_a", "store_b", "显卡", "技嘉", "rtx", "4090"]);
+  assert.deepEqual(query.values.slice(0, 3), ["tenant_a", "store_b", "显卡"]);
+  assert.ok(query.values.includes("技嘉"));
+  assert.ok(query.values.includes("rtx"));
+  assert.ok(query.values.includes("4090"));
   assert.match(query.where, /tenant_id = \$1/);
   assert.match(query.where, /store_id = \$2/);
   assert.match(query.where, /op_category = \$3/);
-  assert.equal((query.where.match(/STRPOS\(/g) || []).length, 3);
+  assert.match(query.where, /CASE WHEN.*model/);
   assert.equal(query.offset, 10);
 
   const reordered = buildInventoryPageQuery({keyword: "RTX4090 技嘉"});
-  assert.deepEqual(reordered.values, ["rtx", "4090", "技嘉"]);
+  assert.ok(reordered.values.includes("技嘉"));
+  assert.ok(reordered.values.includes("rtx"));
+  assert.ok(reordered.values.includes("4090"));
   const unsafe = buildInventoryPageQuery({keyword: "4090%' OR TRUE --"});
   assert.doesNotMatch(unsafe.where, /OR TRUE/);
 });

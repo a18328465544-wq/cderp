@@ -62,3 +62,23 @@ test("inventory summary matches a brand and model typed without spaces", () => {
   assert.equal(matchesInventoryListFilters(item, {category: "显卡", keyword: "RTX4090 技嘉"}), true);
   assert.equal(matchesInventoryListFilters(item, {category: "显卡", keyword: "华硕RTX4090"}), false);
 });
+
+test("inventory keyword uses product identity and keeps GPU model variants distinct", () => {
+  const matching = {...card("已入库"), productName: "微星 RTX4090 魔龙 24G", model: "RTX4090", supplierName: "供货商"};
+  const otherModel = {...matching, id: "KC-5090", productName: "微星 RTX5090 魔龙 32G", model: "RTX5090", supplierName: "4090 显卡供货商", remarks: "曾询价 4090"};
+  const suffixModel = {...matching, id: "KC-4090D", productName: "微星 RTX4090D 魔龙 24G", model: "RTX4090D"};
+  assert.equal(matchesInventoryListFilters(matching, {keyword: "4090"}), true);
+  assert.equal(matchesInventoryListFilters(otherModel, {keyword: "4090"}), false);
+  assert.equal(matchesInventoryListFilters(suffixModel, {keyword: "4090"}), false);
+  assert.equal(matchesInventoryListFilters(suffixModel, {keyword: "4090D"}), true);
+  assert.equal(matchesInventoryListFilters(otherModel, {supplierName: "4090"}), true);
+});
+
+test("inventory identifiers remain searchable without matching unrelated metadata", () => {
+  const item = {...card("已入库"), id: "KC-20260929-001", sn: "T4Y4090ABC", expressNo: "SF123456", remarks: "历史型号 4090"};
+  assert.equal(matchesInventoryListFilters(item, {keyword: "T4Y4090ABC"}), true);
+  assert.equal(matchesInventoryListFilters(item, {keyword: "KC-20260929-001"}), true);
+  assert.equal(matchesInventoryListFilters(item, {keyword: "SF123456"}), true);
+  assert.equal(matchesInventoryListFilters(item, {keyword: "SF123"}), true);
+  assert.equal(matchesInventoryListFilters(item, {keyword: "4090"}), false);
+});

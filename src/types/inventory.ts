@@ -39,6 +39,7 @@ export interface InventoryFilters {
   keyword: string;
   category: InventoryCategory | "";
   brand: string;
+  supplierName: string;
   model: string;
   warehouseLocation: string;
   condition: string;

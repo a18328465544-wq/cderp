@@ -544,6 +544,7 @@ export const inventoryListQueryDto = z.object({
   status: queryFilterEnum(cardStatusValues),
   category: queryFilterEnum(productCategories),
   brand: queryText(120),
+  supplierName: queryText(120),
   model: queryText(160),
   condition: queryFilterEnum(purchaseConditions),
   warehouseLocation: queryText(120),
