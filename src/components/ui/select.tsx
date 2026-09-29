@@ -43,6 +43,8 @@ export interface SelectProps {
   onSearchValueChange?: (value: string) => void;
   /** Disable local matching when options have already been filtered by a remote query. */
   shouldFilter?: boolean;
+  /** Entity-specific matching when the default label matcher is too broad. */
+  searchFilter?: (option: SelectOption, query: string) => boolean;
   /** Limits rendered results and protects dense ERP forms from very large option lists. */
   searchResultLimit?: number;
   /** Optional explicit clear behavior for entity fields with dependent form data. */
@@ -87,7 +89,7 @@ export function shouldShowQuickCreateAction({hasSelection, searchLoading}: {
  * Keep option data at the feature boundary and keep popup styling here so
  * business pages never fall back to browser-native selects.
  */
-export function Select({value, options, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchResultLimit = 60, onClear, quickCreateAction}: SelectProps) {
+export function Select({value, options, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchFilter, searchResultLimit = 60, onClear, quickCreateAction}: SelectProps) {
   const hasCustomWidth = hasBaseWidthUtilityClass(className);
   const compact = density === "compact" || size === "sm";
   const controlHeight = compact ? "h-[var(--erp-control-height-compact)]" : "h-[var(--erp-control-height)]";
@@ -100,7 +102,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
     return <BaseCombobox.Root<SelectOption>
       items={options}
       limit={searchResultLimit}
-      filter={shouldFilter ? (option, query) => selectOptionMatches(option, query) : null}
+      filter={shouldFilter ? (option, query) => searchFilter ? searchFilter(option, query) : selectOptionMatches(option, query) : null}
       value={selected}
       onValueChange={(option) => {
         if (!option && onClear) onClear();

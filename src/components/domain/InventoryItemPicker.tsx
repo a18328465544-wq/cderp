@@ -1,11 +1,12 @@
 import {Check, ChevronDown, ImageOff, LoaderCircle, PackageSearch, RefreshCw, Search, X} from "lucide-react";
 import {createPortal} from "react-dom";
-import {useEffect, useId, useRef, useState} from "react";
+import {useEffect, useId, useMemo, useRef, useState} from "react";
 import {Button, Input} from "@/src/components/ui";
 import {useFloatingPanelPosition} from "@/src/hooks/useFloatingPanelPosition";
 import {formatCurrency} from "@/src/lib/format";
 import {cn} from "@/src/lib/cn";
 import type {SalesProductCandidate} from "@/src/types/sales";
+import {productSearchMatches, productSearchRank} from "@/src/utils/productSearch";
 
 function nextSaleableIndex(options: SalesProductCandidate[], current: number, direction: 1 | -1) {
   if (!options.length) return -1;
@@ -35,6 +36,7 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = `inventory-picker-${useId().replace(/:/g, "")}`;
   const panelPosition = useFloatingPanelPosition(rootRef, open && !value, 320);
+  const visibleOptions = useMemo(() => options.filter((option) => productSearchMatches(option, keyword)).sort((left, right) => productSearchRank(left, keyword) - productSearchRank(right, keyword)).slice(0, 60), [options, keyword]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -45,15 +47,15 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
   }, []);
 
   useEffect(() => {
-    if (!open || !options.length) {
+    if (!open || !visibleOptions.length) {
       setActiveIndex(-1);
       return;
     }
-    setActiveIndex((current) => options[current]?.saleable ? current : nextSaleableIndex(options, -1, 1));
-  }, [open, options]);
+    setActiveIndex((current) => visibleOptions[current]?.saleable ? current : nextSaleableIndex(visibleOptions, -1, 1));
+  }, [open, visibleOptions]);
 
   const choose = (index: number) => {
-    const option = options[index];
+    const option = visibleOptions[index];
     if (!option?.saleable) return;
     onSelect(option);
     setOpen(false);
@@ -62,8 +64,8 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
   const listbox = open && !value && panelPosition ? <div ref={listboxRef} id={listboxId} role="listbox" aria-label="可销售商品" className="erp-picker-listbox fixed erp-popover-layer max-h-80 overflow-y-auto rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-1 shadow-[var(--erp-shadow-popover)]" style={{left: panelPosition.left, top: panelPosition.top, width: panelPosition.width, maxHeight: panelPosition.maxHeight}}>
       {loading && <div className="flex items-center gap-2 px-3 py-4 text-xs text-[var(--erp-color-text-muted)]"><LoaderCircle className="h-4 w-4 animate-spin" />正在查询可销售商品候选…</div>}
       {error && !loading && <div className="flex items-center justify-between gap-3 px-3 py-3 text-xs text-[var(--erp-color-danger)]"><span>{error}</span>{onRetry && <Button type="button" size="sm" variant="ghost" onClick={onRetry}><RefreshCw className="h-3.5 w-3.5" />重试</Button>}</div>}
-      {!loading && !error && !options.length && <div className="px-3 py-5 text-center text-xs text-[var(--erp-color-text-muted)]"><Search className="mx-auto mb-2 h-4 w-4" />没有找到可销售商品候选</div>}
-      {!loading && !error && options.map((option, index) => {
+      {!loading && !error && !visibleOptions.length && <div className="px-3 py-5 text-center text-xs text-[var(--erp-color-text-muted)]"><Search className="mx-auto mb-2 h-4 w-4" />没有找到可销售商品候选</div>}
+      {!loading && !error && visibleOptions.map((option, index) => {
         const availabilityLabel = option.saleable ? `可售 ${option.availableQuantity} 张` : `不可选 · 可售 ${option.availableQuantity} 张`;
         return <button
           type="button"
@@ -113,11 +115,11 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setOpen(true);
-            setActiveIndex((current) => nextSaleableIndex(options, current, 1));
+            setActiveIndex((current) => nextSaleableIndex(visibleOptions, current, 1));
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
             setOpen(true);
-            setActiveIndex((current) => nextSaleableIndex(options, current < 0 ? options.length : current, -1));
+            setActiveIndex((current) => nextSaleableIndex(visibleOptions, current < 0 ? visibleOptions.length : current, -1));
           } else if (event.key === "Enter" && open && activeIndex >= 0) {
             event.preventDefault();
             choose(activeIndex);

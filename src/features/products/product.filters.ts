@@ -1,5 +1,6 @@
 import type {SortingState} from "@tanstack/react-table";
 import type {ProductLibraryFilters, ProductLibraryItem} from "@/src/types/product";
+import {productSearchMatches} from "@/src/utils/productSearch";
 
 export const defaultProductFilters: ProductLibraryFilters = {keyword: "", category: "all", brand: "all", page: 1, pageSize: 20};
 
@@ -26,17 +27,11 @@ export function productFiltersToSearch(filters: ProductLibraryFilters) {
   return params;
 }
 
-function normalized(value: string) {
-  return value.trim().toLocaleLowerCase("zh-CN").replace(/\s+/g, " ");
-}
-
 export function filterProducts(products: ProductLibraryItem[], filters: ProductLibraryFilters) {
-  const keyword = normalized(filters.keyword);
   return products.filter((product) => {
     if (filters.category !== "all" && product.category !== filters.category) return false;
     if (filters.brand !== "all" && product.brand !== filters.brand) return false;
-    if (!keyword) return true;
-    return normalized([product.id, product.name, product.brand, product.model, product.version, product.vram, product.remarks || ""].join(" ")).includes(keyword);
+    return productSearchMatches(product, filters.keyword);
   });
 }
 

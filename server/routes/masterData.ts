@@ -22,7 +22,7 @@ export function registerMasterDataRoutes(app: Express, dependencies: MasterDataD
     try {
       const query = parseHttpDto(productListQueryDto, req.query);
       const permissions = dependencies.permissionsForRequest(req);
-      res.json(await listProductPage({tenantId: req.tenantId, storeId: req.storeId, page: query.page, pageSize: query.pageSize, keyword: query.keyword, category: query.category, brand: query.brand, sortKey: query.sortKey, sortDirection: query.sortDirection}, {showCost: permissions.showCost === true, showProfit: permissions.showProfit === true}));
+      res.json(await listProductPage({tenantId: req.tenantId, storeId: req.storeId, page: query.page, pageSize: query.pageSize, keyword: query.keyword, category: query.category, brand: query.brand, sortKey: query.sortKey, sortDirection: query.sortDirection, explicitSort: typeof req.query.sortKey === "string"}, {showCost: permissions.showCost === true, showProfit: permissions.showProfit === true}));
     } catch (error) { next(error); }
   });
 }

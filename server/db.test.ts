@@ -80,7 +80,7 @@ test("collection sync scope never deletes rows from another tenant or store", ()
 
 test("indexed pages include both tenant and store predicates", () => {
   const inventory = buildInventoryPageQuery({tenantId: "tenant_a", storeId: "store_b", keyword: "4090"});
-  assert.deepEqual(inventory.values, ["tenant_a", "store_b", "%4090%"]);
+  assert.deepEqual(inventory.values, ["tenant_a", "store_b", "4090"]);
   assert.match(inventory.where, /tenant_id = \$1/);
   assert.match(inventory.where, /store_id = \$2/);
 
@@ -108,12 +108,28 @@ test("indexed inventory query applies filters and caps server-side pagination", 
   assert.equal(query.page, 3);
   assert.equal(query.pageSize, 200);
   assert.equal(query.offset, 400);
-  assert.deepEqual(query.values, ["已入库", "显卡", "A-01", "%RTX 4090%"]);
+  assert.deepEqual(query.values, ["已入库", "显卡", "A-01", "rtx", "4090"]);
   assert.match(query.where, /op_status = \$1/);
-  assert.match(query.where, /ILIKE \$4/);
+  assert.match(query.where, /STRPOS\(regexp_replace\(.+?, \$4\) > 0/);
+  assert.match(query.where, /STRPOS\(regexp_replace\(.+?, \$5\) > 0/);
   assert.match(query.where, /<> '已售出'/);
   assert.match(query.select, /jsonb_build_object\('storageDays'/);
   assert.match(query.select, /CURRENT_TIMESTAMP AT TIME ZONE 'Asia\/Shanghai'/);
+});
+
+test("inventory keyword search matches a compact brand and model without losing scoped pagination", () => {
+  const query = buildInventoryPageQuery({tenantId: "tenant_a", storeId: "store_b", category: "显卡", keyword: "技嘉RTX4090", page: 2, pageSize: 10});
+  assert.deepEqual(query.values, ["tenant_a", "store_b", "显卡", "技嘉", "rtx", "4090"]);
+  assert.match(query.where, /tenant_id = \$1/);
+  assert.match(query.where, /store_id = \$2/);
+  assert.match(query.where, /op_category = \$3/);
+  assert.equal((query.where.match(/STRPOS\(/g) || []).length, 3);
+  assert.equal(query.offset, 10);
+
+  const reordered = buildInventoryPageQuery({keyword: "RTX4090 技嘉"});
+  assert.deepEqual(reordered.values, ["rtx", "4090", "技嘉"]);
+  const unsafe = buildInventoryPageQuery({keyword: "4090%' OR TRUE --"});
+  assert.doesNotMatch(unsafe.where, /OR TRUE/);
 });
 
 test("inventory page query keeps active, brand, risk, and aging filters inside PostgreSQL", () => {

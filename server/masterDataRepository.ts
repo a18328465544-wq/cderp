@@ -1,8 +1,9 @@
 import type {ProductTemplate, Vendor} from "../src/types.ts";
 import {inventoryStockStatusValues} from "../src/types/inventory.ts";
 import {withDatabaseTransaction} from "./db.ts";
+import {productSearchSql} from "./productSearchSql.ts";
 
-type PageScope = {tenantId?: string; storeId?: string; page?: number; pageSize?: number; keyword?: string; sortKey?: string; sortDirection?: string};
+type PageScope = {tenantId?: string; storeId?: string; page?: number; pageSize?: number; keyword?: string; sortKey?: string; sortDirection?: string; explicitSort?: boolean};
 export type VendorPageFilters = PageScope & {type?: string; level?: string; balance?: string};
 export type ProductPageFilters = PageScope & {category?: string; brand?: string};
 
@@ -79,17 +80,19 @@ export async function listVendorPage(filters: VendorPageFilters = {}, options: {
 export async function listProductPage(filters: ProductPageFilters = {}, options: {showCost: boolean; showProfit: boolean}) {
   return withDatabaseTransaction(async (client) => {
     const scope = scopeBuilder(filters);
-    if (filters.keyword?.trim()) scope.clauses.push(`CONCAT_WS(' ', p.id, p.data->>'name', p.data->>'category', p.data->>'brand', p.data->>'model', p.data->>'version', p.data->>'vram', p.data->>'remarks') ILIKE ${scope.bind(`%${filters.keyword.trim()}%`)}`);
+    if (filters.keyword?.trim()) scope.clauses.push(...productSearchSql("p", filters.keyword, scope.bind));
     if (filters.category && filters.category !== "all") scope.clauses.push(`COALESCE(p.data->>'category', '') = ${scope.bind(filters.category)}`);
     if (filters.brand && filters.brand !== "all") scope.clauses.push(`COALESCE(p.data->>'brand', '') = ${scope.bind(filters.brand)}`);
     const where = scope.clauses.length ? `WHERE ${scope.clauses.join(" AND ")}` : "";
     const page = pageQuery(filters, {name: `COALESCE(data->>'name', '')`, refBuyPrice: numericJson("refBuyPrice"), refSellPrice: numericJson("refSellPrice"), currentStock: `current_stock`, lastDealTime: `COALESCE(data->>'lastDealTime', '')`}, `COALESCE(data->>'category', ''), COALESCE(data->>'brand', ''), COALESCE(data->>'model', '')`);
+    const rankPosition = filters.keyword?.trim() && !filters.explicitSort ? scope.values.push(filters.keyword.trim()) : 0;
+    const orderBy = rankPosition ? `CASE WHEN LOWER(id) = LOWER($${rankPosition}) OR LOWER(COALESCE(data->>'name','')) = LOWER($${rankPosition}) OR LOWER(COALESCE(data->>'model','')) = LOWER($${rankPosition}) THEN 0 WHEN POSITION(LOWER($${rankPosition}) IN LOWER(COALESCE(data->>'model',''))) > 0 THEN 1 ELSE 2 END, ${page.orderBy}` : page.orderBy;
     const inventoryScope = [`i.tenant_id = p.tenant_id`, `i.store_id = p.store_id`, `i.data->>'productId' = p.id`, `COALESCE(i.data->>'status','') IN (${inventoryStockStatusSql})`].join(" AND ");
     const base = `SELECT p.id, p.data, (SELECT COUNT(*) FROM gpu_inventory i WHERE ${inventoryScope})::int AS current_stock FROM gpu_products p ${where}`;
     const facetScope = scopeBuilder(filters);
     const facetWhere = facetScope.clauses.length ? `WHERE ${facetScope.clauses.join(" AND ")}` : "";
-    const rows = await client.query<{id: string; data: ProductTemplate; current_stock: number}>(`SELECT * FROM (${base}) product_page ORDER BY ${page.orderBy} LIMIT $${scope.values.length + 1} OFFSET $${scope.values.length + 2}`, [...scope.values, page.pageSize, page.offset]);
-    const aggregate = await client.query<{total: string; stocked_templates: string; stock_units: string}>(`SELECT COUNT(*)::text total, COUNT(*) FILTER (WHERE current_stock > 0)::text stocked_templates, COALESCE(SUM(current_stock),0)::text stock_units FROM (${base}) product_summary`, scope.values);
+    const rows = await client.query<{id: string; data: ProductTemplate; current_stock: number}>(`SELECT * FROM (${base}) product_page ORDER BY ${orderBy} LIMIT $${scope.values.length + 1} OFFSET $${scope.values.length + 2}`, [...scope.values, page.pageSize, page.offset]);
+    const aggregate = await client.query<{total: string; stocked_templates: string; stock_units: string}>(`SELECT COUNT(*)::text total, COUNT(*) FILTER (WHERE current_stock > 0)::text stocked_templates, COALESCE(SUM(current_stock),0)::text stock_units FROM (${base}) product_summary`, rankPosition ? scope.values.slice(0, -1) : scope.values);
     const facets = await client.query<{category: string; brand: string}>(`SELECT DISTINCT COALESCE(data->>'category','') category, COALESCE(data->>'brand','') brand FROM gpu_products ${facetWhere}`, facetScope.values);
     const products = rows.rows.map((row) => {
       const data = {...row.data, id: row.id, currentStock: row.current_stock} as ProductTemplate & Record<string, unknown>;

@@ -2,6 +2,7 @@ import type { Express, Request, RequestHandler, Response } from "express";
 import type { InventorySummaryRow } from "../../src/types.ts";
 import type { InventoryListFilters } from "../../src/utils/inventoryFilters.ts";
 import { parseHttpDto, salesProductCandidateQueryDto } from "../httpDto.ts";
+import {productSearchMatches, productSearchRank} from "../../src/utils/productSearch.ts";
 
 type SalesProductCandidateDependencies = {
   requireMenu: (menuId: string) => RequestHandler;
@@ -33,9 +34,11 @@ export function registerSalesProductCandidateRoutes(
       // Use booleans at the boundary and ask for the sellable-only population.
       // The resulting avgCost/avgEstSell now has the same population as the
       // server-side sales reservation and invoice-profit calculation.
-      const rows = dependencies.getInventorySummary(req, {keyword, activeOnly: true, includeSold: false, sellableOnly: true});
+      // Aggregate the whole saleable population first. A card-level keyword
+      // match on SN, supplier or remarks must not turn into a product result.
+      const rows = dependencies.getInventorySummary(req, {activeOnly: true, includeSold: false, sellableOnly: true});
       const data = rows
-        .filter((row) => row.availableCount > 0)
+        .filter((row) => row.availableCount > 0 && productSearchMatches({id: row.productId || row.key, productName: row.productName, category: row.category, brand: row.brand, model: row.model, version: row.version, vram: row.vram}, keyword))
         .map((row) => {
           const availableQuantity = Math.max(0, row.availableForSalesCount ?? row.availableCount);
           return {
@@ -61,7 +64,7 @@ export function registerSalesProductCandidateRoutes(
             unavailableReason: availableQuantity > 0 ? undefined : "可售库存已被待出库订单占用",
           };
         })
-        .sort((left, right) => right.availableQuantity - left.availableQuantity || left.productName.localeCompare(right.productName, "zh-Hans-CN"));
+        .sort((left, right) => productSearchRank(left, keyword) - productSearchRank(right, keyword) || right.availableQuantity - left.availableQuantity || left.productName.localeCompare(right.productName, "zh-Hans-CN"));
       res.json({ data });
     },
   );

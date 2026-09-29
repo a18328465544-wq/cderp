@@ -55,3 +55,10 @@ test("sellable-only filters exclude pending and sold stock from sales population
   assert.equal(matchesInventoryListFilters(card("待检测"), {sellableOnly: "true"}), false);
   assert.equal(matchesInventoryListFilters(card("已上架"), {sellableOnly: "true"}), true);
 });
+
+test("inventory summary matches a brand and model typed without spaces", () => {
+  const item = {...card("已入库"), brand: "技嘉", model: "RTX4090", productName: "技嘉 RTX 4090 魔鹰 24G"};
+  assert.equal(matchesInventoryListFilters(item, {category: "显卡", keyword: "技嘉RTX4090"}), true);
+  assert.equal(matchesInventoryListFilters(item, {category: "显卡", keyword: "RTX4090 技嘉"}), true);
+  assert.equal(matchesInventoryListFilters(item, {category: "显卡", keyword: "华硕RTX4090"}), false);
+});

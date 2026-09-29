@@ -13,6 +13,7 @@ import {inventoryReturnBlockedStatusValues} from "../src/types/inventory.ts";
 import {financeExpenseCategories, legacyFinanceExpenseCategories} from "../src/types/finance-expense.ts";
 import {financeIncomeCategories} from "../src/types/finance-income.ts";
 import {storeDateAfterDays} from "../src/utils/storeTime.ts";
+import {tokenizeSearchText} from "../src/utils/search.ts";
 
 export type FinanceRecordKind = "settlement" | "income" | "expense";
 export type FinanceProfitFlowKind = "income" | "expense";
@@ -29,6 +30,12 @@ function normalizedPage(value: number | undefined, fallback: number) {
 // 中历史写入的 storageDays 快照。所有 PostgreSQL 库存列表查询都使用这条表达式，
 // 这样排序、筛选和返回给前端的数值保持同一口径。
 const inventoryStorageDaysExpression = `GREATEST(CASE WHEN LEFT(COALESCE(data->>'entryTime', ''), 10) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date - LEFT(data->>'entryTime', 10)::date ELSE 0 END, 0)`;
+
+// Keep the paginated list's keyword semantics aligned with the in-memory inventory
+// summary: normalize separators, then require every query token to occur in the
+// combined searchable fields. A brand and model may be stored in separate fields
+// even when the user types them together (e.g. 技嘉RTX4090).
+const inventorySearchTextExpression = `regexp_replace(lower(normalize(CONCAT_WS(' ', id, op_product_id, data->>'productName', data->>'model', op_brand, data->>'version', data->>'vram', op_sn, data->>'expressNo', data->>'supplierName', op_warehouse, data->>'remarks'), NFKC)), '[[:space:][:punct:]，。、·・：；（）【】《》“”‘’—]+', '', 'g')`;
 
 export function buildInventoryPageQuery(filters: InventoryPageFilters = {}) {
   const page = normalizedPage(filters.page, 1);
@@ -84,8 +91,9 @@ export function buildInventoryPageQuery(filters: InventoryPageFilters = {}) {
     clauses.push(`COALESCE(NULLIF(data->>'costPrice', '')::numeric, 0) > 0 AND COALESCE(NULLIF(data->>'estSellPrice', '')::numeric, 0) >= COALESCE(NULLIF(data->>'costPrice', '')::numeric, 0) * ${bind(1 + filters.minProfitMargin)}`);
   }
   if (keyword) {
-    const placeholder = bind(`%${keyword}%`);
-    clauses.push(`CONCAT_WS(' ', id, op_product_id, data->>'productName', data->>'model', op_brand, data->>'version', data->>'vram', op_sn, data->>'expressNo', data->>'supplierName', op_warehouse, data->>'remarks') ILIKE ${placeholder}`);
+    for (const token of tokenizeSearchText(keyword)) {
+      clauses.push(`STRPOS(${inventorySearchTextExpression}, ${bind(token)}) > 0`);
+    }
   }
   const sortExpressions: Record<string, string> = {
     id: "id",

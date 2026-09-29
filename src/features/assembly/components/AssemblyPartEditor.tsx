@@ -1,4 +1,5 @@
 import {Controller, type UseFormReturn} from "react-hook-form";
+import {useMemo} from "react";
 import {Camera, Plus, Trash2} from "lucide-react";
 import {Button, Input, Select} from "@/src/components/ui";
 import {ErpAmountInput} from "@/src/components/common";
@@ -7,6 +8,7 @@ import type {AssemblyFormValues, AssemblyInventoryOption, AssemblyProductOption}
 import {inventorySellableStatuses} from "@/src/utils/inventoryFilters";
 import {createAssemblyPartDefaults} from "../assembly.defaults";
 import {AssemblyInventoryPicker} from "./AssemblyInventoryPicker";
+import {productSearchMatches} from "@/src/utils/productSearch";
 
 const categoryOptions = productCategoryValues.map((value) => ({value, label: value}));
 
@@ -16,6 +18,8 @@ export function AssemblyPartEditor({kind, form, inventory, products, showCost, s
   const remove = (index: number) => form.setValue(kind, parts.filter((_, current) => current !== index), {shouldDirty: true, shouldValidate: true});
   const add = () => form.setValue(kind, [...parts, createAssemblyPartDefaults(parts.length)], {shouldDirty: true, shouldValidate: true});
   const assemblySources = kind === "beforeParts";
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const matchProduct = (option: {value: string}, query: string) => {const product = productById.get(option.value); return Boolean(product && productSearchMatches(product, query));};
 
   return <div className="space-y-3">
     <div className="hidden xl:block">
@@ -36,7 +40,7 @@ export function AssemblyPartEditor({kind, form, inventory, products, showCost, s
           {parts.map((part, index) => <tr key={`${kind}-${index}`} className="border-t border-[var(--erp-color-border)] align-top">
             <td className="min-w-72 px-3 py-2">
               {assemblySources ? <AssemblyInventoryPicker label={`选择第${index + 1}个组装来源库存`} value={part.sn} options={inventory} allowedStatuses={inventorySellableStatuses} disabled={disabled} onClear={() => replace(index, {productId: "", partName: `配件-${index + 1}`, sn: "", category: "其他配件", costPrice: 0, estSellPrice: 0, marketPrice: 0})} onSelect={(option) => replace(index, {productId: option.productId || "", partName: option.productName, category: option.category, sn: option.sn, costPrice: option.costPrice || 0, estSellPrice: option.estSellPrice || 0, marketPrice: option.marketPrice || 0})} /> : <div className="space-y-2">
-                <Select searchable searchPlaceholder="搜索商品模板" emptyText="没有找到匹配的商品模板" value={part.productId} placeholder="选择模板（可选）" options={products.map((product) => ({value: product.id, label: product.name}))} disabled={disabled} aria-label={`第${index + 1}行商品模板`} onValueChange={(id) => {const product = products.find((item) => item.id === id); if (product) replace(index, {productId: product.id, partName: product.name, category: product.category, costPrice: product.refBuyPrice || 0, estSellPrice: product.refSellPrice || 0, marketPrice: product.refSellPrice || 0});}} />
+                <Select searchable searchPlaceholder="搜索商品模板" emptyText="没有找到匹配的商品模板" value={part.productId} placeholder="选择模板（可选）" options={products.map((product) => ({value: product.id, label: product.name}))} searchFilter={matchProduct} disabled={disabled} aria-label={`第${index + 1}行商品模板`} onValueChange={(id) => {const product = products.find((item) => item.id === id); if (product) replace(index, {productId: product.id, partName: product.name, category: product.category, costPrice: product.refBuyPrice || 0, estSellPrice: product.refSellPrice || 0, marketPrice: product.refSellPrice || 0});}} />
                 <Input value={part.partName} onChange={(event) => replace(index, {partName: event.target.value, productId: ""})} placeholder="配件名称" disabled={disabled} />
               </div>}
             </td>
@@ -62,7 +66,7 @@ export function AssemblyPartEditor({kind, form, inventory, products, showCost, s
           <div className="min-w-0">
             <span className="mb-1.5 block text-xs font-semibold text-[var(--erp-color-text-secondary)]">{assemblySources ? "来源库存" : "商品模板 / 配件名称"}</span>
             {assemblySources ? <AssemblyInventoryPicker label={`选择第${index + 1}个组装来源库存`} value={part.sn} options={inventory} allowedStatuses={inventorySellableStatuses} disabled={disabled} onClear={() => replace(index, {productId: "", partName: `配件-${index + 1}`, sn: "", category: "其他配件", costPrice: 0, estSellPrice: 0, marketPrice: 0})} onSelect={(option) => replace(index, {productId: option.productId || "", partName: option.productName, category: option.category, sn: option.sn, costPrice: option.costPrice || 0, estSellPrice: option.estSellPrice || 0, marketPrice: option.marketPrice || 0})} /> : <div className="min-w-0 space-y-2">
-              <Select searchable searchPlaceholder="搜索商品模板" emptyText="没有找到匹配的商品模板" value={part.productId} placeholder="选择模板（可选）" options={products.map((product) => ({value: product.id, label: product.name}))} disabled={disabled} aria-label={`第${index + 1}行商品模板`} onValueChange={(id) => {const product = products.find((item) => item.id === id); if (product) replace(index, {productId: product.id, partName: product.name, category: product.category, costPrice: product.refBuyPrice || 0, estSellPrice: product.refSellPrice || 0, marketPrice: product.refSellPrice || 0});}} />
+              <Select searchable searchPlaceholder="搜索商品模板" emptyText="没有找到匹配的商品模板" value={part.productId} placeholder="选择模板（可选）" options={products.map((product) => ({value: product.id, label: product.name}))} searchFilter={matchProduct} disabled={disabled} aria-label={`第${index + 1}行商品模板`} onValueChange={(id) => {const product = products.find((item) => item.id === id); if (product) replace(index, {productId: product.id, partName: product.name, category: product.category, costPrice: product.refBuyPrice || 0, estSellPrice: product.refSellPrice || 0, marketPrice: product.refSellPrice || 0});}} />
               <Input value={part.partName} onChange={(event) => replace(index, {partName: event.target.value, productId: ""})} placeholder="配件名称" disabled={disabled} />
             </div>}
           </div>

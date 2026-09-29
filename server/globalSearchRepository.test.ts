@@ -11,7 +11,8 @@ test("global search selects only entities backed by the current account menus", 
 test("global search query is tenant/store scoped, bounded, and returns no sensitive fields", () => {
   const query = buildGlobalSearchQuery({tenantId: "tenant-a", storeId: "store-a", query: "4090", limit: 999, allowedMenus: ["products", "inventory", "sales_list"]});
   assert.equal(query.limit, 60);
-  assert.deepEqual(query.values, ["tenant-a", "store-a", "4090", 60]);
+  assert.deepEqual(query.values.slice(0, 4), ["tenant-a", "store-a", "4090", 60]);
+  assert.equal(String(query.values.at(-1)).includes("4090"), true);
   assert.match(query.sql, /gpu_products/);
   assert.match(query.sql, /gpu_inventory/);
   assert.match(query.sql, /gpu_sales_invoices/);

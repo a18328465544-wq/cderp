@@ -1,6 +1,7 @@
 import type {CardInventory, CustomerCard, InspectionRecord, PaymentOutRecord, ProductTemplate, PurchaseInvoice, ReturnOrder, SettlementAccount, Vendor} from "../src/types.ts";
 import {inventoryStockStatusValues} from "../src/types/inventory.ts";
 import {withDatabaseTransaction} from "./db.ts";
+import {productSearchSql} from "./productSearchSql.ts";
 
 type Scope = {tenantId?: string; storeId?: string};
 type PurchaseReadPermissions = {showCost: boolean; showProfit: boolean; canReadCustomers: boolean; canReadVendors: boolean; canReadProducts: boolean; canReadSettlementAccounts: boolean};
@@ -35,9 +36,12 @@ function minimalAccount(account: SettlementAccount) {
 export async function searchPurchaseProducts(scope: Scope, keyword: string, permissions: Pick<PurchaseReadPermissions, "showCost" | "showProfit">, limit = 60) {
   return withDatabaseTransaction(async (client) => {
     const query = scoped(scope, "p");
-    if (keyword.trim()) {query.values.push(`%${keyword.trim()}%`); query.clauses.push(`CONCAT_WS(' ', p.id, p.data->>'name', p.data->>'brand', p.data->>'model', p.data->>'version', p.data->>'vram') ILIKE $${query.values.length}`);}
+    if (keyword.trim()) query.clauses.push(...productSearchSql("p", keyword, (value) => {query.values.push(value); return `$${query.values.length}`;}));
+    let rankPosition = 0;
+    if (keyword.trim()) {query.values.push(keyword.trim()); rankPosition = query.values.length;}
+    const searchOrder = rankPosition ? `CASE WHEN LOWER(p.id) = LOWER($${rankPosition}) OR LOWER(COALESCE(p.data->>'name','')) = LOWER($${rankPosition}) OR LOWER(COALESCE(p.data->>'model','')) = LOWER($${rankPosition}) THEN 0 WHEN POSITION(LOWER($${rankPosition}) IN LOWER(COALESCE(p.data->>'model',''))) > 0 THEN 1 ELSE 2 END, ` : "";
     query.values.push(Math.min(100, Math.max(1, limit)));
-    const rows = await client.query<{id: string; data: ProductTemplate; current_stock: number}>(`SELECT p.id, p.data, (SELECT COUNT(*) FROM gpu_inventory i WHERE i.tenant_id = p.tenant_id AND i.store_id = p.store_id AND i.data->>'productId' = p.id AND COALESCE(i.data->>'status','') IN (${inventoryStockStatusSql}))::int current_stock FROM gpu_products p ${query.clauses.length ? `WHERE ${query.clauses.join(" AND ")}` : ""} ORDER BY COALESCE(p.data->>'lastDealTime','') DESC, p.id ASC LIMIT $${query.values.length}`, query.values);
+    const rows = await client.query<{id: string; data: ProductTemplate; current_stock: number}>(`SELECT p.id, p.data, (SELECT COUNT(*) FROM gpu_inventory i WHERE i.tenant_id = p.tenant_id AND i.store_id = p.store_id AND i.data->>'productId' = p.id AND COALESCE(i.data->>'status','') IN (${inventoryStockStatusSql}))::int current_stock FROM gpu_products p ${query.clauses.length ? `WHERE ${query.clauses.join(" AND ")}` : ""} ORDER BY ${searchOrder}COALESCE(p.data->>'lastDealTime','') DESC, p.id ASC LIMIT $${query.values.length}`, query.values);
     return rows.rows.map((row) => minimalProduct({...row.data, id: row.id}, row.current_stock, permissions));
   });
 }

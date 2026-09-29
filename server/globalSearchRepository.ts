@@ -1,6 +1,7 @@
 import {withDatabaseTransaction} from "./db.ts";
 import type {PoolClient} from "pg";
 import type {GlobalSearchResult, GlobalSearchResultKind} from "../src/types/global-search.ts";
+import {productSearchSql} from "./productSearchSql.ts";
 
 type SearchBranch = {
   kind: GlobalSearchResultKind;
@@ -43,7 +44,7 @@ const branches: readonly SearchBranch[] = [
     subtitle: "CONCAT_WS(' · ', NULLIF(data->>'category', ''), NULLIF(data->>'brand', ''), NULLIF(data->>'model', ''), NULLIF(data->>'version', ''), NULLIF(data->>'vram', ''))",
     reference: "COALESCE(NULLIF(data->>'model', ''), id)",
     route: "'/products'",
-    searchable: "CONCAT_WS(' ', id, data->>'name', data->>'category', data->>'brand', data->>'model', data->>'version', data->>'vram', data->>'remarks')",
+    searchable: "CONCAT_WS(' ', id, data->>'name', data->>'category', data->>'brand', data->>'model', data->>'version', data->>'vram')",
     priority: 10,
   },
   {
@@ -171,7 +172,7 @@ function normalizedLimit(value: number | undefined) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(60, Math.floor(parsed))) : 40;
 }
 
-function branchSql(branch: SearchBranch, branchLimit: number) {
+function branchSql(branch: SearchBranch, branchLimit: number, productClause = "") {
   const itemClause = branch.kind === "purchase" || branch.kind === "sales" ? ` OR ${invoiceItemsMatch}` : "";
   return `SELECT
     '${branch.kind}'::text AS kind,
@@ -181,10 +182,10 @@ function branchSql(branch: SearchBranch, branchLimit: number) {
     ${branch.route}::text AS route,
     COALESCE(NULLIF(${branch.reference}, ''), id)::text AS reference,
     ${branch.priority}::int AS priority
-  FROM ${branch.table}
+  FROM ${branch.table}${branch.kind === "product" ? " p" : ""}
   WHERE tenant_id = $1
     AND store_id = $2
-    AND (POSITION(LOWER($3) IN LOWER(${branch.searchable})) > 0${itemClause})
+    AND ${branch.kind === "product" ? productClause : `(POSITION(LOWER($3) IN LOWER(${branch.searchable})) > 0${itemClause})`}
   ORDER BY id ASC
   LIMIT ${branchLimit}`;
 }
@@ -195,7 +196,8 @@ export function buildGlobalSearchQuery(filters: GlobalSearchFilters) {
   const selectedBranches = branches.filter((branch) => hasAnyMenu(filters.allowedMenus, branch.menus));
   const branchLimit = Math.max(6, Math.min(20, Math.ceil(limit / Math.max(selectedBranches.length, 1)) * 2));
   const values = [filters.tenantId?.trim() || "", filters.storeId?.trim() || "", query, limit];
-  const union = selectedBranches.map((branch) => branchSql(branch, branchLimit)).join("\nUNION ALL\n");
+  const productClause = selectedBranches.some((branch) => branch.kind === "product") ? productSearchSql("p", query, (value) => {values.push(value); return `$${values.length}`;}).join(" AND ") || "TRUE" : "";
+  const union = selectedBranches.map((branch) => `(${branchSql(branch, branchLimit, productClause)})`).join("\nUNION ALL\n");
   const sql = union
     ? `SELECT kind, id, title, subtitle, route, reference
        FROM (${union}) AS global_search
@@ -225,13 +227,14 @@ async function runDegradedSearch(
   const query = filters.query.trim().slice(0, 120);
   const values = [filters.tenantId?.trim() || "", filters.storeId?.trim() || "", query];
   const selectedBranches = branches.filter((branch) => hasAnyMenu(filters.allowedMenus, branch.menus));
+  const productClause = selectedBranches.some((branch) => branch.kind === "product") ? productSearchSql("p", query, (value) => {values.push(value); return `$${values.length}`;}).join(" AND ") || "TRUE" : "";
   const rows: GlobalSearchRow[] = [];
 
   for (const [index, branch] of selectedBranches.entries()) {
     const savepoint = `global_search_branch_${index}`;
     await client.query(`SAVEPOINT ${savepoint}`);
     try {
-      const result = await client.query<GlobalSearchRow>(branchSql(branch, branchLimit), values);
+      const result = await client.query<GlobalSearchRow>(branchSql(branch, branchLimit, productClause), branch.kind === "product" ? values : values.slice(0, 3));
       rows.push(...result.rows);
       await client.query(`RELEASE SAVEPOINT ${savepoint}`);
     } catch (error) {
