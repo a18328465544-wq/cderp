@@ -1,9 +1,10 @@
-import {Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject} from "react";
+import {Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject} from "react";
 import {ErpLoadingState} from "@/src/components/common";
 import {WorkspaceTabActivityProvider} from "@/src/hooks/useWorkspaceTabRuntime";
 import {isNavigationItemActive} from "@/src/config/navigation";
 import {useWorkspaceTabWorkspace} from "./WorkspaceTabWorkspace";
 import {resolveWorkspaceTabPage} from "./workspaceTabPageRegistry";
+import {retainVisitedWorkspaceTabs, shouldMountWorkspaceTab} from "./workspaceTabMountPolicy";
 
 type WorkspaceTabKeepAliveProps = {
   fallback: ReactNode;
@@ -29,8 +30,16 @@ export function WorkspaceTabKeepAlive({fallback, scrollContainerRef}: WorkspaceT
   // persisted active id and the current route here can briefly expose two
   // panels while a direct navigation is settling.
   const activePanelKey = panels.find((panel) => panel.item.id === currentTabId)?.item.id;
+  const [visitedTabIds, setVisitedTabIds] = useState<string[]>([]);
   const previousPanelKey = useRef<string | undefined>(activePanelKey);
   const scrollPositions = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    setVisitedTabIds((current) => {
+      const next = retainVisitedWorkspaceTabs(current, activePanelKey, state.openIds);
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [activePanelKey, state.openIds]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -55,7 +64,7 @@ export function WorkspaceTabKeepAlive({fallback, scrollContainerRef}: WorkspaceT
 
   const managedCurrentPage = Boolean(resolveWorkspaceTabPage(pathname));
   return <div className="min-w-0" data-workspace-tab-host>
-    {panels.map(({item, page, routePath}) => {
+    {panels.filter(({item}) => shouldMountWorkspaceTab(item.id, activePanelKey, visitedTabIds)).map(({item, page, routePath}) => {
       const active = item.id === currentTabId;
       return <div key={`${item.id}:${page.pageKey}`} data-workspace-tab-panel={item.id} data-route-path={routePath} data-active={active ? "true" : "false"} hidden={!active} aria-hidden={!active} className="min-w-0">
         <WorkspaceTabActivityProvider value={{tabId: item.id, pageKey: page.pageKey, active}}>
