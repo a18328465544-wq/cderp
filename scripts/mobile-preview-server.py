@@ -50,6 +50,42 @@ if customer_scenario in {"design", "stress", "many"}:
 elif customer_scenario == "empty":
     sample_customers = []
 
+# Inventory scenarios only prove rendering and parameter wiring, not production
+# search/SQL or balances. All mutations remain blocked by this preview server.
+inventory_scenario = os.environ.get("ERP_INVENTORY_QA_SCENARIO", "baseline")
+if inventory_scenario not in {"baseline", "design", "stress", "many", "empty"}:
+    raise ValueError("Invalid inventory QA scenario")
+sample_inventory = [fixture["STOCK"]]
+if inventory_scenario in {"design", "stress", "many"}:
+    inventory_samples = [
+        ("技嘉 RTX4090 AERO OC 雪鹰 24G", "显卡", "技嘉", "RTX4090", "24G", "95新", "已入库", 23000),
+        ("微星 RTX5090 SUPRIM 水超龙 32G", "显卡", "微星", "RTX5090", "32G", "全新", "待检测", 46500),
+        ("华硕 RTX4090D TUF Gaming 24G", "显卡", "华硕", "RTX4090D", "24G", "95新", "已锁定", 19000),
+        ("Intel Core i9-14900K 盒装 CPU", "CPU", "Intel", "i9-14900K", "", "全新", "已入库", 4280),
+        ("宏碁 冰刃 DDR5 6000 C28 16G", "内存", "宏碁", "DDR5 6000 C28", "16G", "全新", "已入库", 0),
+        ("索泰 RTX3090 天启 24G", "显卡", "索泰", "RTX3090", "24G", "95新", "已入库", None),
+        ("七彩虹 RTX4090 Vulcan 火神 24G", "显卡", "七彩虹", "RTX4090", "24G", "95新", "已售出", 22500),
+    ]
+    sample_inventory = [{**fixture["STOCK"], "id": f"KC-QA-{index}", "productId": f"P-QA-{index}", "productName": name, "name": name, "category": category, "brand": brand, "model": model, "vram": vram, "condition": condition, "status": status, "inspectionStatus": "待检测" if status == "待检测" else "已入库", "sn": "" if status == "待检测" else f"QA-SN-{model}-{index}", "entryTime": f"2026-10-0{7-index}", "inventoryDays": index + 1, "estSellPrice": price, "salesPrice": price if status == "已售出" else None, "costPrice": 100} for index, (name, category, brand, model, vram, condition, status, price) in enumerate(inventory_samples)]
+    if inventory_scenario == "stress":
+        sample_inventory[0].update(productName="技嘉 RTX4090 AERO OC 雪鹰 官方盒装超长型号名称 24G", sn="SN-THIS-IS-A-VERY-LONG-UNBROKEN-SERIAL-4090-202610080001", warehouseLocation="成都仓库 A区超长货架名称 第01层", estSellPrice=1234567890)
+    elif inventory_scenario == "many":
+        sample_inventory = [{**sample_inventory[index % 6], "id": f"KC-PAGE-{index}", "sn": f"QA-PAGE-{index+1:02d}"} for index in range(25)]
+elif inventory_scenario == "empty":
+    sample_inventory = []
+
+def inventory_rows(params):
+    keyword = params.get("keyword", [""])[0].casefold()
+    status = params.get("status", [""])[0]
+    rows = [item for item in sample_inventory if (not keyword or keyword in " ".join(str(item.get(key, "")) for key in ["id", "productName", "brand", "model", "sn"]).casefold()) and (not status or item["status"] == status) and (status or params.get("includeSold", ["false"])[0] == "true" or item["status"] != "已售出")]
+    for query_key, field in [("category", "category"), ("brand", "brand"), ("supplierName", "supplierName"), ("warehouseLocation", "warehouseLocation")]:
+        value = params.get(query_key, [""])[0]
+        if value:
+            rows = [item for item in rows if value in str(item.get(field, ""))]
+    sort_key = {"product": "productName", "days": "inventoryDays", "status": "status", "cost": "costPrice", "warehouseLocation": "warehouseLocation"}.get(params.get("sortKey", ["entryTime"])[0], "entryTime")
+    rows.sort(key=lambda item: item.get(sort_key) or (0 if sort_key in {"inventoryDays", "costPrice"} else ""), reverse=params.get("sortDirection", ["desc"])[0] == "desc")
+    return rows
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def respond(self, data, status=200, kind="application/json"):
@@ -66,6 +102,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/__inventory-compare":
+            html = '''<!doctype html><meta charset="utf-8"><title>Inventory mobile QA comparison</title><style>body{margin:0;background:#e8edf3;font:14px system-ui}main{display:flex;gap:24px;padding:20px}section{width:390px}h1{font-size:14px}img{display:block;width:390px;height:auto}</style><main><section><h1>Selected Option 2 · shared visual language, not inventory mock</h1><img src="/__customer-reference.png"></section><section><h1>Inventory implementation · local synthetic data · 390×844</h1><img src="/__qa/inv-final-390.jpg"></section></main>'''
+            self.respond(html.encode(), kind="text/html; charset=utf-8")
+            return
         if path == "/__customer-reference.png":
             image = root.parent / "docs" / "mobile-v2-evidence" / "20261008" / "thumb" / "selected-reference.png"
             self.respond(image.read_bytes(), kind="image/png")
@@ -165,11 +205,22 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/gpu_erp/finance/settlement-ledger":
                 data = {"data": state["settlementLedger"], "meta": meta}
             elif path == "/api/inventory/items":
-                data = {"data": [fixture["STOCK"]], "meta": meta}
+                if inventory_scenario == "baseline":
+                    data = {"data": [fixture["STOCK"]], "meta": meta}
+                else:
+                    params = parse_qs(urlparse(self.path).query)
+                    rows = inventory_rows(params)
+                    page, page_size = int(params.get("page", ["1"])[0]), int(params.get("pageSize", ["20"])[0])
+                    data = {"data": rows[(page-1)*page_size:page*page_size], "meta": {"total": len(rows), "page": page, "pageSize": page_size}}
             elif path == "/api/inventory/summary":
-                data = {"data": [{**fixture["PRODUCT"], "key": fixture["PRODUCT"]["id"], "productName": fixture["PRODUCT"]["name"], "warehouseLocation": "A区货架01", "warehouseLocations": ["A区货架01"], "totalCount": 3, "availableCount": 1, "pendingCount": 2, "lockedCount": 0, "soldCount": 0, "repairCount": 0, "totalCost": 300, "totalEstSell": 450, "avgCost": 100, "avgEstSell": 150, "estimatedProfit": 150}]}
+                if inventory_scenario == "baseline":
+                    data = {"data": [{**fixture["PRODUCT"], "key": fixture["PRODUCT"]["id"], "productName": fixture["PRODUCT"]["name"], "warehouseLocation": "A区货架01", "warehouseLocations": ["A区货架01"], "totalCount": 3, "availableCount": 1, "pendingCount": 2, "lockedCount": 0, "soldCount": 0, "repairCount": 0, "totalCost": 300, "totalEstSell": 450, "avgCost": 100, "avgEstSell": 150, "estimatedProfit": 150}]}
+                else:
+                    rows = inventory_rows(parse_qs(urlparse(self.path).query))
+                    data = {"data": [{**item, "key": item["productId"], "warehouseLocations": [item["warehouseLocation"]], "totalCount": 1, "availableCount": int(item["status"] == "已入库"), "pendingCount": int(item["status"] == "待检测"), "lockedCount": int(item["status"] == "已锁定"), "soldCount": int(item["status"] == "已售出"), "repairCount": 0, "totalCost": item["costPrice"], "totalEstSell": item["estSellPrice"], "avgCost": item["costPrice"], "avgEstSell": item["estSellPrice"]} for item in rows]}
             elif path.endswith("/journey"):
-                data = {"data": {"card": fixture["STOCK"], "events": [], "purchases": [], "sales": [], "returns": [], "payments": [], "inspections": [], "aftersales": [], "assemblies": []}}
+                stock = next((item for item in sample_inventory if item["id"] == path.split("/")[-2]), fixture["STOCK"])
+                data = {"data": {"card": stock, "events": [], "purchases": [], "sales": [], "returns": [], "payments": [], "inspections": [], "aftersales": [], "assemblies": []}}
             elif path.endswith("/settlement-accounts"):
                 data = {"data": [fixture["ACCOUNT"]]}
             elif path.startswith(("/api/state", "/api/returns/reference", "/api/purchase-invoices/reference", "/api/inspections/workspace")) or path in {"/api/purchase-invoices", "/api/purchase-invoices/detail", "/api/sales-invoices", "/api/sales-invoices/outbound"}:

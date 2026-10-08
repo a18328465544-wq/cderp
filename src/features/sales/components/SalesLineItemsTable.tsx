@@ -1,5 +1,4 @@
 import {ErpMobileOrderLine} from "@/src/components/common/ErpMobileOrderLine";
-import {ErpDialogShell} from "@/src/components/common/ErpDialogShell";
 import {ErpQuantityStepper} from "@/src/components/common/ErpQuantityStepper";
 import {Plus, Trash2} from "lucide-react";
 import {useState} from "react";

@@ -140,6 +140,17 @@
   --erp-mobile-nav-height: 60px;
   --erp-mobile-bottom-nav-bg: rgb(255 255 255 / 0.88);
   --erp-mobile-bottom-nav-border: rgb(226 232 240 / 0.75);
+  --erp-phone-hero-bg: linear-gradient(135deg, #0a84ff 0%, #0066d6 100%);
+  --erp-phone-hero-text: #ffffff;
+  --erp-phone-hero-label: rgb(255 255 255 / 0.85);
+  --erp-phone-hero-metric-border: rgb(255 255 255 / 0.2);
+  --erp-phone-hero-shadow: 0 6px 20px rgb(10 132 255 / 0.22);
+  --erp-phone-card-shadow: 0 2px 8px rgb(15 23 42 / 0.04), 0 1px 2px rgb(15 23 42 / 0.02);
+  --erp-skeleton-shimmer-highlight: rgb(255 255 255 / 0.65);
+  --erp-phone-segment-active-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
+  --erp-phone-shortcut-shadow-primary: 0 2px 8px rgb(10 132 255 / 0.14);
+  --erp-phone-shortcut-shadow-warning: 0 2px 8px rgb(180 83 9 / 0.14);
+  --erp-phone-shortcut-shadow-success: 0 2px 8px rgb(18 128 92 / 0.14);
   --erp-mobile-action-height: 112px;
   --erp-mobile-touch-size: 44px;
   /* Phone geometry reuses the existing scale; touch size is independent of
