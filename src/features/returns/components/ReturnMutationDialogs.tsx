@@ -10,9 +10,9 @@ export type ReturnEditDraft = Pick<SalesReturnListItem, "handler" | "reason" | "
 export function ReturnEditDialog({target, draft, pending, error, onClose, onDraftChange, onConfirm}: {target: SalesReturnListItem | null; draft: ReturnEditDraft; pending: boolean; error: string; onClose: () => void; onDraftChange: Dispatch<SetStateAction<ReturnEditDraft>>; onConfirm: () => void}) {
   return <ErpDialogShell open={Boolean(target)} onOpenChange={(open) => {if (!open) onClose();}} pending={pending} title="编辑退货单资料" description={target ? `${target.returnNo} · 只修改经办人、退货原因和备注，不改变退款、库存或金额。` : undefined} footer={<><Button type="button" variant="secondary" disabled={pending} onClick={onClose}>取消</Button><Button type="button" variant="primary" disabled={pending || !draft.handler.trim() || !draft.reason.trim()} onClick={onConfirm}>{pending ? <RefreshCw className="h-4 w-4 animate-spin" /> : "保存修改"}</Button></>}>
     <div className="space-y-4">
-      <ErpField label="经办人"><Input value={draft.handler} onChange={(event) => onDraftChange((current) => ({...current, handler: event.target.value}))} /></ErpField>
-      <ErpField label="退货原因"><Textarea className="min-h-20" value={draft.reason} onChange={(event) => onDraftChange((current) => ({...current, reason: event.target.value}))} /></ErpField>
-      <ErpField label="备注"><Textarea className="min-h-24" value={draft.remarks} onChange={(event) => onDraftChange((current) => ({...current, remarks: event.target.value}))} /></ErpField>
+      <ErpField label="经办人"><Input disabled={pending} value={draft.handler} onChange={(event) => onDraftChange((current) => ({...current, handler: event.target.value}))} /></ErpField>
+      <ErpField label="退货原因"><Textarea disabled={pending} className="min-h-20" value={draft.reason} onChange={(event) => onDraftChange((current) => ({...current, reason: event.target.value}))} /></ErpField>
+      <ErpField label="备注"><Textarea disabled={pending} className="min-h-24" value={draft.remarks} onChange={(event) => onDraftChange((current) => ({...current, remarks: event.target.value}))} /></ErpField>
       {error && <p role="alert" className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-danger-soft)] p-3 text-xs text-[var(--erp-color-danger)]">{error}</p>}
     </div>
   </ErpDialogShell>;

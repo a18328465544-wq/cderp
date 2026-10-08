@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {Combine, LockKeyhole, PackageOpen, RefreshCw, Unplug, Wrench} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
 import {useMemo, useState, type ReactNode} from "react";
@@ -21,12 +22,13 @@ function useAssemblyUrlState() {
 }
 
 export function AssemblyWorkspacePage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useAssemblyUrlState();
   const allowed = createCapabilities(session).menu("assembly");
   const access = {showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)};
-  const listQuery = useQuery({queryKey: queryKeys.assembly.list(filters, access), queryFn: ({signal}) => assemblyApi.list(filters, access, signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
-  const referenceQuery = useQuery({queryKey: queryKeys.assembly.referenceData(access), queryFn: ({signal}) => assemblyApi.referenceData(access, signal), enabled: Boolean(session && allowed), staleTime: 30_000, retry: false});
+  const listQuery = useQuery({queryKey: queryKeys.assembly.list(filters, access), queryFn: ({signal}) => assemblyApi.list(filters, access, signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const referenceQuery = useQuery({queryKey: queryKeys.assembly.referenceData(access), queryFn: ({signal}) => assemblyApi.referenceData(access, signal), enabled: active && Boolean(session && allowed), staleTime: 30_000, retry: false});
   if (!session) return <Card><ErpLoadingState title="正在验证整机组装权限" /></Card>;
   if (!session || !allowed) return <ErpPageError title="当前账号没有整机组装权限" description="服务器已拒绝 assembly 菜单访问，请联系管理员授权。" />;
   return <AssemblyContent session={session} filters={filters} onFiltersChange={commit} listQuery={listQuery} referenceQuery={referenceQuery} onAuthExpired={logout} />;
@@ -42,7 +44,7 @@ function AssemblyContent({session, filters, onFiltersChange, listQuery, referenc
   const availableParts = references.inventory.filter((item) => isInventorySellableStatus(item.status)).length;
   const invalidate = () => invalidateErpDomains(queryClient, ["assembly", "inventory", "products", "state"]);
   const handleError = (error: Error) => {if (error instanceof ApiError && error.isUnauthorized) {onAuthExpired(); return;} notify.error(error.message);};
-  const createMutation = useMutation({mutationFn: ({values}: {values: Parameters<typeof assemblyApi.create>[0]; reset: () => void}) => assemblyApi.create(values, access), onSuccess: async (operation, variables) => {variables.reset(); notify.success(`${operation.type}单 ${operation.id} 已保存，库存状态已同步`); await refreshErpAfterDocument(queryClient);}, onError: handleError});
+  const createMutation = useMutation({mutationFn: ({values}: {values: Parameters<typeof assemblyApi.create>[0]; reset: () => void}) => assemblyApi.create(values, access), onSuccess: async (operation, variables) => {variables.reset(); notify.success(`${operation.type}单 ${operation.id} 已保存，库存状态已同步`); await refreshErpAfterDocument(queryClient, ["state","assembly","inventory","products"]);}, onError: handleError});
   const deleteMutation = useMutation({mutationFn: (id: string) => assemblyApi.remove(id, access), onSuccess: async (operation) => {setDeleting(null); notify.success(`${operation.id} 已删除，库存状态由服务端完成回滚`); await invalidate();}, onError: handleError});
   const columns = useMemo(() => createAssemblyColumns({showProfit: session.permissions.showProfit, canDelete: session.permissions.canDelete, onView: setDetail, onDelete: setDeleting}), [session.permissions.canDelete, session.permissions.showProfit]);
   const quickStatus: QuickStatusItemData[] = [

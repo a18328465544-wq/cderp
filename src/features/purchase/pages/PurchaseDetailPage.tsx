@@ -1,4 +1,9 @@
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {usePhoneBackAction} from "@/src/hooks/usePhoneBack";
+import {ErpMobileRecordRow} from "@/src/components/common/ErpMobileRecordRow";
+import {ErpDialogShell} from "@/src/components/common/ErpDialogShell";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {ArrowLeft, Boxes, CircleDollarSign, ExternalLink, FileImage, LockKeyhole, Pencil, RefreshCw, ShieldAlert, ShieldCheck, Trash2, Truck, UserRound} from "lucide-react";
 import {useEffect, useMemo, useState} from "react";
@@ -95,14 +100,14 @@ function PurchaseLineTable({invoice, showCost, showProfit}: {invoice: PurchaseIn
     base.push({accessorKey: "remarks", header: "行备注", size: 200, cell: ({getValue}) => String(getValue() || "—")});
     return base;
   }, [showCost, showProfit]);
-  return <ErpDataTable ariaLabel="采购单商品明细" columns={columns} data={invoice.items} getRowId={(row) => row.tempId} density="compact" stickyHeader emptyTitle="该采购单没有商品明细" />;
+  return <ErpDataTable mobileSorting={false} mobileRow={(line) => <ErpMobileRecordRow title={line.productName} subtitle={`${line.condition} · 1 件`} meta={<>SN {line.sn || "待检测绑定"}{line.remarks && <span> · {line.remarks}</span>}{showProfit && <span> · 预计售价 {formatCurrency(line.estSellPrice)}</span>}</>} amount={showCost ? formatCurrency(line.buyPrice) : undefined} />} ariaLabel="采购单商品明细" columns={columns} data={invoice.items} getRowId={(row) => row.tempId} density="compact" stickyHeader emptyTitle="该采购单没有商品明细" />;
 }
 
-function InventoryFacts({items}: {items: readonly PurchaseDetailInventoryItem[]}) {
+export function PurchaseInventoryFacts({items}: {items: readonly PurchaseDetailInventoryItem[]}) {
   if (!items.length) return <ErpEmptyState title="暂无关联库存" description="当前状态快照未找到与该采购单关联的实物库存。" />;
-  return <div className="divide-y divide-[var(--erp-color-border)]">
+  return <div data-erp-component="purchase-inventory-facts" className="min-w-0 divide-y divide-[var(--erp-color-border)]">
     {items.map((item) => <div key={item.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1.5fr)_140px_120px] sm:items-center">
-      <div className="min-w-0"><p className="truncate text-sm font-semibold">{item.productName}</p><p className="mt-1 erp-data-number text-xs text-[var(--erp-color-text-muted)]">{item.id}{item.sn ? ` · SN ${item.sn}` : " · SN 待绑定"}</p></div>
+      <div className="min-w-0"><p className="break-words text-sm font-semibold sm:truncate" title={item.productName}>{item.productName}</p><p className="mt-1 min-w-0 break-all erp-data-number text-xs text-[var(--erp-color-text-muted)]"><span className="sm:hidden">库存：</span>{item.id}<span className="hidden sm:inline"> · </span><span className="block sm:inline">SN {item.sn || "待绑定"}</span></p></div>
       <div><ErpStatusBadge label={item.hasInspection ? `${item.status} · 已检测` : item.status} tone={statusTone(item.status)} /></div>
       <p className="text-xs text-[var(--erp-color-text-secondary)]">{item.warehouseLocation || "库位未定"}</p>
     </div>)}
@@ -110,6 +115,9 @@ function InventoryFacts({items}: {items: readonly PurchaseDetailInventoryItem[]}
 }
 
 function PurchaseDetailContent({detail, session, onRefresh, refreshing, onDelete, settlementContext, onSettle}: {detail: PurchaseDetail; session: AuthSession; onRefresh: () => void; refreshing: boolean; onDelete: () => void; settlementContext: LinkedSettlementContext | null; onSettle: () => void}) {
+  const phone = useErpPhone();
+  const phoneBack = usePhoneBackAction("/purchase");
+  const [actionsOpen, setActionsOpen] = useState(false);
   const invoice = detail.invoice;
   const showCost = session.permissions.showCost;
   const showProfit = session.permissions.showProfit;
@@ -129,6 +137,18 @@ function PurchaseDetailContent({detail, session, onRefresh, refreshing, onDelete
     {icon: canEdit ? <ShieldCheck className="h-4 w-4" /> : <LockKeyhole className="h-4 w-4" />, label: "编辑策略", value: editLabel, description: policy.mode === "full" ? "保存时重新核对业务事实" : policy.mode === "limited" ? "仅开放快递单号和备注" : "当前账号或业务阶段不允许修改", tone: policy.mode === "full" ? "success" : policy.mode === "limited" ? "warning" : "neutral"},
   ];
 
+  if (phone) return <ErpDetailPageFrame>
+    <ErpPageHeader title={invoice.invoiceNo || invoice.id} quickStatus={[]} leading={<Button type="button" variant="ghost" size="iconTouch" aria-label="返回采购单据" onClick={phoneBack}><ArrowLeft className="h-5 w-5" /></Button>} />
+    <div className="erp-phone-document" data-phone-detail="document">
+      <section><InfoRow label="来源对象" value={invoice.supplierName || "—"} /><InfoRow label="采购日期" value={invoice.date} /><InfoRow label="经办人" value={invoice.handleBy || "—"} /><InfoRow label="状态" value={`${invoice.paymentStatus || (invoice.isPaid ? "已付款" : "未付款")} · ${stageLabel}`} /></section>
+      <section><h2>商品明细</h2><PurchaseLineTable invoice={invoice} showCost={showCost} showProfit={showProfit} /></section>
+      <section><h2>结算</h2><InfoRow label="商品数量" value={`${invoice.totalCount} 件`} />{showCost && <InfoRow label="采购总额" value={formatCurrency(invoice.totalCost)} />}{showProfit && <InfoRow label="预计销售" value={formatCurrency(invoice.estTotalSell)} />}{canReadPayments && <><InfoRow label="现金已付" value={formatCurrency(invoice.paidAmount)} /><InfoRow label="供应商抵扣" value={formatCurrency(invoice.vendorCreditAppliedAmount || 0)} /><InfoRow label="未付金额" value={formatCurrency(invoice.unpaidAmount)} /></>}</section>
+      <details><summary>关联库存 · {detail.inventory.length} 件</summary><PurchaseInventoryFacts items={detail.inventory} /></details>
+      <details><summary>图片与补充信息</summary><InfoRow label="联系方式" value={invoice.contact || "—"} /><InfoRow label="快递单号" value={invoice.expressNo || "—"} /><InfoRow label="备注" value={invoice.remarks || "—"} /><PurchaseImages images={invoice.images || []} /><p className="mt-3 text-xs text-[var(--erp-color-text-secondary)]">{policy.summary}</p></details>
+    </div>
+    <div className="erp-phone-detail-actions"><Button type="button" variant="secondary" onClick={() => setActionsOpen(true)}>更多</Button>{settlementContext ? <Button type="button" variant="primary" onClick={onSettle}>付款 {formatCurrency(invoice.unpaidAmount)}</Button> : canEdit ? <Link className="erp-phone-detail-action-link" to="/purchase/$purchaseId/edit" params={{purchaseId: invoice.id}}>编辑采购单</Link> : <span className="flex items-center justify-center text-sm text-[var(--erp-color-text-muted)]">当前只读</span>}</div>
+    <ErpDialogShell open={actionsOpen} onOpenChange={setActionsOpen} title="采购单操作" mobilePresentation="sheet"><div className="grid gap-2">{canEdit && <Link className="erp-phone-detail-action-link" to="/purchase/$purchaseId/edit" params={{purchaseId: invoice.id}}>编辑采购单</Link>}<Button onClick={onRefresh} disabled={refreshing}>刷新单据</Button>{session.permissions.canDelete && <Button variant="danger" onClick={() => {setActionsOpen(false); onDelete();}} disabled={Boolean(deleteBlockedReason)}>{deleteBlockedReason || "删除采购单"}</Button>}<p className="text-xs text-[var(--erp-color-text-secondary)]">{policy.reasons.join(" ")}</p></div></ErpDialogShell>
+  </ErpDetailPageFrame>;
   return <ErpDetailPageFrame className="max-w-[1600px] space-y-5 pb-12">
     <ErpPageHeader title={invoice.invoiceNo || invoice.id} subtitle={<span className="flex flex-wrap items-center gap-2"><span>采购单详情 · {invoice.date}</span><ErpStatusBadge label={editLabel} tone={policy.mode === "full" ? "success" : policy.mode === "limited" ? "warning" : "neutral"} /></span>} quickStatus={quickStatus} actions={<><Link to="/purchase" className="inline-flex h-9 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-white px-3 text-xs font-semibold text-[var(--erp-color-text)]"><ArrowLeft className="h-4 w-4" />返回采购单据</Link>{settlementContext && <Button type="button" size="sm" variant="secondary" onClick={onSettle}><CircleDollarSign className="h-4 w-4" />待付款 {formatCurrency(invoice.unpaidAmount)}</Button>}{canEdit && <Link to="/purchase/$purchaseId/edit" params={{purchaseId: invoice.id}} className="inline-flex h-9 items-center gap-2 rounded-[var(--erp-radius-md)] bg-[var(--erp-color-primary)] px-3 text-xs font-semibold text-white shadow-sm"><Pencil className="h-4 w-4" />编辑采购单</Link>}{session.permissions.canDelete && <Button type="button" size="sm" variant="danger" onClick={onDelete} disabled={Boolean(deleteBlockedReason)} title={deleteBlockedReason}><Trash2 className="h-4 w-4" />{deleteBlockedReason ? "不可删除" : "删除采购单"}</Button>}<Button type="button" size="sm" variant="secondary" onClick={onRefresh} disabled={refreshing}><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />刷新</Button></>} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
@@ -143,7 +163,7 @@ function PurchaseDetailContent({detail, session, onRefresh, refreshing, onDelete
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0 space-y-5">
         <Card><CardHeader><div><h2 className="text-sm font-semibold">商品明细</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">展示后端已存储的实物行；不在详情页反向猜测原始数量分组。</p></div></CardHeader><CardContent className="p-0"><PurchaseLineTable invoice={invoice} showCost={showCost} showProfit={showProfit} /></CardContent></Card>
-        <Card><CardHeader><div><h2 className="text-sm font-semibold">关联库存</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">库存和检测状态只做事实展示，不由采购详情页修改。</p></div></CardHeader><CardContent><InventoryFacts items={detail.inventory} /></CardContent></Card>
+        <Card><CardHeader><div><h2 className="text-sm font-semibold">关联库存</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">库存和检测状态只做事实展示，不由采购详情页修改。</p></div></CardHeader><CardContent><PurchaseInventoryFacts items={detail.inventory} /></CardContent></Card>
         <Card><CardHeader><div><h2 className="text-sm font-semibold">采购图片</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">通过带鉴权的媒体请求打开，不重新上传已绑定的正式图片。</p></div></CardHeader><CardContent><PurchaseImages images={invoice.images || []} /></CardContent></Card>
       </div>
 
@@ -167,7 +187,7 @@ function PurchaseDetailContent({detail, session, onRefresh, refreshing, onDelete
 }
 
 function InfoRow({label, value}: {label: string; value: string}) {
-  return <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-xs"><span className="text-[var(--erp-color-text-muted)]">{label}</span><span className="break-words text-right font-semibold text-[var(--erp-color-text)]">{value}</span></div>;
+  return <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 py-2 text-xs"><span className="text-[var(--erp-color-text-muted)]">{label}</span><span className="break-words text-right font-semibold text-[var(--erp-color-text)]">{value}</span></div>;
 }
 
 function RiskRow({tone, label, values}: {tone: "success" | "warning" | "danger"; label: string; values: readonly string[]}) {
@@ -175,6 +195,7 @@ function RiskRow({tone, label, values}: {tone: "success" | "warning" | "danger";
 }
 
 export function PurchaseDetailPage({purchaseId}: {purchaseId: string}) {
+  const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const {session, status, error: authError, refresh, logout} = useAuth();
@@ -188,8 +209,8 @@ export function PurchaseDetailPage({purchaseId}: {purchaseId: string}) {
     canReadPayments: hasMenu(session, "payment_out"),
     canReadPurchaseReturns: hasMenu(session, "return_purchase") || hasMenu(session, "return_orders"),
   }), [session]);
-  const detailQuery = useQuery({queryKey: queryKeys.purchase.detail(purchaseId), queryFn: ({signal}) => purchaseApi.detail(purchaseId, detailPermissions, signal), enabled: Boolean(session && allowed), retry: false});
-  const accountQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: Boolean(session && canPay), staleTime: 60_000, retry: false});
+  const detailQuery = useQuery({queryKey: queryKeys.purchase.detail(purchaseId), queryFn: ({signal}) => purchaseApi.detail(purchaseId, detailPermissions, signal), enabled: active && (Boolean(session && allowed)), retry: false});
+  const accountQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: active && (Boolean(session && canPay)), staleTime: 60_000, retry: false});
   const settlementMutation = useMutation({
     mutationFn: (values: Parameters<typeof financeSettlementApi.createExpense>[0]) => {
       if (!detailQuery.data) throw new Error("采购单详情尚未加载完成");

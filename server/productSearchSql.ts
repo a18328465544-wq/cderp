@@ -1,4 +1,5 @@
 import {productModelCode, productSearchTerms} from "../src/utils/productSearch.ts";
+import {compactSearchText, tokenizeSearchText} from "../src/utils/search.ts";
 
 type Binder = (value: string) => string;
 
@@ -46,4 +47,18 @@ export function productSearchSql(alias: string, keyword: string, bind: Binder) {
     version: `${alias}.data->>'version'`,
     vram: `${alias}.data->>'vram'`,
   }, keyword, bind);
+}
+
+/** Stock-card search uses product identity plus identifiers, never supplier/location/remarks. */
+export function inventoryKeywordSearchSql(keyword: string, bind: Binder) {
+  const identity = productIdentitySearchSql({
+    id: "op_product_id", name: "data->>'productName'", category: "op_category",
+    brand: "op_brand", model: "data->>'model'", version: "data->>'version'", vram: "data->>'vram'",
+  }, keyword, bind).join(" AND ") || "FALSE";
+  const normalize = (field: string) => `REGEXP_REPLACE(LOWER(NORMALIZE(COALESCE(${field}, ''), NFKC)), '[[:space:][:punct:]，。、·・：；（）【】《》“”‘’—]+', '', 'g')`;
+  const exact = `(${["id", "op_product_id", "op_sn", "data->>'expressNo'"].map((field) => `${normalize(field)} = ${bind(compactSearchText(keyword))}`).join(" OR ")})`;
+  const identifier = productModelCode(keyword)
+    ? exact
+    : `(${exact} OR ${tokenizeSearchText(keyword).map((token) => `STRPOS(${normalize("CONCAT_WS(' ', id, op_product_id, op_sn, data->>'expressNo')")}, ${bind(token)}) > 0`).join(" AND ") || "FALSE"})`;
+  return `((${identity}) OR ${identifier})`;
 }

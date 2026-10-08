@@ -1,7 +1,8 @@
-import type {CardInventory, CustomerCard, FinanceLedger, InspectionRecord, PaymentOutRecord, ProductTemplate, PurchaseInvoice, SettlementAccount, Vendor} from "../src/types.ts";
+import type {CardInventory, CustomerCard, FinanceLedger, InspectionRecord, PaymentOutRecord, ProductTemplate, PurchaseInvoice, ReturnOrder, SettlementAccount, Vendor} from "../src/types.ts";
 import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
 import {expandPurchaseItems} from "./storeInventoryPlanning.ts";
 import {isInventoryLinkedToPurchase} from "../src/utils/inventoryRelations.ts";
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 
 export type PurchaseOperationsState = {
   products: ProductTemplate[];
@@ -10,7 +11,7 @@ export type PurchaseOperationsState = {
   purchaseInvoices: PurchaseInvoice[];
   customers: CustomerCard[];
   vendors: Vendor[];
-  returnOrders: Array<{type: string; status: string; relatedDocNo?: string}>;
+  returnOrders: Array<Pick<ReturnOrder, "type" | "status" | "relatedDocNo" | "accountingStatus">>;
   paymentOutRecords: PaymentOutRecord[];
   financeLedger: FinanceLedger[];
 };
@@ -196,24 +197,26 @@ export function createPurchaseOperationHelpers(dependencies: PurchaseOperationsD
   ) => {
     const existing = state.purchaseInvoices.find((item) => item.id === id || item.invoiceNo === id);
     if (!existing) throw new NotFoundError(`进货单不存在: ${id}`);
-    const currentRecordVersion = Math.max(1, Number(existing.recordVersion || 1));
+    const currentRecordVersion = getRecordVersion(existing);
     if (options.expectedRecordVersion !== undefined && options.expectedRecordVersion !== currentRecordVersion) {
-      throw new ConflictError("该采购单已被其他人修改，请刷新后重新编辑");
+      throw new ConflictError("该采购单已被其他人修改，或已有新的付款、入库、退货记录；请刷新核对后重新编辑，本次修改未保存", {kind: "STALE_PURCHASE_RECORD"});
     }
-    const hasCompletedReturn = state.returnOrders.some((order) =>
-      order.type === "进货退货" && order.status === "已完成" && (order.relatedDocNo === existing.invoiceNo || order.relatedDocNo === existing.id),
+    const activeReturns = state.returnOrders.filter((order) =>
+      order.type === "进货退货" && order.status !== "已作废" && order.accountingStatus !== "作废" && (order.relatedDocNo === existing.invoiceNo || order.relatedDocNo === existing.id),
     );
+    const hasActiveReturn = activeReturns.length > 0;
     const protectedAfterReturn = [
       "sourceType", "sourcePartnerId", "sourcePartnerType", "supplierName", "contact", "items",
       "paidAmount", "unpaidAmount", "vendorCreditAppliedAmount", "settlementAccountId", "paymentMethod", "paymentHandler",
     ] as const;
-    if (hasCompletedReturn && protectedAfterReturn.some((key) =>
+    if (hasActiveReturn && protectedAfterReturn.some((key) =>
       key in updates && JSON.stringify(updates[key]) !== JSON.stringify(existing[key]),
     )) {
-      throw new ConflictError("该采购单已有已完成退货，不能修改往来对象、商品或结算结构；请先冲销退货单后再调整");
+      const stage = activeReturns.some((order) => order.status === "已完成") ? "已完成" : "待处理";
+      throw new ConflictError(`该采购单已有${stage}退货，不能修改往来对象、商品或结算结构；请先作废或冲销退货单后再调整`);
     }
     const linkedPayments = state.paymentOutRecords.filter((payment) =>
-      payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id,
+      payment.accountingStatus !== "作废" && (payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id),
     );
     const relatedCards = state.inventory.filter((card) => isInventoryLinkedToPurchase(card, existing));
     const hasInboundOrInspection = relatedCards.some((card) => card.status !== "待检测") ||
@@ -221,7 +224,7 @@ export function createPurchaseOperationHelpers(dependencies: PurchaseOperationsD
     const changedKeys = Object.keys(updates).filter((key) =>
       JSON.stringify(updates[key as keyof PurchaseInvoice]) !== JSON.stringify(existing[key as keyof PurchaseInvoice]),
     );
-    const metadataOnly = hasInboundOrInspection || hasCompletedReturn || linkedPayments.length > 1;
+    const metadataOnly = hasInboundOrInspection || hasActiveReturn || linkedPayments.length > 1;
     const metadataFields = new Set<keyof PurchaseInvoice>(["expressNo", "remarks"]);
     if (metadataOnly && changedKeys.some((key) => !metadataFields.has(key as keyof PurchaseInvoice))) {
       throw new ConflictError("该采购单已进入质检、退货或多笔付款阶段，只能修改快递单号和采购备注");

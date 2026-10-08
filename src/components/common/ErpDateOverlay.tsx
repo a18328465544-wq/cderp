@@ -63,9 +63,44 @@ function useViewportModes() {
   return modes;
 }
 
+export function resolveDateOverlayCollisionPadding(workspaceBarHeight: number, gutter: number) {
+  const safeHeight = Number.isFinite(workspaceBarHeight) ? Math.max(0, workspaceBarHeight) : 0;
+  const safeGutter = Number.isFinite(gutter) ? Math.max(0, gutter) : 0;
+  return {top: safeHeight + safeGutter, right: safeGutter, bottom: safeGutter, left: safeGutter};
+}
+
+function readCollisionPadding() {
+  if (typeof window === "undefined") return resolveDateOverlayCollisionPadding(0, 0);
+  const styles = window.getComputedStyle(document.documentElement);
+  return resolveDateOverlayCollisionPadding(
+    Number.parseFloat(styles.getPropertyValue("--erp-workspace-bar-height")),
+    Number.parseFloat(styles.getPropertyValue("--erp-overlay-gutter")),
+  );
+}
+
+function useDateCollisionPadding(open: boolean) {
+  const [padding, setPadding] = useState(readCollisionPadding);
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const next = readCollisionPadding();
+      setPadding((current) => current.top === next.top && current.right === next.right ? current : next);
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, [open]);
+  return padding;
+}
+
 /** Shared date overlay shell: trigger, layer contract, mobile sheet and header behavior. */
 export function ErpDateOverlay({open, onOpenChange, trigger, children, className, panelClassName, title, description, headerMobileOnly, closeLabel = "关闭日期", sideOffset = 4, align = "start"}: ErpDateOverlayProps) {
   const {compact: compactViewport, touch: touchViewport} = useViewportModes();
+  const collisionPadding = useDateCollisionPadding(open);
   const content = typeof children === "function" ? children({compactViewport, touchViewport}) : children;
 
   return (
@@ -74,9 +109,9 @@ export function ErpDateOverlay({open, onOpenChange, trigger, children, className
         <Popover.Trigger render={trigger} />
         <Popover.Portal>
           {open && touchViewport && <div className="erp-popover-layer fixed inset-0 bg-[var(--erp-color-backdrop)]/35 lg:hidden" aria-hidden="true" onMouseDown={() => onOpenChange(false)} />}
-          <Popover.Positioner className="erp-date-popover-positioner outline-none" sideOffset={sideOffset} align={align}>
-            <Popover.Popup className={cn("relative min-w-0 max-w-full rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] shadow-[var(--erp-shadow-popover)] outline-none", panelClassName)}>
-              {title ? <div className={cn("relative erp-content-sticky-layer flex items-start justify-between gap-3 border-b border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 py-2.5 lg:px-4", headerMobileOnly && "lg:hidden")}>
+          <Popover.Positioner className="erp-date-popover-positioner outline-none" sideOffset={sideOffset} align={align} collisionPadding={collisionPadding}>
+            <Popover.Popup className={cn("erp-date-popover-surface relative min-w-0 max-w-full rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] shadow-[var(--erp-shadow-popover)] outline-none", panelClassName)}>
+              {title ? <div className={cn("sticky top-0 erp-content-sticky-layer flex items-start justify-between gap-3 border-b border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 py-2.5 lg:px-4", headerMobileOnly && "lg:hidden")}>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-[var(--erp-color-text)]">{title}</p>
                   {description ? <p className="mt-0.5 truncate text-xs text-[var(--erp-color-text-muted)]">{description}</p> : null}

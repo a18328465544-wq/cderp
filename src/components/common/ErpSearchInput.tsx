@@ -71,7 +71,7 @@ export const ErpSearchInput = forwardRef<HTMLInputElement, ErpSearchInputProps>(
   };
 
   return (
-    <div data-erp-component="search-input" className={cn("erp-search-input-shell relative min-w-0 max-w-full", className)}>
+    <div data-erp-component="search-input" data-erp-search-clear={showClear || undefined} className={cn("erp-search-input-shell relative min-w-0 max-w-full", className)}>
       <span aria-hidden="true" data-erp-search-icon="true" className="pointer-events-none absolute left-3 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-[var(--erp-color-text-muted)]">
         {icon ?? <Search aria-hidden="true" className="h-4 w-4" />}
       </span>

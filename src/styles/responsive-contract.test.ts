@@ -71,19 +71,23 @@ test("analytics KPI groups keep intrinsic card sizing while values use typograph
   const metricCard = readFileSync(new URL("../components/common/ErpMetricCard.tsx", import.meta.url), "utf8");
   assert.match(analyticsFrame, /min\(100%,240px\)/);
   assert.match(analyticsFrame, /min\(100%,190px\)/);
-  assert.doesNotMatch(globals, /data-erp-region-level="primary"\][\s\S]*grid-template-columns:\s*repeat/);
+  // Phone workbenches intentionally use a compact two-column KPI projection;
+  // the typography-only desktop geometry contract remains unchanged.
+  const desktopBaseline = globals.slice(0, globals.indexOf("/* Phone workbench"));
+  assert.doesNotMatch(desktopBaseline, /data-erp-region-level="primary"\][\s\S]*grid-template-columns:\s*repeat/);
+  assert.match(globals.slice(globals.indexOf("/* Phone workbench")), /@media \(max-width: 767px\)[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(metricCard, /getErpMetricValueSize/);
   assert.match(metricCard, /data-value-size=\{resolvedValueSize\}/);
 });
 
-test("editable transaction lines switch to complete cards when their container is narrow", () => {
+test("transaction lines use compact cards below the desktop boundary and restore tables from 1024px", () => {
   assert.match(globals, /\.erp-transaction-line-items\s*\{[\s\S]*container:\s*erp-transaction-line-items\s*\/\s*inline-size/);
   assert.match(globals, /@container erp-transaction-line-items \(max-width:\s*1099px\)/);
   assert.match(globals, /\.erp-transaction-line-items-table\s*\{\s*display:\s*none/);
   assert.match(globals, /\.erp-transaction-line-items-cards\s*\{\s*display:\s*block/);
   assert.match(
     globals,
-    /@media \(min-width:\s*1280px\)\s*\{\s*\.erp-transaction-line-items-table\s*\{\s*display:\s*block;\s*\}\s*\.erp-transaction-line-items-cards\s*\{\s*display:\s*none;\s*\}\s*\}/,
+    /@media \(min-width:\s*1024px\)\s*\{\s*\.erp-transaction-line-items-table\s*\{\s*display:\s*block;\s*\}\s*\.erp-transaction-line-items-cards\s*\{\s*display:\s*none;\s*\}\s*\}/,
   );
   for (const component of ["../features/purchase/components/PurchaseLineItemsTable.tsx", "../features/sales/components/SalesLineItemsTable.tsx"]) {
     const source = readFileSync(new URL(component, import.meta.url), "utf8");
@@ -127,4 +131,13 @@ test("tablet filter bars use the available canvas without changing the phone con
   assert.match(globals, /data-erp-filter-field="date-range"[\s\S]*data-erp-component="date-range-picker"[\s\S]*width:\s*100%/);
   assert.match(globals, /data-erp-region="filter-actions"[\s\S]*justify-content:\s*flex-end/);
   assert.match(globals, /@media \(max-width: 1023px\)[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+});
+
+test("phone actions retain labels and complete form guidance without changing desktop", () => {
+  const phoneRules = globals.slice(globals.indexOf("/* Phone workbench"));
+  assert.match(phoneRules, /@media \(max-width: 767px\)[\s\S]*\.erp-phone-action-menu \.erp-icon-action-label \{ display: inline/);
+  assert.match(phoneRules, /data-erp-form-section[\s\S]*height: auto; white-space: normal; overflow: visible/);
+  assert.match(phoneRules, /button\[data-erp-button-size\^="icon"\][\s\S]*min-width: var\(--erp-mobile-touch-size\)/);
+  const table = readFileSync(new URL("../components/common/ErpDataTable.tsx", import.meta.url), "utf8");
+  assert.match(table, /options=\{phone \? phonePageSizeOptions : pageSizeOptions\}/);
 });

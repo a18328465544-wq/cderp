@@ -25,6 +25,8 @@ const adapterOnlyPackages = [
   "cmdk",
   "react-day-picker",
   "sonner",
+  "barcode-detector",
+  "zxing-wasm",
 ];
 
 function collectFiles(dir) {

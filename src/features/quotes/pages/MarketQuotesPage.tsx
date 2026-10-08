@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {SortingState} from "@tanstack/react-table";
 import {ArrowDownRight, ArrowUpRight, Download, LineChart, LockKeyhole, Plus, RefreshCw, TrendingUp, Upload} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -23,10 +24,11 @@ function useQuoteUrlState() {
 }
 
 export function MarketQuotesPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useQuoteUrlState();
   const allowed = createCapabilities(session).menu("quotes");
-  const listQuery = useQuery({queryKey: queryKeys.quotes.list({showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)}), queryFn: ({signal}) => quotesApi.list({showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)}, signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const listQuery = useQuery({queryKey: queryKeys.quotes.list({showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)}), queryFn: ({signal}) => quotesApi.list({showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)}, signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
   if (!session) return <Card><ErpLoadingState title="正在验证行情权限" /></Card>;
   if (!session || !allowed) return <ErpPageError title="当前账号没有行情参考权限" description="服务器已拒绝 quotes 菜单访问，请联系管理员授权。" />;
   return <MarketQuotesContent session={session} query={listQuery} filters={filters} onFiltersChange={commit} onAuthExpired={logout} />;

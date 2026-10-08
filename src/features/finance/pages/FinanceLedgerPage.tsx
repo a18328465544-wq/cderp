@@ -1,4 +1,5 @@
 import {keepPreviousData, useQuery} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {useNavigate} from "@tanstack/react-router";
 import type {OnChangeFn, VisibilityState} from "@tanstack/react-table";
 import {CheckCircle2, ChevronRight, CircleDollarSign, Download, FileCheck2, RefreshCw, RotateCcw, SlidersHorizontal, WalletCards} from "lucide-react";
@@ -29,12 +30,13 @@ function useLedgerUrlState() {
 }
 
 export function FinanceLedgerPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useLedgerUrlState();
   const allowed = createCapabilities(session).menu("settlement_ledger");
   const canViewAccounts = createCapabilities(session).menu("settlement_accounts");
-  const ledgerQuery = useQuery({queryKey: queryKeys.finance.ledger(filters), queryFn: ({signal}) => financeLedgerApi.list(filters, signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
-  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: Boolean(session && allowed && canViewAccounts), staleTime: 60_000, retry: false});
+  const ledgerQuery = useQuery({queryKey: queryKeys.finance.ledger(filters), queryFn: ({signal}) => financeLedgerApi.list(filters, signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: active && Boolean(session && allowed && canViewAccounts), staleTime: 60_000, retry: false});
 
   useEffect(() => {
     if (ledgerQuery.error instanceof ApiError && ledgerQuery.error.isUnauthorized) logout();
@@ -173,7 +175,7 @@ function ExpenseShareCard({rows}: {rows: ExpenseRow[]}) {
 }
 
 function LedgerTableCard({rows, summary, total, page, pageSize, query, columns, columnVisibility, onColumnVisibilityChange, density, onDensityChange, onPageChange, onPageSizeChange, activeFilters, onRowClick}: {rows: FinanceLedgerItem[]; summary: ReturnType<typeof summarizeFinanceLedgerPage>; total: number; page: number; pageSize: number; query: LedgerQuery; columns: ReturnType<typeof createFinanceLedgerColumns>; columnVisibility: VisibilityState; onColumnVisibilityChange: OnChangeFn<VisibilityState>; density: "comfortable" | "compact"; onDensityChange: (value: "comfortable" | "compact") => void; onPageChange: (page: number) => void; onPageSizeChange: (pageSize: number) => void; activeFilters: number; onRowClick: (item: FinanceLedgerItem) => void}) {
-  return <DashboardSection title={<span>流水明细 <span className="ml-1 text-xs font-normal text-[var(--erp-color-text-muted)]">共 {total} 条</span></span>} actions={<TableControls columns={columns} visibility={columnVisibility} onVisibilityChange={onColumnVisibilityChange} density={density} onDensityChange={onDensityChange} />} className="overflow-hidden p-0"><ErpDataTable ariaLabel="账户流水明细" surface="plain" columns={columns} data={rows} getRowId={(row) => row.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="账户流水加载失败" emptyTitle="暂无匹配流水" emptyDescription={activeFilters ? "当前筛选条件没有匹配结果。" : "当前账本尚无账户流水。"} onRetry={() => void query.refetch()} onRowClick={onRowClick} manualSorting page={page} pageSize={pageSize} total={total} onPageChange={onPageChange} onPageSizeChange={onPageSizeChange} columnVisibility={columnVisibility} onColumnVisibilityChange={onColumnVisibilityChange} enableColumnResizing density={density} stickyHeader virtualized={rows.length >= 50} footer={<div className="flex flex-wrap items-center gap-4"><span>合计（当前筛选结果）</span><span className="text-[var(--erp-color-income)]">收入：{formatMoney(summary.income)}</span><span className="text-[var(--erp-color-expense)]">支出：{formatMoney(summary.expense)}</span><span style={{color: financeNetColor(summary.net)}}>净额：{formatMoney(summary.net)}</span></div>} /></DashboardSection>;
+  return <DashboardSection title={<span>流水明细 <span className="ml-1 text-xs font-normal text-[var(--erp-color-text-muted)]">共 {total} 条</span></span>} actions={<TableControls columns={columns} visibility={columnVisibility} onVisibilityChange={onColumnVisibilityChange} density={density} onDensityChange={onDensityChange} />} className="overflow-hidden p-0"><ErpDataTable mobileFieldOrder={["changeAmount","accountName","direction","relatedDocNo"]} ariaLabel="账户流水明细" surface="plain" columns={columns} data={rows} getRowId={(row) => row.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="账户流水加载失败" emptyTitle="暂无匹配流水" emptyDescription={activeFilters ? "当前筛选条件没有匹配结果。" : "当前账本尚无账户流水。"} onRetry={() => void query.refetch()} onRowClick={onRowClick} manualSorting page={page} pageSize={pageSize} total={total} onPageChange={onPageChange} onPageSizeChange={onPageSizeChange} columnVisibility={columnVisibility} onColumnVisibilityChange={onColumnVisibilityChange} enableColumnResizing density={density} stickyHeader virtualized={rows.length >= 50} footer={<div className="flex flex-wrap items-center gap-4"><span>合计（当前筛选结果）</span><span className="text-[var(--erp-color-income)]">收入：{formatMoney(summary.income)}</span><span className="text-[var(--erp-color-expense)]">支出：{formatMoney(summary.expense)}</span><span style={{color: financeNetColor(summary.net)}}>净额：{formatMoney(summary.net)}</span></div>} /></DashboardSection>;
 }
 
 function TableControls({columns, visibility, onVisibilityChange, density, onDensityChange}: {columns: ReturnType<typeof createFinanceLedgerColumns>; visibility: VisibilityState; onVisibilityChange: OnChangeFn<VisibilityState>; density: "comfortable" | "compact"; onDensityChange: (value: "comfortable" | "compact") => void}) {

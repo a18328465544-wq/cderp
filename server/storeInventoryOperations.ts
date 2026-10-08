@@ -1,3 +1,4 @@
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 import type {
   CardInventory,
   InventoryImportRow,
@@ -6,6 +7,7 @@ import type {
   InventorySummaryRow,
   ProductCategory,
   ProductTemplate,
+  PurchaseInvoice,
   SalesInvoice,
 } from "../src/types.ts";
 import {createProductIdentityIndex, sameProductIdentity} from "../src/utils/productIdentity.ts";
@@ -13,11 +15,13 @@ import {isInventorySellableStatus, matchesInventoryListFilters, normalizeInvento
 import {inventoryInspectionPendingStatusValues, inventoryRepairStatusValues} from "../src/types/inventory.ts";
 import {buildPendingSalesNeedByProduct, productIdentityKey} from "./storeInventoryPlanning.ts";
 import {ValidationError} from "./errors.ts";
+import {advancePurchaseVersionsForInventory} from "./purchaseRecordVersion.ts";
 
 export type InventoryOperationsState = {
   inventory: CardInventory[];
   products: ProductTemplate[];
   salesInvoices: SalesInvoice[];
+  purchaseInvoices: PurchaseInvoice[];
 };
 
 export type InventoryOperationsDependencies = {
@@ -63,6 +67,7 @@ export function createInventoryOperationHelpers(dependencies: InventoryOperation
       return updated;
     });
     if (updatedCards.length) {
+      advancePurchaseVersionsForInventory(state, updatedCards);
       addLog(
         getActiveRole(),
         "库存管理",
@@ -322,6 +327,7 @@ export function createInventoryOperationHelpers(dependencies: InventoryOperation
     });
 
     state.inventory = state.inventory.map((card) => updates.has(card.id) ? {...card, ...updates.get(card.id)} : card);
+    advancePurchaseVersionsForInventory(state, state.inventory.filter((card) => updates.has(card.id)));
     const outboundSuccessCount = results.filter((item) => item.matched && item.message.endsWith("成功") && item.afterStatus === "已售出").length;
     if (input.mode === "出库" && outboundSuccessCount > 0) {
       state.products = state.products.map((product) => {
@@ -337,7 +343,7 @@ export function createInventoryOperationHelpers(dependencies: InventoryOperation
         if (!invoice || invoice.outboundStatus === "已出库") continue;
         const allItemsOutbound = invoice.items.every((item) => state.inventory.find((card) => card.id === item.inventoryId)?.status === "已售出");
         if (allItemsOutbound) {
-          const updatedInvoice = {...invoice, outboundStatus: "已出库" as const, outboundTime: time, outboundHandler: handler};
+          const updatedInvoice = {...invoice, recordVersion: getRecordVersion(invoice) + 1, outboundStatus: "已出库" as const, outboundTime: time, outboundHandler: handler};
           state.salesInvoices = state.salesInvoices.map((item) => item.id === invoiceId ? updatedInvoice : item);
           ensurePurchaseCommissionsForSale(updatedInvoice, time, handler);
         }

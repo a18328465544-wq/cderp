@@ -7,6 +7,7 @@ import {usePurchaseMediaUpload, type PurchaseMediaStateChange} from "../hooks/us
 
 interface PurchaseImageSectionProps {
   setValue: UseFormSetValue<PurchaseFormValues>;
+  initialImages?: readonly string[];
   disabled?: boolean;
   canUpload?: boolean;
   embedded?: boolean;
@@ -14,8 +15,8 @@ interface PurchaseImageSectionProps {
   onReady?: (clear: () => void) => void;
 }
 
-export function PurchaseImageSection({setValue, disabled = false, canUpload = true, embedded = false, onStateChange, onReady}: PurchaseImageSectionProps) {
-  const upload = usePurchaseMediaUpload({setValue, disabled: disabled || !canUpload, onStateChange});
+export function PurchaseImageSection({setValue, initialImages, disabled = false, canUpload = true, embedded = false, onStateChange, onReady}: PurchaseImageSectionProps) {
+  const upload = usePurchaseMediaUpload({setValue, initialImages, disabled: disabled || !canUpload, onStateChange});
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewItem = upload.items.find((item) => item.id === previewId);
   const accept = useMemo(() => IMAGE_ACCEPTED_MIME_TYPES.join(","), []);

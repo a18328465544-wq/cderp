@@ -137,6 +137,25 @@
   /* Global shell geometry and layer contract. The workspace bar is always the
      highest application layer; drawers begin below it and must never cover it. */
   --erp-workspace-bar-height: 48px;
+  --erp-mobile-nav-height: 60px;
+  --erp-mobile-bottom-nav-bg: rgb(255 255 255 / 0.88);
+  --erp-mobile-bottom-nav-border: rgb(226 232 240 / 0.75);
+  --erp-mobile-action-height: 112px;
+  --erp-mobile-touch-size: 44px;
+  /* Phone geometry reuses the existing scale; touch size is independent of
+     text size, and only final task actions use the taller control tier. */
+  --erp-mobile-primary-height: var(--erp-space-12);
+  --erp-mobile-search-action-height: calc(var(--erp-mobile-touch-size) + var(--erp-mobile-primary-height) + var(--erp-space-2) + var(--erp-space-6));
+  --erp-mobile-icon-size: var(--erp-space-5);
+  --erp-mobile-record-image-size: var(--erp-mobile-touch-size);
+  --erp-phone-keyboard-inset: 0px;
+  --erp-phone-visible-height: 100dvh;
+  --erp-safe-top: env(safe-area-inset-top, 0px);
+  --erp-safe-right: env(safe-area-inset-right, 0px);
+  --erp-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --erp-safe-left: env(safe-area-inset-left, 0px);
+  --erp-mobile-bottom-offset: 0px;
+  --erp-mobile-action-offset: 0px;
   --erp-page-max-width: 1720px;
   --erp-page-gap-compact: 12px;
   --erp-page-gap: 16px;

@@ -2,6 +2,7 @@ import type {CardInventory, PaymentOutRecord, PurchaseInvoice, SalesInvoice, Set
 import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
 import {isInvoiceLinkedToVendor, matchesPerson, normalizeCustomerLevel} from "./storePartnerIdentity.ts";
 import {isPersonalPurchaseSource} from "../src/utils/purchaseSources.ts";
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 
 export type VendorOperationsState = {
   vendors: Vendor[];
@@ -115,14 +116,14 @@ export function createVendorOperationHelpers(dependencies: VendorOperationsDepen
       const legacyMatch = legacyNameIsUnique && !invoice.sourcePartnerId && !isPersonalPurchaseSource(invoice.sourceType) &&
         personMatches(existing.name, previousContact, invoice.supplierName, invoice.contact);
       if (!linkedById && !legacyMatch) return invoice;
-      return {...invoice, sourcePartnerId: id, sourcePartnerType: "vendor", supplierName: nextVendor.name, contact: nextContact};
+      return {...invoice, recordVersion: getRecordVersion(invoice) + 1, sourcePartnerId: id, sourcePartnerType: "vendor", supplierName: nextVendor.name, contact: nextContact};
     });
     state.salesInvoices = state.salesInvoices.map((invoice) => {
       const linkedById = invoice.customerId === id && invoice.customerPartnerType === "vendor";
       const legacyMatch = legacyNameIsUnique && !invoice.customerId && invoice.channel === "同行网店" &&
         personMatches(existing.name, previousContact, invoice.customerName, invoice.contact);
       if (!linkedById && !legacyMatch) return invoice;
-      return {...invoice, customerId: id, customerPartnerType: "vendor", customerName: nextVendor.name, contact: nextContact};
+      return {...invoice, recordVersion: getRecordVersion(invoice) + 1, customerId: id, customerPartnerType: "vendor", customerName: nextVendor.name, contact: nextContact};
     });
     state.inventory = state.inventory.map((card) =>
       legacyNameIsUnique && personMatches(existing.name, previousContact, card.supplierName, undefined)

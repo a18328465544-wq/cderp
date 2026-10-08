@@ -17,8 +17,11 @@ import { createFinanceReconciliationActionOperations } from "./dbFinanceReconcil
 import { createAccountingEventOperations } from "./dbAccountingEvents.ts";
 import { createFinanceControlsOperations } from "./dbFinanceControls.ts";
 import { createDatabaseQueryServices } from "./dbQueryServices.ts";
+import {queryProfitReport, type ProfitReportFilters} from "./financeProfitReport.ts";
 import { createReferenceQueries } from "./dbReferenceQueries.ts";
 import { createStatePersistence } from "./dbStatePersistence.ts";
+import {releaseTransactionClient, rollbackTransactionQuietly as rollbackQuietly} from "./dbTransactionCleanup.ts";
+import {installDatabasePoolSafety} from "./dbPoolSafety.ts";
 import { createDatabaseLocks } from "./dbLocks.ts";
 import { createDatabaseSessionStore as createDatabaseSessionStoreRepository } from "./dbSessions.ts";
 import { scopedAuxiliaryKey, scopedStoreId, scopedTenantId } from "./dbScope.ts";
@@ -202,6 +205,7 @@ function getPool() {
         ? { rejectUnauthorized: false }
         : undefined,
     });
+    installDatabasePoolSafety(pool);
   }
   return pool;
 }
@@ -211,15 +215,6 @@ function getPool() {
  * normalized repositories use this helper so they share the same pool,
  * connection options, and schema initialization as the legacy state layer.
  */
-async function rollbackQuietly(client: PoolClient) {
-  try {
-    await client.query("ROLLBACK");
-  } catch {
-    // Preserve the original database error. The connection is released below;
-    // a rollback failure must not hide the operation that actually failed.
-  }
-}
-
 const postgresInitializer = createPostgresInitializer({
   getPool,
   collectionTables,
@@ -246,7 +241,7 @@ export async function withDatabaseTransaction<T>(callback: (client: PoolClient) 
     await rollbackQuietly(client);
     throw error;
   } finally {
-    client.release();
+    releaseTransactionClient(client);
   }
 }
 
@@ -344,6 +339,10 @@ export const queryInventoryPage = databaseQueryServices.queryInventoryPage;
 export const queryLogsPage = databaseQueryServices.queryLogsPage;
 export const queryCommissionPage = databaseQueryServices.queryCommissionPage;
 export const queryFinanceProfitOtherFlows = databaseQueryServices.queryFinanceProfitOtherFlows;
+export async function queryFinanceProfitReport(filters: ProfitReportFilters, visibility: {showCost?: boolean; showProfit?: boolean}) {
+  await initializePostgres();
+  return queryProfitReport(getPool(), filters, visibility);
+}
 export const querySettlementLedgerPage = databaseQueryServices.querySettlementLedgerPage;
 export const queryPaymentInPage = databaseQueryServices.queryPaymentInPage;
 export const queryPaymentOutPage = databaseQueryServices.queryPaymentOutPage;

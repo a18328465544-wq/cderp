@@ -1,15 +1,17 @@
 import {z} from "zod";
 import type {PurchaseFormValues} from "@/src/types/purchase";
+import {PURCHASE_MAX_PHYSICAL_ITEMS, PURCHASE_PHYSICAL_LIMIT_MESSAGE} from "@/src/types/purchase";
 import {customerPartnerTypes} from "@/src/types/customer";
 import {inventoryConditionValues, productCategoryValues, sourceTypeValues} from "@/src/types/core";
 import {calculatePurchaseSettlement, calculatePurchaseSummary, isPurchaseLineFilled} from "@/src/lib/purchase";
+import {purchaseQuantityError} from "@/src/utils/purchaseQuantity";
 
 const sourceValues = sourceTypeValues;
 const partnerValues = customerPartnerTypes;
 const conditionValues = inventoryConditionValues;
 const categoryValues = productCategoryValues;
 
-/** Draft rows may be blank so a newly opened form can show one editor row. */
+/** Keep the four spare editor rows; only filled rows become purchase commands. */
 export const purchaseLineDraftSchema = z.object({
   tempId: z.string().optional(),
   productId: z.string(),
@@ -26,7 +28,7 @@ export const purchaseLineDraftSchema = z.object({
   repaired: z.boolean(),
   gpuRisk: z.boolean(),
   fullBox: z.boolean(),
-  quantity: z.number().int().min(1, "数量至少为 1"),
+  quantity: z.number().finite("数量必须为有限数值"),
   buyPrice: z.number().nonnegative("收购价不能为负数"),
   estSellPrice: z.number().nonnegative("预计售价不能为负数"),
   warehouseLocation: z.string().max(120, "库位最多 120 字"),
@@ -61,6 +63,10 @@ export function createPurchaseOrderSchema(vendorCreditAvailable?: number) {
     }
     filledItems.forEach((item) => {
       const index = value.items.indexOf(item);
+      const quantityError = purchaseQuantityError([item]);
+      if (quantityError) {
+        context.addIssue({code: "custom", path: ["items", index, "quantity"], message: quantityError});
+      }
       if (!item.productId.trim() || !item.productName.trim()) {
         context.addIssue({code: "custom", path: ["items", index, "productId"], message: "请选择采购商品"});
       }
@@ -70,6 +76,9 @@ export function createPurchaseOrderSchema(vendorCreditAvailable?: number) {
     });
 
     const summary = calculatePurchaseSummary(value.items);
+    if (summary.totalCount > PURCHASE_MAX_PHYSICAL_ITEMS) {
+      context.addIssue({code: "custom", path: ["items"], message: PURCHASE_PHYSICAL_LIMIT_MESSAGE});
+    }
     const settlement = calculatePurchaseSettlement(summary.totalCost, value.paidAmount, value.vendorCreditAppliedAmount);
     if (settlement.overpaid) {
       context.addIssue({code: "custom", path: ["paidAmount"], message: "现金付款与供应商抵扣余额之和不能超过采购总额"});

@@ -332,7 +332,11 @@ export function createStoreActions(state: AppState, context: StoreActionContext 
     nextReturnNo,
     systemActor,
     getActiveRole,
-    replaceState: (target, next) => replaceState(target as AppState, next as AppState),
+    // Rollback must restore the exact pre-command snapshot. The import/reset
+    // normalizer can change unrelated inspections, permissions or stock counts.
+    replaceState: (target, next) => {
+      Object.assign(target as AppState, structuredClone(next as AppState));
+    },
     findSettlementAccount,
     findPurchaseInvoiceForCard,
     purchaseInvoiceVendorId,
@@ -449,7 +453,6 @@ export function createStoreActions(state: AppState, context: StoreActionContext 
     genId,
     getActiveRole,
     systemActor,
-    findSalesInvoiceByDocNo,
     salesInvoiceCustomerId,
     findSettlementAccount,
     createPaymentOut,

@@ -1,5 +1,6 @@
 import {useMemo, useState} from "react";
 import {ErpFormSection} from "@/src/components/common";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
 import {CustomerPicker} from "@/src/components/domain";
 import type {PurchasePartnerType, PurchaseSourceOption} from "@/src/types/purchase";
 
@@ -19,6 +20,7 @@ export function PurchaseSourcePicker({selected, options, disabled, loading, canR
   onOpenCreateCustomer?: (initialName?: string) => void;
   onOpenCreateVendor?: (initialName?: string) => void;
 }) {
+  const phone = useErpPhone();
   const [keyword, setKeyword] = useState("");
   // Keep the last few choices at the top for this form session. This avoids
   // adding another persistence layer while making repeated purchasing faster.
@@ -59,7 +61,7 @@ export function PurchaseSourcePicker({selected, options, disabled, loading, canR
     <div>
       <div className="min-w-0"><p className="text-sm font-semibold">来源客户 / 供应商</p><div className="mt-2"><CustomerPicker value={selected} keyword={keyword} options={candidates} loading={loading} disabled={disabled || !allowed} placeholder={allowed ? "搜索客户、供应商或联系方式" : permissionMessage} searchLabel="搜索采购来源" candidateLabel="采购来源候选" entityLabel="采购来源" quickCreateActions={quickCreateActions} onKeywordChange={handleKeywordChange} onSelect={handleSelect} onClear={onClear} /></div>{!allowed && <div className="mt-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-warning)] bg-[var(--erp-color-warning-soft)] px-3 py-2 text-xs text-[var(--erp-color-warning)]">{permissionMessage}</div>}</div>
     </div>
-    {selected?.partnerType === "vendor" && <div className="mt-3 rounded-[var(--erp-radius-md)] border border-dashed border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 py-2 text-xs text-[var(--erp-color-text-secondary)]">供应商可用余额将在付款区域作为抵扣上限；抵扣不会生成现金流水。</div>}
+    {!phone && selected?.partnerType === "vendor" && <div className="mt-3 rounded-[var(--erp-radius-md)] border border-dashed border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 py-2 text-xs text-[var(--erp-color-text-secondary)]">供应商可用余额将在付款区域作为抵扣上限；抵扣不会生成现金流水。</div>}
   </>;
 
   // Compact mode is commonly placed directly inside a page grid. Keep the

@@ -1,7 +1,7 @@
 import {withDatabaseTransaction} from "./db.ts";
 import type {PoolClient} from "pg";
 import type {GlobalSearchResult, GlobalSearchResultKind} from "../src/types/global-search.ts";
-import {productSearchSql} from "./productSearchSql.ts";
+import {inventoryKeywordSearchSql, productSearchSql} from "./productSearchSql.ts";
 
 type SearchBranch = {
   kind: GlobalSearchResultKind;
@@ -55,7 +55,7 @@ const branches: readonly SearchBranch[] = [
     subtitle: "CONCAT_WS(' · ', NULLIF(data->>'sn', ''), NULLIF(data->>'status', ''), NULLIF(data->>'warehouseLocation', ''))",
     reference: "COALESCE(NULLIF(data->>'sn', ''), id)",
     route: "'/inventory'",
-    searchable: "CONCAT_WS(' ', id, data->>'productId', data->>'productName', data->>'category', data->>'brand', data->>'model', data->>'version', data->>'vram', data->>'sn', data->>'expressNo', data->>'supplierName', data->>'warehouseLocation', data->>'remarks')",
+    searchable: "CONCAT_WS(' ', id, data->>'productId', data->>'productName', data->>'category', data->>'brand', data->>'model', data->>'version', data->>'vram', data->>'sn', data->>'expressNo')",
     priority: 20,
   },
   {
@@ -172,8 +172,14 @@ function normalizedLimit(value: number | undefined) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(60, Math.floor(parsed))) : 40;
 }
 
-function branchSql(branch: SearchBranch, branchLimit: number, productClause = "") {
+function branchPredicate(branch: SearchBranch, query: string, bind: (value: string) => string) {
+  if (branch.kind === "product") return productSearchSql("p", query, bind).join(" AND ") || "TRUE";
+  if (branch.kind === "inventory") return inventoryKeywordSearchSql(query, bind);
   const itemClause = branch.kind === "purchase" || branch.kind === "sales" ? ` OR ${invoiceItemsMatch}` : "";
+  return `(POSITION(LOWER($3) IN LOWER(${branch.searchable})) > 0${itemClause})`;
+}
+
+function branchSql(branch: SearchBranch, branchLimit: number, predicate: string) {
   return `SELECT
     '${branch.kind}'::text AS kind,
     id::text AS id,
@@ -185,7 +191,8 @@ function branchSql(branch: SearchBranch, branchLimit: number, productClause = ""
   FROM ${branch.table}${branch.kind === "product" ? " p" : ""}
   WHERE tenant_id = $1
     AND store_id = $2
-    AND ${branch.kind === "product" ? productClause : `(POSITION(LOWER($3) IN LOWER(${branch.searchable})) > 0${itemClause})`}
+    AND LENGTH($3::text) > 0
+    AND ${predicate}
   ORDER BY id ASC
   LIMIT ${branchLimit}`;
 }
@@ -196,8 +203,8 @@ export function buildGlobalSearchQuery(filters: GlobalSearchFilters) {
   const selectedBranches = branches.filter((branch) => hasAnyMenu(filters.allowedMenus, branch.menus));
   const branchLimit = Math.max(6, Math.min(20, Math.ceil(limit / Math.max(selectedBranches.length, 1)) * 2));
   const values = [filters.tenantId?.trim() || "", filters.storeId?.trim() || "", query, limit];
-  const productClause = selectedBranches.some((branch) => branch.kind === "product") ? productSearchSql("p", query, (value) => {values.push(value); return `$${values.length}`;}).join(" AND ") || "TRUE" : "";
-  const union = selectedBranches.map((branch) => `(${branchSql(branch, branchLimit, productClause)})`).join("\nUNION ALL\n");
+  const bind = (value: string) => {values.push(value); return `$${values.length}`;};
+  const union = selectedBranches.map((branch) => `(${branchSql(branch, branchLimit, branchPredicate(branch, query, bind))})`).join("\nUNION ALL\n");
   const sql = union
     ? `SELECT kind, id, title, subtitle, route, reference
        FROM (${union}) AS global_search
@@ -225,16 +232,16 @@ async function runDegradedSearch(
   branchLimit: number,
 ) {
   const query = filters.query.trim().slice(0, 120);
-  const values = [filters.tenantId?.trim() || "", filters.storeId?.trim() || "", query];
   const selectedBranches = branches.filter((branch) => hasAnyMenu(filters.allowedMenus, branch.menus));
-  const productClause = selectedBranches.some((branch) => branch.kind === "product") ? productSearchSql("p", query, (value) => {values.push(value); return `$${values.length}`;}).join(" AND ") || "TRUE" : "";
   const rows: GlobalSearchRow[] = [];
 
   for (const [index, branch] of selectedBranches.entries()) {
     const savepoint = `global_search_branch_${index}`;
     await client.query(`SAVEPOINT ${savepoint}`);
     try {
-      const result = await client.query<GlobalSearchRow>(branchSql(branch, branchLimit, productClause), branch.kind === "product" ? values : values.slice(0, 3));
+      const values = [filters.tenantId?.trim() || "", filters.storeId?.trim() || "", query];
+      const predicate = branchPredicate(branch, query, (value) => {values.push(value); return `$${values.length}`;});
+      const result = await client.query<GlobalSearchRow>(branchSql(branch, branchLimit, predicate), values);
       rows.push(...result.rows);
       await client.query(`RELEASE SAVEPOINT ${savepoint}`);
     } catch (error) {

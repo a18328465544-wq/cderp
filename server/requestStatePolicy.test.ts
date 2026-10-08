@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {requiresStateSerialization} from "./mutationPolicy.ts";
 
 import {
+  getAuthenticationReloadKeys,
+  AI_INSIGHT_STATE_KEYS,
+  AI_DAILY_SALES_STATE_KEYS,
   getPersistenceKeysForRequest,
   getReloadKeysForRequest,
   getStatePatchKeysForRequest,
@@ -10,14 +14,97 @@ import {
   shouldReloadStateFromDatabase,
 } from "./requestStatePolicy.ts";
 
+test("authenticated SQL reads load only users and tenant settings, unknown reads keep compatibility", () => {
+  for (const route of ["/api/inventory/items", "/api/sales-invoices", "/api/purchase-invoices", "/api/global-search", "/api/state/revision", "/api/finance/profit-report"]) {
+    assert.deepEqual(getAuthenticationReloadKeys("GET", route), ["systemUsers"]);
+  }
+  assert.deepEqual(getAuthenticationReloadKeys("POST", "/api/returns"), ["systemUsers"]);
+  assert.equal(getAuthenticationReloadKeys("GET", "/api/unknown-read"), null);
+  assert.deepEqual(getAuthenticationReloadKeys("GET", "/api/state", true), [...new Set(["systemUsers", ...INITIAL_STATE_RELOAD_KEYS])]);
+});
+
+test("AI routes do not load the same full state both during authentication and in their handler", () => {
+  for (const route of ["/api/ai/insights", "/api/ai/insight-actions", "/api/ai/daily-sales-summary"]) {
+    assert.deepEqual(getAuthenticationReloadKeys("GET", route), ["systemUsers"]);
+    assert.deepEqual(getReloadKeysForRequest("GET", route), []);
+  }
+  assert.deepEqual(AI_INSIGHT_STATE_KEYS, ["inventory", "salesInvoices", "purchaseInvoices", "marketQuotes"]);
+  assert.deepEqual(AI_DAILY_SALES_STATE_KEYS, ["inventory", "salesInvoices", "returnOrders"]);
+});
+
 test("GET state reloads from database", () => {
   assert.equal(shouldReloadStateFromDatabase("GET", "/api/state"), true);
+});
+
+test("POST previews load their explicit read dependencies, not the command-only authentication snapshot", () => {
+  const path = "/api/sales-invoices/XS-internal-id/outbound/preflight";
+  assert.deepEqual(getAuthenticationReloadKeys("POST", path), ["systemUsers", "salesInvoices", "inventory", "products"]);
+  assert.deepEqual(getAuthenticationReloadKeys("post", `${path}/`), ["systemUsers", "salesInvoices", "inventory", "products"]);
+  assert.deepEqual(getReloadKeysForRequest("POST", path), ["salesInvoices", "inventory", "products"]);
+  assert.equal(getPersistenceKeysForRequest("POST", path), null);
+  assert.equal(getStatePatchKeysForRequest("POST", path), null);
+  assert.equal(shouldAttachFreshStateToResponse("POST", path, {data: {ready: true}}), false);
+  assert.deepEqual(getAuthenticationReloadKeys("POST", "/api/gpu_erp/crm/quick-capture/parse"), ["systemUsers", "customers", "products"]);
+  assert.deepEqual(getAuthenticationReloadKeys("POST", "/api/gpu_erp/crm/customer/lead-preview"), ["systemUsers"]);
+  for (const command of ["/api/sales-invoices/XS-internal-id/outbound", "/api/sales-invoices", "/api/gpu_erp/crm/quick-capture/confirm"]) {
+    assert.deepEqual(getAuthenticationReloadKeys("POST", command), ["systemUsers"]);
+  }
+});
+
+test("outbound preview stays a scoped read across middleware policies and URL variants", () => {
+  for (const method of ["POST", "post"]) {
+    for (const suffix of ["", "/"]) {
+      const path = `/api/sales-invoices/XS-internal-id/outbound/preflight${suffix}`;
+      assert.equal(requiresStateSerialization(method, `${path}?source=outbound`), false);
+      assert.deepEqual(getAuthenticationReloadKeys(method, path), ["systemUsers", "salesInvoices", "inventory", "products"]);
+      assert.deepEqual(getReloadKeysForRequest(method, path), ["salesInvoices", "inventory", "products"]);
+      assert.equal(getPersistenceKeysForRequest(method, path), null);
+      assert.equal(getStatePatchKeysForRequest(method, path), null);
+      assert.equal(shouldAttachFreshStateToResponse(method, path, {data: {ready: true}}), false);
+    }
+  }
+  const confirmPath = "/api/sales-invoices/XS-internal-id/outbound";
+  assert.equal(requiresStateSerialization("POST", confirmPath), true);
+  assert.deepEqual(getAuthenticationReloadKeys("POST", confirmPath), ["systemUsers"]);
+  assert.ok(getReloadKeysForRequest("POST", confirmPath)?.includes("salesInvoices"));
+  assert.ok(getPersistenceKeysForRequest("POST", confirmPath)?.includes("inventory"));
 });
 
 test("business writes reload from database before mutating memory", () => {
   assert.equal(shouldReloadStateFromDatabase("POST", "/api/sales-invoices"), true);
   assert.equal(shouldReloadStateFromDatabase("PUT", "/api/products/SP-001"), true);
   assert.equal(shouldReloadStateFromDatabase("DELETE", "/api/customers/C-001"), true);
+});
+
+test("payment mutations load refund and aftersales dependencies without persisting those read-only collections", () => {
+  for (const direction of ["in", "out"]) for (const [method, suffix] of [["POST", "create"], ["PUT", "PAY-1"], ["DELETE", "PAY-1"], ["POST", "PAY-1/reverse"]]) {
+    const route = `/api/gpu_erp/finance/payment-${direction}/${suffix}`;
+    assert.deepEqual(getAuthenticationReloadKeys(method!, route), ["systemUsers"]);
+    for (const key of ["returnOrders", "aftersales"] as const) {
+      assert.ok(getReloadKeysForRequest(method!, route)?.includes(key), route);
+      assert.equal(getPersistenceKeysForRequest(method!, route)?.includes(key), false, route);
+    }
+  }
+});
+
+test("inspection and inventory mutations reload and persist purchase revisions while workspace reads stay scoped", () => {
+  for (const [method, path] of [["POST", "/api/inspections"], ["PUT", "/api/inspections/JC-1"], ["PATCH", "/api/inventory/batch"], ["POST", "/api/inventory/scan-flow"]]) {
+    assert.ok(getReloadKeysForRequest(method, path)?.includes("purchaseInvoices"), path);
+    assert.ok(getPersistenceKeysForRequest(method, path)?.includes("purchaseInvoices"), path);
+  }
+  assert.deepEqual(getReloadKeysForRequest("GET", "/api/inspections/workspace"), []);
+  assert.deepEqual(getReloadKeysForRequest("GET", "/api/inventory/items"), []);
+});
+
+test("aftersales writes reload related identities and source payments while SQL workspace reads stay lightweight", () => {
+  assert.deepEqual(getAuthenticationReloadKeys("GET", "/api/aftersales/workspace"), ["systemUsers"]);
+  assert.deepEqual(getReloadKeysForRequest("GET", "/api/aftersales/workspace"), []);
+  for (const [method, path] of [["POST", "/api/aftersales"], ["PATCH", "/api/aftersales/SH-1"]]) {
+    assert.deepEqual(getAuthenticationReloadKeys(method, path), ["systemUsers"]);
+    assert.equal(requiresStateSerialization(method, path), true);
+    const keys = getReloadKeysForRequest(method, path);
+    for (const key of ["aftersales", "inventory", "products", "salesInvoices", "customers", "vendors", "paymentInRecords", "paymentOutRecords", "settlementAccounts", "settlementLedger", "financeLedger"]) assert.ok(keys?.includes(key as NonNullable<typeof keys>[number]), key);
+  }
 });
 
 test("reads participate in revision checks while HEAD and OPTIONS remain lightweight", () => {

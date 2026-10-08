@@ -94,7 +94,7 @@ export function GlobalSearchDialog({open, onOpenChange}: {open: boolean; onOpenC
   const snapshotQuery = useQuery({
     queryKey: queryKeys.state.initial(),
     queryFn: ({signal}) => stateApi.initial(signal),
-    enabled: open && Boolean(session) && Boolean(debouncedSearchText.trim()),
+    enabled: open && Boolean(session) && Boolean(debouncedSearchText.trim()) && businessQuery.isError,
     retry: false,
     staleTime: 30_000,
   });

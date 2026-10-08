@@ -2,6 +2,7 @@ import type {CardInventory, CardStatus, PurchaseItem, SalesItem} from "../src/ty
 import {inventorySellableStatuses} from "../src/utils/inventoryFilters.ts";
 import {createProductIdentityIndex, resolveProductIdentityKey, sameProductIdentity} from "../src/utils/productIdentity.ts";
 import {shouldReserveSalesInvoiceInventory} from "../src/utils/salesInventory.ts";
+import {purchaseQuantity, purchaseQuantityError} from "../src/utils/purchaseQuantity.ts";
 import {ValidationError} from "./errors.ts";
 import type {AppState} from "./store.ts";
 
@@ -102,8 +103,10 @@ export function buildSellableInventoryStats(
 // the user, but expand them before persisting so SN binding, stock availability and outbound
 // scans never have to guess how many physical cards a single line represents.
 export function expandPurchaseItems(items: PurchaseItem[]) {
+  const error = purchaseQuantityError(items);
+  if (error) throw new ValidationError(error);
   return items.flatMap((item) => {
-    const quantity = lineQuantity(item.quantity);
+    const quantity = purchaseQuantity(item.quantity);
     if (quantity > 1 && item.sn?.trim()) {
       throw new ValidationError(`已填写SN的进货明细数量必须为 1: ${item.productName}`);
     }

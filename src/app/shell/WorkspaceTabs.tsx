@@ -5,10 +5,12 @@ import {Button, Popover} from "@/src/components/ui";
 import {ErpUnsavedChangesDialog} from "@/src/components/common";
 import {cn} from "@/src/lib/cn";
 import {WORKSPACE_HOME_ID} from "./workspaceTabState";
+import {useWorkspaceTabRuntime} from "@/src/hooks/useWorkspaceTabRuntime";
 import {useWorkspaceTabWorkspace} from "./WorkspaceTabWorkspace";
 
 export function WorkspaceTabs() {
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
+  const {getDraft, isTabDirty} = useWorkspaceTabRuntime();
   const {
     state,
     tabs,
@@ -34,7 +36,7 @@ export function WorkspaceTabs() {
           <Popover.Trigger
             type="button"
             className="erp-focus-ring flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-[var(--erp-radius-md)] bg-[var(--erp-color-info-soft)] px-2.5 text-left text-xs font-medium text-[var(--erp-color-primary)]"
-            aria-label={`切换页面，当前为${activeTab?.label || "首页"}`}
+            aria-label={`切换页面，当前为${activeTab?.label || "首页"}`} title="最近任务"
           >
             <span className="flex min-w-0 items-center gap-1.5">
               {activeTab && state.pinnedIds.includes(activeTab.id) && <Pin className="h-3 w-3 shrink-0" aria-hidden="true" />}
@@ -46,7 +48,7 @@ export function WorkspaceTabs() {
             <Popover.Positioner className="outline-none" sideOffset={6} align="start">
               <Popover.Popup className="w-full max-w-none overflow-y-auto rounded-[var(--erp-radius-xl)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-2 shadow-[var(--erp-shadow-popover)] outline-none">
                 <div className="flex items-center justify-between gap-3 border-b border-[var(--erp-color-border)] px-2 pb-2">
-                  <p className="text-sm font-semibold text-[var(--erp-color-text)]">切换页面</p>
+                  <p className="text-sm font-semibold text-[var(--erp-color-text)]">最近任务 · {tabs.length}/10</p>
                   <Button type="button" size="icon" variant="ghost" aria-label="关闭页面切换" onClick={() => setMobileTabOpen(false)}><X className="h-4 w-4" /></Button>
                 </div>
                 <div className="space-y-1 pt-2">
@@ -63,6 +65,7 @@ export function WorkspaceTabs() {
                       >
                         {pinnedTab && <Pin className="h-4 w-4 shrink-0" aria-hidden="true" />}
                         <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {(getDraft(item.id) || isTabDirty(item.id)) ? <span className="text-xs text-[var(--erp-color-warning)]">未完成</span> : null}
                         {active && <span className="text-xs font-normal text-[var(--erp-color-text-muted)]">当前</span>}
                       </Link>
                       {closable && <Button type="button" size="iconTouch" variant="ghost" aria-label={`关闭${item.label}`} title={`关闭${item.label}`} onClick={(event) => { event.stopPropagation(); setMobileTabOpen(false); closeTab(item.id); }}><X className="h-4 w-4" /></Button>}

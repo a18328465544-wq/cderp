@@ -1,4 +1,5 @@
-import {X} from "lucide-react";
+import {ArrowLeft, X} from "lucide-react";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
 import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode} from "react";
 import {Dialog} from "@/src/components/ui";
 import {Button} from "@/src/components/ui";
@@ -204,9 +205,10 @@ function useDrawerWidth({resizable, allowFullWidth = false, drawerKey, defaultWi
 
 export function ErpDetailDrawer({open, onOpenChange, title, description, children, footer, modal = true, resizable = false, allowFullWidth = false, drawerKey, defaultWidth, minWidth, maxWidth}: ErpDetailDrawerProps) {
   const {active} = useWorkspaceTabActivity();
+  const phone = useErpPhone();
   const {bounds, width, isResizing, resetWidth, onKeyDown, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture} = useDrawerWidth({resizable, allowFullWidth, drawerKey, defaultWidth, minWidth, maxWidth});
   const popupStyle = resizable ? ({width: `${width}px`, "--erp-drawer-max-width": `${bounds.maxWidth}px`} as CSSProperties) : undefined;
-  const isModal = modal !== false;
+  const isModal = phone || modal !== false;
 
   return <Dialog.Root open={active && open} modal={isModal} disablePointerDismissal={!isModal} onOpenChange={onOpenChange}>
     <Dialog.Portal>
@@ -241,12 +243,12 @@ export function ErpDetailDrawer({open, onOpenChange, title, description, childre
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
           ><span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--erp-color-border-strong)] transition-colors group-hover:bg-[var(--erp-color-primary)] group-focus-visible:bg-[var(--erp-color-primary)]" /></div>}
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--erp-color-border)] px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
+          <div data-phone-header={phone || undefined} className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--erp-color-border)] px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-base font-semibold text-[var(--erp-color-text)]">{title}</Dialog.Title>
               {description ? <Dialog.Description className="erp-annotation-slot mt-1 text-xs text-[var(--erp-color-text-secondary)]">{description}</Dialog.Description> : null}
             </div>
-            <Dialog.Close render={<Button type="button" aria-label="关闭详情" title="关闭详情" size="icon" variant="ghost"><X className="h-4 w-4" /></Button>} />
+            <Dialog.Close render={<Button type="button" aria-label="关闭详情" title="关闭详情" size="icon" variant="ghost">{phone ? <ArrowLeft className="h-5 w-5" /> : <X className="h-4 w-4" />}</Button>} />
           </div>
           <div className="erp-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
           {footer && <div className="erp-safe-area-bottom shrink-0 border-t border-[var(--erp-color-border)] px-4 py-3 sm:px-5 sm:py-4">{footer}</div>}

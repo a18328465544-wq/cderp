@@ -145,6 +145,7 @@ test("sales edit sends model quantities expanded once and keeps physical binding
     assert.equal(input, "/api/sales-invoices/S-1");
     assert.equal(init?.method, "PUT");
     const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    assert.equal(body.expectedRecordVersion, 7);
     const items = body.items as Array<Record<string, unknown>>;
     assert.equal(items.length, 2);
     assert.equal(items.every((item) => item.inventoryId === "" && item.quantity === undefined && item.sn === ""), true);
@@ -152,7 +153,7 @@ test("sales edit sends model quantities expanded once and keeps physical binding
     return new Response(JSON.stringify({data: {id: "S-1", invoiceNo: "XS-1", date: values.date, customerId: "C-1", customerName: values.customerName, contact: values.contact, channel: values.channel, paymentMethod: values.paymentMethod, paidAmount: 0, unpaidAmount: 3000, paymentStatus: "未收款", outboundStatus: "待出库", items}}), {status: 200, headers: {"Content-Type": "application/json"}});
   };
   try {
-    const result = await salesApi.update("S-1", values, undefined, "full", {showCost: true, showProfit: true});
+    const result = await salesApi.update("S-1", values, undefined, 7, "full", {showCost: true, showProfit: true});
     assert.equal(result.invoice.id, "S-1");
     assert.equal(result.invoice.items.length, 2);
   } finally { globalThis.fetch = previousFetch; }
@@ -163,11 +164,12 @@ test("sales limited edit only sends editable metadata", async () => {
   globalThis.fetch = async (input, init) => {
     assert.equal(input, "/api/sales-invoices/S-1");
     assert.equal(init?.method, "PUT");
-    assert.deepEqual(JSON.parse(String(init?.body || "{}")), {expressNo: "SF-2", remarks: "补充说明"});
-    return new Response(JSON.stringify({data: {id: "S-1", invoiceNo: "XS-1", items: [], paidAmount: 0, unpaidAmount: 0, paymentStatus: "未收款", outboundStatus: "已出库"}}), {status: 200, headers: {"Content-Type": "application/json"}});
+    assert.deepEqual(JSON.parse(String(init?.body || "{}")), {expectedRecordVersion: 3, expressNo: "SF-2", remarks: "补充说明"});
+    return new Response(JSON.stringify({data: {id: "S-1", invoiceNo: "XS-1", recordVersion: 4, items: [], paidAmount: 0, unpaidAmount: 0, paymentStatus: "未收款", outboundStatus: "已出库"}}), {status: 200, headers: {"Content-Type": "application/json"}});
   };
   try {
-    const result = await salesApi.update("S-1", {...({} as SalesFormValues), expressNo: " SF-2 ", remarks: " 补充说明 "}, undefined, "metadata", {showCost: false, showProfit: false});
+    const result = await salesApi.update("S-1", {...({} as SalesFormValues), expressNo: " SF-2 ", remarks: " 补充说明 "}, undefined, 3, "metadata", {showCost: false, showProfit: false});
     assert.equal(result.invoice.invoiceNo, "XS-1");
+    assert.equal(result.invoice.recordVersion, 4);
   } finally { globalThis.fetch = previousFetch; }
 });

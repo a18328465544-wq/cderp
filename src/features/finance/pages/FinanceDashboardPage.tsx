@@ -29,6 +29,7 @@ import {
 } from "@/src/services/api";
 import { createCapabilities, useAuth } from "@/src/app/auth";
 import { useUrlSearchState } from "@/src/hooks/useUrlSearchState";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import { buildFinanceDashboard } from "@/src/services/api/adapters";
 import type {
   FinanceDashboardAccess,
@@ -74,6 +75,7 @@ function useFinanceRange() {
 }
 
 export function FinanceDashboardPage() {
+  const {active} = useWorkspaceTabActivity();
   const { session, status, error: authError, refresh, logout } = useAuth();
   const capabilities = createCapabilities(session);
   const allowed = capabilities.menu("finance");
@@ -93,7 +95,7 @@ export function FinanceDashboardPage() {
       }, range,
     ),
     queryFn: ({ signal }) => financeApi.dashboard(access!, range, signal),
-    enabled: Boolean(session && allowed && access),
+    enabled: active && Boolean(session && allowed && access),
     placeholderData: keepPreviousData,
     retry: false,
   });

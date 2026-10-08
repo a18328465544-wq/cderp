@@ -1,4 +1,5 @@
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {Filter, Pencil, RefreshCw, ShieldCheck, UserPlus, Users} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -12,9 +13,10 @@ import type {SettingsUserItem} from "@/src/types/finance-remaining";
 import {permissionOverrideDescription, toUserMutationValues, UserPermissionDialog, type UserPermissionFormValues} from "../components/UserPermissionDialog";
 
 export function SettingsUsersPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const canRead = Boolean(session && session.user.role === "老板" && createCapabilities(session).menu("permissions"));
-  const query = useQuery({queryKey: queryKeys.settings.users(), queryFn: ({signal}) => usersApi.list(signal), enabled: canRead, retry: false});
+  const query = useQuery({queryKey: queryKeys.settings.users(), queryFn: ({signal}) => usersApi.list(signal), enabled: active && canRead, retry: false});
   useEffect(() => {if (query.error instanceof ApiError && query.error.isUnauthorized) logout();}, [logout, query.error]);
   if (status === "loading") return <Card><p className="p-5 text-sm">正在验证员工权限管理权限…</p></Card>;
   if (status === "error") return <ErpPageError title="无法读取登录状态" description={authError?.message || "请重新登录后继续。"} onRetry={() => void refresh()} />;

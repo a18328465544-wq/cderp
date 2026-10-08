@@ -270,6 +270,7 @@ export interface SalesItem {
 export interface SalesInvoice {
   id: string;
   invoiceNo: string;
+  recordVersion?: number;
   accountingStatus?: AccountingDocumentStatus;
   accountingEventId?: string;
   date: string;

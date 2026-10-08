@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {useNavigate} from "@tanstack/react-router";
 import type {SortingState} from "@tanstack/react-table";
 import {AlertTriangle, CheckCircle2, Download, Filter, History, Plus, RefreshCw, RotateCcw, ShieldAlert, Wrench} from "lucide-react";
@@ -22,8 +23,9 @@ import {aftersalesFiltersToSearch, defaultAftersalesFilters, filterAftersales, p
 function useUrlState() {return useUrlSearchState({defaultValue: defaultAftersalesFilters, parse: parseAftersalesFilters, serialize: aftersalesFiltersToSearch});}
 
 export function AftersalesWorkspacePage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth(); const {value: filters, commit} = useUrlState(); const allowed = createCapabilities(session).menu("aftersales");
-  const workspaceQuery = useQuery({queryKey: queryKeys.aftersales.workspace(session?.user.id || "anonymous"), queryFn: ({signal}) => aftersalesApi.workspace(signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const workspaceQuery = useQuery({queryKey: queryKeys.aftersales.workspace(session?.user.id || "anonymous"), queryFn: ({signal}) => aftersalesApi.workspace(signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
   if (!session) return <Card><ErpLoadingState title="正在验证售后维护权限" /></Card>;
   if (!allowed) return <ErpPageError title="当前账号没有售后维护权限" description="服务器权限未包含 aftersales 菜单，请联系管理员授权。" />;
   return <AftersalesContent session={session} snapshot={workspaceQuery.data} pending={workspaceQuery.isPending} fetching={workspaceQuery.isFetching} error={workspaceQuery.error as Error | null} filters={filters} onFiltersChange={commit} onRetry={() => void workspaceQuery.refetch()} onAuthExpired={logout} />;
@@ -36,7 +38,7 @@ function AftersalesContent({session, snapshot, pending, fetching, error, filters
   const goToReturns = () => {void navigate({to: "/sales/returns/new"});};
   const invalidate = () => invalidateErpDomains(queryClient, ["aftersales", "state", "inventory", "sales", "customers"]);
   const handleError = (caught: Error) => {if (caught instanceof ApiError && caught.isUnauthorized) {onAuthExpired(); return;} notify.error(caught.message);};
-  const createMutation = useMutation({mutationFn: async (values: AftersalesCreateFormValues) => {const candidate = candidates.find((item) => item.inventoryId === values.candidateId); if (!candidate) throw new Error("所选库存卡已不存在，请刷新后重试"); if (candidate.activeClaimId) throw new Error(`该 SN 已存在处理中工单 ${candidate.activeClaimId}`); return aftersalesApi.create(values, candidate, session.user.displayName);}, onSuccess: async (created) => {notify.success("售后工单已登记，库存卡已进入售后中"); setCreateOpen(false); setDetail(created); await refreshErpAfterDocument(queryClient);}, onError: handleError});
+  const createMutation = useMutation({mutationFn: async (values: AftersalesCreateFormValues) => {const candidate = candidates.find((item) => item.inventoryId === values.candidateId); if (!candidate) throw new Error("所选库存卡已不存在，请刷新后重试"); if (candidate.activeClaimId) throw new Error(`该 SN 已存在处理中工单 ${candidate.activeClaimId}`); return aftersalesApi.create(values, candidate, session.user.displayName);}, onSuccess: async (created) => {notify.success("售后工单已登记，库存卡已进入售后中"); setCreateOpen(false); setDetail(created); await refreshErpAfterDocument(queryClient, ["state","aftersales","inventory","sales","finance","ai"]);}, onError: handleError});
   const resolveMutation = useMutation({mutationFn: async ({record, values}: {record: AftersalesListItem; values: AftersalesResolutionFormValues}) => aftersalesApi.resolve(record.id, values, session.user.displayName), onSuccess: async (updated) => {notify.success(updated.status === "已拒绝" ? "售后工单已拒绝" : "售后工单已结案"); setResolving(null); setDetail(updated); await invalidate();}, onError: handleError});
   const columns = useMemo(() => createAftersalesColumns({onOpen: setDetail, onReturn: goToReturns}), []);
   const activeCount = items.filter((item) => aftersalesActiveStatusValues.includes(item.status as (typeof aftersalesActiveStatusValues)[number])).length; const completeCount = items.filter((item) => item.status === "已完成").length; const repairCost = items.reduce((sum, item) => sum + item.repairCost, 0); const activeFilters = Number(Boolean(filters.keyword)) + Number(filters.status !== "all") + Number(filters.type !== "all");

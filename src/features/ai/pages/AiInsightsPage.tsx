@@ -1,4 +1,5 @@
 import {useQuery} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {AlertCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, PackageCheck, RefreshCw, ReceiptText, Sparkles, TriangleAlert} from "lucide-react";
 import {Link} from "@tanstack/react-router";
 import {useEffect} from "react";
@@ -60,11 +61,12 @@ function DailySalesSummaryCard({data, pending, fetching, error, onRetry}: {
 }
 
 export function AiInsightsPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const allowed = createCapabilities(session).menu("ai_insights");
-  const query = useQuery({queryKey: queryKeys.ai.insights(), queryFn: ({signal}) => aiApi.insights(signal), enabled: Boolean(session && allowed), retry: false});
+  const query = useQuery({queryKey: queryKeys.ai.insights(), queryFn: ({signal}) => aiApi.insights(signal), enabled: active && Boolean(session && allowed), retry: false});
   const reportDate = storeDate();
-  const dailySalesQuery = useQuery({queryKey: queryKeys.ai.dailySalesSummary(reportDate), queryFn: ({signal}) => aiApi.dailySalesSummary(reportDate, signal), enabled: Boolean(session && allowed), retry: false, staleTime: 5 * 60 * 1000});
+  const dailySalesQuery = useQuery({queryKey: queryKeys.ai.dailySalesSummary(reportDate), queryFn: ({signal}) => aiApi.dailySalesSummary(reportDate, signal), enabled: active && Boolean(session && allowed), retry: false, staleTime: 5 * 60 * 1000});
   useEffect(() => {if ([query.error, dailySalesQuery.error].some((error) => error instanceof ApiError && error.isUnauthorized)) logout();}, [dailySalesQuery.error, logout, query.error]);
 
   if (status === "loading") return <ErpAnalyticsPageFrame><Card><CardContent className="p-6 text-sm">正在验证 AI 建议权限…</CardContent></Card></ErpAnalyticsPageFrame>;

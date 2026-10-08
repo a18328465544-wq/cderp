@@ -4,7 +4,9 @@ import {saveStateRecords} from "../db.ts";
 import {assertPurchaseUpdateScope, type PurchaseEditAccessPermissions} from "../purchaseEditAccess.ts";
 import {syncCrmPurchaseInvoiceLink} from "../crmEntityRepository.ts";
 import {parseHttpDto, purchaseInvoiceCreateDto, purchaseInvoiceUpdateDto} from "../httpDto.ts";
-import {runStateCommand, type StateCommandTransactionHook} from "../stateCommand.ts";
+import type {StateCommandTransactionHook} from "../stateCommand.ts";
+import {captureFinanceFacts, completeFinancePatch, runFinanceStateCommand} from "../financeMutationPatch.ts";
+import {projectInvoiceMutationResponse} from "../invoiceMutationResponse.ts";
 import {compactStateMerge, replacedLinkedPaymentDeletePatch, stateDeleteRecords, stateMergeRecords, statePatchResponse, type StateDeletePatch, type StateMergePatch} from "../statePatch.ts";
 import {isInventoryLinkedToPurchase} from "../../src/utils/inventoryRelations.ts";
 import {isPersonalPurchaseSource} from "../../src/utils/purchaseSources.ts";
@@ -114,12 +116,13 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
       const authRequest = req as PurchaseRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "purchaseInvoices"));
         return;
       }
       try {
         const command = parseHttpDto(purchaseInvoiceCreateDto, dependencies.withoutImagePayload(req.body));
-        const {data: created, stateMerge} = await runStateCommand(
+        const {data: created, stateMerge, stateDelete} = await runFinanceStateCommand(
+          dependencies.getState(),
           () => dependencies.actions(authRequest).createPurchaseInvoice(command),
           (invoice) => purchaseInvoiceCreateMerge(dependencies.getState(), invoice),
           async (invoice) => {
@@ -128,7 +131,7 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
           },
           dependencies.transactionHookWithIdempotency(idempotency, 201, (client, invoice) => syncCrmPurchaseInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest))),
         );
-        res.status(201).json(okMerge(created, stateMerge));
+        res.status(201).json(projectInvoiceMutationResponse(dependencies.getState(), okMerge(created, stateMerge, stateDelete), authRequest.authUser, "purchaseInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -144,7 +147,7 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
       const authRequest = req as PurchaseRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "purchaseInvoices"));
         return;
       }
       try {
@@ -154,7 +157,8 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
         const existing = state.purchaseInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
         const paymentsBeforeUpdate = existing ? relatedPurchasePayments(state, existing) : [];
         const financeBeforeUpdate = existing ? relatedPurchaseFinanceLedger(state, existing) : [];
-        const {data: updated, stateMerge, stateDelete} = await runStateCommand(
+        const {data: updated, stateMerge, stateDelete} = await runFinanceStateCommand(
+          state,
           () => dependencies.actions(authRequest).updatePurchaseInvoice(req.params.id!, updates, {expectedRecordVersion}),
           (invoice) => purchaseInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
           async (invoice) => {
@@ -163,7 +167,7 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
           },
           dependencies.transactionHookWithIdempotency(idempotency, 200, (client, invoice) => syncCrmPurchaseInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest))),
         );
-        res.json(okMerge(updated, stateMerge, stateDelete));
+        res.json(projectInvoiceMutationResponse(state, okMerge(updated, stateMerge, stateDelete), authRequest.authUser, "purchaseInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -179,11 +183,12 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
       const authRequest = req as PurchaseRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "purchaseInvoices"));
         return;
       }
       try {
       const state = dependencies.getState();
+      const before = captureFinanceFacts(state);
       const existing = state.purchaseInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
       const relatedCards = existing ? state.inventory.filter((card) => isInventoryLinkedToPurchase(card, existing)) : [];
       const relatedPayments = existing ? relatedPurchasePayments(state, existing) : [];
@@ -191,19 +196,20 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
         .filter((item) => existing && (item.relatedId === existing.invoiceNo || item.relatedId === existing.id))
         .map((item) => item.id);
       const deleted = dependencies.actions(req).deletePurchaseInvoice(req.params.id!);
-      const stateMerge = compactStateMerge({
+      const businessMerge = compactStateMerge({
         settlementAccounts: state.settlementAccounts.filter((item) => relatedPayments.some((payment) => payment.accountId === item.id)),
         customers: existing?.sourcePartnerType === "customer" ? recordsByIdOrLegacyName(state.customers, existing.sourcePartnerId, existing.supplierName) : [],
         vendors: existing?.sourcePartnerType !== "customer" ? recordsByIdOrLegacyName(state.vendors, existing?.sourcePartnerId, existing?.supplierName) : [],
         logs: state.logs.slice(0, 1),
       });
-      const stateDelete = {
+      const businessDelete = {
         purchaseInvoices: deleted?.id ? [deleted.id] : [],
         inventory: relatedCards.map((card) => card.id),
         paymentOutRecords: relatedPayments.map((payment) => payment.id),
         settlementLedger: relatedPayments.map((payment) => payment.settlementLedgerId).filter(Boolean) as string[],
         financeLedger: [...relatedPayments.map((payment) => payment.financeLedgerId).filter(Boolean), ...relatedFinanceIds] as string[],
       };
+      const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
       await saveStateRecords(
         [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
         dependencies.transactionHookWithIdempotency(idempotency, 200)
@@ -211,7 +217,7 @@ export function registerPurchaseMutationRoutes(app: Express, dependencies: Purch
           : undefined,
         authRequest.tenantId,
       );
-      res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      res.status(deleted ? 200 : 404).json(projectInvoiceMutationResponse(state, okMerge(deleted, stateMerge, stateDelete), authRequest.authUser, "purchaseInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;

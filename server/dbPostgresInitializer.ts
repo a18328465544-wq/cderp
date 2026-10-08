@@ -1,4 +1,5 @@
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient} from "./dbTransactionCleanup.ts";
 
 type CollectionTable = {table: string};
 
@@ -29,9 +30,20 @@ export function createPostgresInitializer({
   rollbackQuietly,
 }: PostgresInitializerDependencies) {
   let initialized = false;
+  let initialization: Promise<void> | undefined;
 
-  async function initializePostgres() {
-    if (initialized) return;
+  function initializePostgres(): Promise<void> {
+    if (initialized) return Promise.resolve();
+    // Concurrent first requests must not race through migrations/index creation.
+    // Clear a failed flight so the next request can recover instead of staying poisoned.
+    if (!initialization) initialization = initializeSchema().catch((error) => {
+      initialization = undefined;
+      throw error;
+    });
+    return initialization;
+  }
+
+  async function initializeSchema() {
     const client = await getPool().connect();
     try {
       await client.query("BEGIN");
@@ -153,7 +165,7 @@ export function createPostgresInitializer({
       await rollbackQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
     initialized = true;
   }

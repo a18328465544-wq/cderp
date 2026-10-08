@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {useRouterState} from "@tanstack/react-router";
 import {useWorkspaceTabActivity} from "./useWorkspaceTabRuntime";
+import {replaceHistorySearch} from "./urlSearchHistory";
 
 type UrlSearchStateOptions<T> = {
   defaultValue: T;
@@ -15,8 +16,7 @@ function currentSearch() {
 
 function writeSearch(params: URLSearchParams) {
   if (typeof window === "undefined") return;
-  const query = params.toString();
-  window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  replaceHistorySearch(window.history, window.location, params);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

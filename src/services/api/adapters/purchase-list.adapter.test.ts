@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {adaptPurchaseListState} from "./purchase.adapter";
+import {adaptPurchaseInvoice, adaptPurchaseListState} from "./purchase.adapter";
 
 function response() {
   return {data: {
@@ -32,6 +32,14 @@ function response() {
     ],
   }};
 }
+
+test("purchase adapters preserve valid revisions and normalize legacy malformed revisions safely", () => {
+  for (const [recordVersion, expected] of [[undefined, 1], [null, 1], [0, 1], [-2, 1], [1.5, 1], ["2", 1], [7, 7]] as const) {
+    const input = response();
+    const invoice = {...input.data.purchaseInvoices[0]!, recordVersion};
+    assert.equal(adaptPurchaseInvoice(invoice).recordVersion, expected);
+  }
+});
 
 test("purchase list adapter projects snapshot records into list domain items", () => {
   const result = adaptPurchaseListState(response(), {showCost: true, showProfit: true});

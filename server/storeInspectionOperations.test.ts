@@ -8,7 +8,7 @@ function fixture(condition: CardInventory["condition"] = "95新") {
     id: "KC-QUICK", productId: "P-1", productName: "测试显卡", category: "显卡", model: "RTX 4090", brand: "测试", version: "", vram: "24G", sn: "",
     sourceType: "同行拿货", supplierName: "测试供应商", costPrice: 5000, estSellPrice: 6000, marketPrice: 6000, status: "待检测", condition,
     inWarranty: true, warrantyDate: "2029-01-01", repaired: false, gpuRisk: false, fullBox: true, warehouseLocation: "待检测区", entryTime: "2026-09-27", storageDays: 0,
-  }], inspections: []};
+  }], inspections: [], purchaseInvoices: []};
   const actions = createInspectionOperationHelpers({state, genId: () => "JC-QUICK", nowStamp: () => "2026-09-27 12:00", assertSnUnique: () => {}, systemActor: () => "检测员", addLog: () => {}});
   const report: Omit<InspectionRecord, "id" | "inspectTime"> = {
     inventoryId: "KC-QUICK", sn: "QUICK-SN", condition: "全新", inspector: "检测员", exteriorCheck: "严重磕碰", fanCheck: "风扇停转", portsCheck: "物理变形", gpuzCheck: "规格异常 / 假卡山寨",

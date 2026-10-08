@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createInitialState } from "./store.ts";
-import { getPermissionsForUser, publicCollectionForUser, publicStateForUser } from "./publicState.ts";
+import { getPermissionsForUser, publicCollectionForUser, publicStateForUser, publicStateMergeForUser } from "./publicState.ts";
 import { storeDateAfterDays } from "../src/utils/storeTime.ts";
 
 test("公开库存状态按入库日期实时计算库龄", () => {
@@ -114,4 +114,32 @@ test("malformed legacy permission settings fall back to safe role defaults", () 
   assert.deepEqual(permissions.allowedMenus, clerk.permissionOverrides?.allowedMenus || permissions.allowedMenus);
   const scoped = publicStateForUser(state, clerk, "initial");
   assert.ok(Array.isArray(scoped.customPermissions));
+});
+
+test("incremental inspection responses do not expose associated purchase finance to inspection-only actors", () => {
+  const state = createInitialState({includeDemoData: true});
+  const clerk = state.systemUsers.find((user) => user.role === "店员")!;
+  clerk.permissionOverrides = {allowedMenus: ["inspections"], showCost: false, showProfit: false};
+  const patch = {purchaseInvoices: [state.purchaseInvoices[0]!], inventory: [state.inventory[0]!], products: [state.products[0]!], logs: state.logs.slice(0, 1)};
+  const before = structuredClone(patch);
+  const projected = publicStateMergeForUser(state, patch, clerk);
+  assert.equal(projected.purchaseInvoices, undefined); assert.equal(projected.logs, undefined);
+  assert.equal((projected.inventory as typeof state.inventory)[0]!.costPrice, 0);
+  assert.equal((projected.products as typeof state.products)[0]!.refBuyPrice, 0);
+  assert.deepEqual(patch, before, "response projections cannot redact persisted internal patches");
+});
+
+test("incremental purchase patches keep revisions while masking money and fail closed without an actor", () => {
+  const state = createInitialState({includeDemoData: true});
+  const owner = state.systemUsers.find((user) => user.role === "老板")!;
+  const clerk = state.systemUsers.find((user) => user.role === "店员")!;
+  clerk.permissionOverrides = {allowedMenus: ["purchase_list"], showCost: false, showProfit: false};
+  const invoice = {...state.purchaseInvoices[0]!, recordVersion: 7};
+  const patch = {purchaseInvoices: [invoice]};
+  const projected = publicStateMergeForUser(state, patch, clerk).purchaseInvoices as typeof state.purchaseInvoices;
+  assert.equal(projected[0]!.recordVersion, 7);
+  assert.equal(projected[0]!.totalCost, 0); assert.equal(projected[0]!.paidAmount, 0);
+  assert.equal(projected[0]!.items[0]!.buyPrice, 0); assert.equal(projected[0]!.estTotalProfit, 0);
+  assert.deepEqual(publicStateMergeForUser(state, patch, owner), patch);
+  assert.throws(() => publicStateMergeForUser(state, patch), /缺少已认证账号/);
 });

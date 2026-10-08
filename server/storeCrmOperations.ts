@@ -1,3 +1,4 @@
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 import type {
   AftersalesRecord,
   CardInventory,
@@ -157,14 +158,14 @@ export function createCrmOperationHelpers(dependencies: CrmOperationsDependencie
       const linkedById = invoice.customerId === id && (invoice.customerPartnerType || "customer") === "customer";
       const legacyMatch = legacyNameIsUnique && !invoice.customerId && matchesPerson(existing.name, previousContact, invoice.customerName, invoice.contact);
       if (!linkedById && !legacyMatch) return invoice;
-      return {...invoice, customerId: id, customerPartnerType: "customer", customerName: nextCustomer.name, contact: nextContact};
+      return {...invoice, recordVersion: getRecordVersion(invoice) + 1, customerId: id, customerPartnerType: "customer", customerName: nextCustomer.name, contact: nextContact};
     });
     state.purchaseInvoices = state.purchaseInvoices.map((invoice) => {
       const isPersonalSource = isPersonalPurchaseSource(invoice.sourceType);
       const linkedById = invoice.sourcePartnerId === id && (invoice.sourcePartnerType || "customer") === "customer";
       const legacyMatch = legacyNameIsUnique && !invoice.sourcePartnerId && matchesPerson(existing.name, previousContact, invoice.supplierName, invoice.contact);
       if (!isPersonalSource || (!linkedById && !legacyMatch)) return invoice;
-      return {...invoice, sourcePartnerId: id, sourcePartnerType: "customer", supplierName: nextCustomer.name, contact: nextContact};
+      return {...invoice, recordVersion: getRecordVersion(invoice) + 1, sourcePartnerId: id, sourcePartnerType: "customer", supplierName: nextCustomer.name, contact: nextContact};
     });
     state.inventory = state.inventory.map((card) => {
       const supplierMatch = legacyNameIsUnique && matchesPerson(existing.name, previousContact, card.supplierName, undefined);

@@ -2,7 +2,42 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
 import {renderToStaticMarkup} from "react-dom/server";
-import {ErpPageActions, ErpPageContent, ErpPageContext, ErpPageFrame, ErpPageIdentity, ErpPageTabs, ErpPageToolbar, ErpPageTopbar, ErpTableResultsBar} from "./ErpPageFrame";
+import {ErpPageActions, ErpPageContent, ErpPageContext, ErpPageFrame, ErpPageIdentity, ErpPageTabs, ErpPageToolbar, ErpPageTopbar, ErpTableResultsBar, resolvePageFrameChildren} from "./ErpPageFrame";
+import {AnalyticsToolbar} from "./page-frames/AnalyticsFrame";
+
+test("phone search-first changes reading order while preserving region keys and desktop order", () => {
+  const children = [<ErpPageTopbar key="header">标题</ErpPageTopbar>, <div key="metrics">统计</div>, <div key="next">下一步</div>, <ErpPageToolbar key="filters"><input defaultValue="4090" /></ErpPageToolbar>, <ErpPageContent key="rows">列表</ErpPageContent>];
+  const desktop = resolvePageFrameChildren(children, false);
+  const phone = resolvePageFrameChildren(children, true);
+  assert.deepEqual(phone.map((region) => (region as {key: string}).key), [desktop[0], desktop[3], desktop[1], desktop[2], desktop[4]].map((region) => (region as {key: string}).key));
+  const markup = renderToStaticMarkup(<>{phone}</>);
+  assert.ok(markup.indexOf('data-erp-region="page-toolbar"') < markup.indexOf("统计"));
+  assert.equal((markup.match(/<input/g) || []).length, 1);
+  assert.deepEqual(resolvePageFrameChildren(children, false), desktop);
+});
+
+test("search-first is opt-in and has a stable desktop server projection", () => {
+  const markup = renderToStaticMarkup(<ErpPageFrame mobileSearchFirst><ErpPageTopbar>标题</ErpPageTopbar><div>统计</div><ErpPageToolbar>筛选</ErpPageToolbar></ErpPageFrame>);
+  assert.ok(markup.indexOf("统计") < markup.indexOf('data-erp-region="page-toolbar"'));
+  assert.doesNotMatch(markup, /mobileSearchFirst/);
+});
+
+test("analytics toolbar participates in phone reading order with no desktop reorder", () => {
+  const children = [<div key="metrics">统计</div>, <AnalyticsToolbar key="toolbar">日期与搜索</AnalyticsToolbar>, <div key="report">明细</div>];
+  const phone = renderToStaticMarkup(<>{resolvePageFrameChildren(children, true, 0)}</>);
+  const desktop = renderToStaticMarkup(<>{resolvePageFrameChildren(children, false, 0)}</>);
+  assert.ok(phone.indexOf("日期与搜索") < phone.indexOf("统计"));
+  assert.ok(desktop.indexOf("统计") < desktop.indexOf("日期与搜索"));
+});
+
+test("nested content can bring its own toolbar first without changing desktop wrappers", () => {
+  const children = [<div key="metrics">统计</div>, <ErpPageToolbar key="search">搜索</ErpPageToolbar>, <div key="results">列表</div>];
+  const phone = renderToStaticMarkup(<>{resolvePageFrameChildren(children, true, 0)}</>);
+  const desktop = renderToStaticMarkup(<ErpPageContent mobileSearchFirst>{children}</ErpPageContent>);
+  assert.ok(phone.indexOf('data-erp-region="page-toolbar"') < phone.indexOf("统计"));
+  assert.ok(desktop.indexOf("统计") < desktop.indexOf('data-erp-region="page-toolbar"'));
+  assert.doesNotMatch(desktop, /mobileSearchFirst/);
+});
 
 test("ErpPageFrame provides a stable first-level region contract", () => {
   const markup = renderToStaticMarkup(

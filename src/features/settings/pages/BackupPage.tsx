@@ -1,4 +1,5 @@
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {Archive, Download, RefreshCw, ShieldCheck} from "lucide-react";
 import {useMemo} from "react";
@@ -12,10 +13,11 @@ import type {AuthSession} from "@/src/services/api";
 import type {BackupRecord} from "@/src/services/api/endpoints/backup";
 
 export function BackupPage() {
+  const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
   const {session, status, error: authError, refresh} = useAuth();
   const canAccess = Boolean(session && session.user.role === "老板");
-  const backupsQuery = useQuery({queryKey: queryKeys.backup.list(), queryFn: ({signal}) => backupApi.list(signal), enabled: canAccess, retry: false});
+  const backupsQuery = useQuery({queryKey: queryKeys.backup.list(), queryFn: ({signal}) => backupApi.list(signal), enabled: active && canAccess, retry: false});
   const createMutation = useMutation({mutationFn: () => backupApi.create(), onSuccess: async (backup) => { notify.success(`备份已创建：${backup.id}`); await queryClient.invalidateQueries({queryKey: queryKeys.backup.list()}); }});
 
   if (status === "loading") return <ErpSettingsPageFrame><BackupState title="正在验证备份权限" /></ErpSettingsPageFrame>;

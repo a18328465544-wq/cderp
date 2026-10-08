@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {AlertTriangle, CalendarClock, CheckCircle2, CircleDot, ClipboardList, Link2, MessageSquarePlus, Plus, RefreshCw, RotateCcw, UserRound, Users} from "lucide-react";
 import {ErpDateTimePicker, ErpDetailFact, ErpField, ErpSearchInput} from "@/src/components/common";
@@ -39,13 +40,14 @@ function useOrderPoolUrlState() {
 }
 
 export function OrderPoolPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useOrderPoolUrlState();
   const allowed = createCapabilities(session).menu("order_pool");
   const query = useQuery({
     queryKey: queryKeys.orderPool.list(filters),
     queryFn: ({signal}) => orderPoolApi.list(filters, signal),
-    enabled: Boolean(session && allowed),
+    enabled: active && Boolean(session && allowed),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -62,8 +64,9 @@ function OrderPoolContent({session, filters, commitFilters, query, onAuthExpired
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof orderPoolApi.list>>>>;
   onAuthExpired: () => void;
 }) {
+  const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
-  const collaboratorQuery = useQuery({queryKey: queryKeys.orderPool.collaborators(), queryFn: ({signal}) => orderPoolApi.listCollaborators(signal), enabled: Boolean(session), retry: false});
+  const collaboratorQuery = useQuery({queryKey: queryKeys.orderPool.collaborators(), queryFn: ({signal}) => orderPoolApi.listCollaborators(signal), enabled: active && Boolean(session), retry: false});
   const [selected, setSelected] = useState<CustomerOrder | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -80,7 +83,7 @@ function OrderPoolContent({session, filters, commitFilters, query, onAuthExpired
   const updateFilters = (patch: Partial<OrderPoolFilters>) => commitFilters({...filters, ...patch, page: patch.page ?? 1});
   const invalidate = () => invalidateErpDomains(queryClient, ["orderPool", "state"]);
   const handleError = (error: Error) => {if (error instanceof ApiError && error.isUnauthorized) {onAuthExpired(); return;} notify.error(error.message);};
-  const createMutation = useMutation({mutationFn: (input: OrderPoolCreateInput) => orderPoolApi.create(input), onSuccess: async (order) => {notify.success(`${order.orderNo} 已加入订单池`); setCreateOpen(false); setSelected(order); setDetailOpen(true); await refreshErpAfterDocument(queryClient);}, onError: handleError});
+  const createMutation = useMutation({mutationFn: (input: OrderPoolCreateInput) => orderPoolApi.create(input), onSuccess: async (order) => {notify.success(`${order.orderNo} 已加入订单池`); setCreateOpen(false); setSelected(order); setDetailOpen(true); await refreshErpAfterDocument(queryClient, ["state","orderPool"]);}, onError: handleError});
   const updateMutation = useMutation({mutationFn: ({id, patch}: {id: string; patch: OrderPoolUpdateInput; feedback?: string}) => orderPoolApi.update(id, patch), onSuccess: async (order, variables) => {setSelected(order); notify.success(variables.feedback || "订单池信息已更新"); await invalidate();}, onError: handleError});
   const noteMutation = useMutation({mutationFn: ({id, content}: {id: string; content: string}) => orderPoolApi.addNote(id, {content}), onSuccess: async (order) => {setSelected(order); notify.success("跟进记录已添加"); await invalidate();}, onError: handleError});
   const linkMutation = useMutation({mutationFn: ({id, input}: {id: string; input: OrderPoolDocumentLinkInput}) => orderPoolApi.linkDocument(id, input), onSuccess: async (order) => {setSelected(order); notify.success("业务单据已关联"); await invalidate();}, onError: handleError});

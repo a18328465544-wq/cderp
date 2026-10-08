@@ -1,6 +1,7 @@
 import {mkdir, writeFile} from "node:fs/promises";
 import path from "node:path";
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient} from "./dbTransactionCleanup.ts";
 import type {AppState} from "./store.ts";
 
 type DatabaseBackupsDependencies = {
@@ -57,7 +58,7 @@ export function createDatabaseBackups({
       await rollbackQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 

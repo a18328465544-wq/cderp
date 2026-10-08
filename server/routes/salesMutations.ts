@@ -8,6 +8,9 @@ import {compactStateMerge, replacedLinkedPaymentDeletePatch, stateDeleteRecords,
 import type {AppState, createStoreActions} from "../store.ts";
 import type {PaymentInRecord, SalesInvoice, SystemUserAccount} from "../../src/types.ts";
 import {parseHttpDto, salesInvoiceCreateDto, salesInvoiceUpdateDto, salesOutboundDto} from "../httpDto.ts";
+import {projectSalesOutboundResponse} from "../salesOutboundResponse.ts";
+import {captureFinanceFacts, completeFinancePatch, runFinanceStateCommand} from "../financeMutationPatch.ts";
+import {projectInvoiceMutationResponse} from "../invoiceMutationResponse.ts";
 
 type SalesRequest = AuthenticatedRequest<SystemUserAccount>;
 
@@ -116,11 +119,12 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
       const command = parseHttpDto(salesInvoiceCreateDto, req.body);
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "salesInvoices"));
         return;
       }
       try {
-        const {data: created, stateMerge} = await runStateCommand(
+        const {data: created, stateMerge, stateDelete} = await runFinanceStateCommand(
+          dependencies.getState(),
           () => dependencies.actions(authRequest).createSalesInvoice(command),
           (invoice) => salesInvoiceMerge(dependencies.getState(), invoice),
           undefined,
@@ -129,7 +133,7 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
         // Persist first. A Feishu delivery failure must not turn a successful
         // sales order into an API error.
         void dependencies.notifySalesInvoiceCreated(created);
-        res.status(201).json(okMerge(created, stateMerge));
+        res.status(201).json(projectInvoiceMutationResponse(dependencies.getState(), okMerge(created, stateMerge, stateDelete), authRequest.authUser, "salesInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -145,22 +149,23 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
       const authRequest = req as SalesRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "salesInvoices"));
         return;
       }
       try {
-        const command = parseHttpDto(salesInvoiceUpdateDto, req.body);
+        const {expectedRecordVersion, ...command} = parseHttpDto(salesInvoiceUpdateDto, req.body);
         const state = dependencies.getState();
         const existing = state.salesInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
         const paymentsBeforeUpdate = existing ? relatedSalesPayments(state, existing) : [];
         const financeBeforeUpdate = existing ? relatedSalesFinanceLedger(state, existing) : [];
-        const {data: updated, stateMerge, stateDelete} = await runStateCommand(
-          () => dependencies.actions(authRequest).updateSalesInvoice(req.params.id!, command),
+        const {data: updated, stateMerge, stateDelete} = await runFinanceStateCommand(
+          state,
+          () => dependencies.actions(authRequest).updateSalesInvoice(req.params.id!, command, {expectedRecordVersion}),
           (invoice) => salesInvoiceUpdatePatch(state, invoice, paymentsBeforeUpdate, financeBeforeUpdate),
           undefined,
           dependencies.transactionHookWithIdempotency(idempotency, 200, (client, invoice) => syncCrmSalesInvoiceLink(client, invoice, dependencies.actorForRequest(authRequest))),
         );
-        res.json(okMerge(updated, stateMerge, stateDelete));
+        res.json(projectInvoiceMutationResponse(state, okMerge(updated, stateMerge, stateDelete), authRequest.authUser, "salesInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -176,11 +181,12 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
       const authRequest = req as SalesRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectInvoiceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "salesInvoices"));
         return;
       }
       try {
       const state = dependencies.getState();
+      const before = captureFinanceFacts(state);
       const existing = state.salesInvoices.find((item) => item.id === req.params.id! || item.invoiceNo === req.params.id!);
       const chosenIds = new Set(existing?.items.map((item) => item.inventoryId).filter(Boolean) || []);
       const relatedPayments = existing ? relatedSalesPayments(state, existing) : [];
@@ -188,19 +194,20 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
         .filter((item) => existing && (item.relatedId === existing.invoiceNo || item.relatedId === existing.id))
         .map((item) => item.id);
       const deleted = dependencies.actions(req).deleteSalesInvoice(req.params.id!);
-      const stateMerge = compactStateMerge({
+      const businessMerge = compactStateMerge({
         inventory: state.inventory.filter((item) => chosenIds.has(item.id)),
         settlementAccounts: recordsByIds(state.settlementAccounts, relatedPayments.map((payment) => payment.accountId)),
         customers: existing?.customerPartnerType !== "vendor" ? recordsByIds(state.customers, [existing?.customerId]) : [],
         vendors: existing?.customerPartnerType === "vendor" ? recordsByIds(state.vendors, [existing?.customerId]) : [],
         logs: state.logs.slice(0, 1),
       });
-      const stateDelete = {
+      const businessDelete = {
         salesInvoices: deleted?.id ? [deleted.id] : [],
         paymentInRecords: relatedPayments.map((payment) => payment.id),
         settlementLedger: relatedPayments.map((payment) => payment.settlementLedgerId).filter(Boolean) as string[],
         financeLedger: [...relatedPayments.map((payment) => payment.financeLedgerId).filter(Boolean), ...relatedFinanceIds] as string[],
       };
+      const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
       await saveStateRecords(
         [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
         (client) => Promise.all([
@@ -211,7 +218,7 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
         ]),
         authRequest.tenantId,
       );
-      res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+      res.status(deleted ? 200 : 404).json(projectInvoiceMutationResponse(state, okMerge(deleted, stateMerge, stateDelete), authRequest.authUser, "salesInvoices"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -239,7 +246,7 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
       const command = parseHttpDto(salesOutboundDto, req.body);
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectSalesOutboundResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser));
         return;
       }
       try {
@@ -253,7 +260,7 @@ export function registerSalesMutationRoutes(app: Express, dependencies: SalesMut
             (client, invoice) => dependencies.reserveSalesOutboundInventory(client, invoice, authRequest.tenantId, idempotency?.request.key),
           ),
         );
-        res.json(okMerge(updated, stateMerge));
+        res.json(projectSalesOutboundResponse(dependencies.getState(), okMerge(updated, stateMerge), authRequest.authUser));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;

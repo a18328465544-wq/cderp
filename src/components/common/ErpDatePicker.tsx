@@ -1,5 +1,5 @@
 import {CalendarDays} from "lucide-react";
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {ErpCalendar} from "./ErpCalendar";
 import {ErpDateOverlay} from "./ErpDateOverlay";
 import {cn, hasBaseWidthUtilityClass} from "@/src/lib/cn";
@@ -33,6 +33,7 @@ export interface ErpDatePickerProps {
 /** A controlled, accessible date field backed by the shared Base UI popover. */
 export function ErpDatePicker({value, onChange, density = "default", min, max, placeholder = "选择日期", disabled, required, invalid, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className}: ErpDatePickerProps) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {if (disabled) setOpen(false);}, [disabled]);
   const selected = parseDateInput(value);
   const minDate = parseDateInput(min);
   const maxDate = parseDateInput(max);
@@ -56,7 +57,7 @@ export function ErpDatePicker({value, onChange, density = "default", min, max, p
     </button>
   );
 
-  return <ErpDateOverlay open={open} onOpenChange={setOpen} trigger={trigger} title="选择日期" headerMobileOnly closeLabel="关闭日期">
-    <ErpCalendar selected={selected} onSelect={(date) => { if (date) { onChange(formatDateInput(date)); setOpen(false); } }} minDate={minDate} maxDate={maxDate} />
+  return <ErpDateOverlay open={open && !disabled} onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)} trigger={trigger} title="选择日期" headerMobileOnly closeLabel="关闭日期">
+    <ErpCalendar selected={selected} onSelect={(date) => { if (!disabled && date) { onChange(formatDateInput(date)); setOpen(false); } }} minDate={minDate} maxDate={maxDate} />
   </ErpDateOverlay>;
 }

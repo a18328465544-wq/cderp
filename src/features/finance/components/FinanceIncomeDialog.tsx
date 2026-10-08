@@ -9,6 +9,7 @@ import {storeDate} from "@/src/utils/storeTime";
 import {financeIncomeSchema} from "../finance-income.schema";
 import {useFinanceIncomeMediaUpload} from "../hooks/useFinanceIncomeMediaUpload";
 import {FinanceEntryDialogShell, FinanceEntryField, useFinanceEntryPreview} from "./FinanceEntryDialogShell";
+import {useValidatedFormSubmit} from "@/src/components/common/useValidatedFormSubmit";
 
 const defaults = (): FinanceIncomeFormValues => ({source: "", accountId: "", amount: 0, paymentMethod: "微信", businessType: "其他收入", referenceNo: "", date: storeDate(), remarks: "", images: []});
 
@@ -25,10 +26,11 @@ type FinanceIncomeDialogProps = {
 export function FinanceIncomeDialog({open, item, accounts, pending, error, onOpenChange, onSubmit}: FinanceIncomeDialogProps) {
   const {preview, setPreview} = useFinanceEntryPreview();
   const form = useForm<FinanceIncomeFormValues>({defaultValues: defaults(), resolver: zodResolver(financeIncomeSchema), mode: "onBlur"});
-  const media = useFinanceIncomeMediaUpload((urls) => form.setValue("images", urls, {shouldDirty: true, shouldValidate: true}));
+  const media = useFinanceIncomeMediaUpload((urls) => form.setValue("images", urls, {shouldDirty: true, shouldValidate: true}), 6, open, pending);
+  const submission = useValidatedFormSubmit({form, enabled: open, scope: media.draftId, getScope: media.getDraftId, canSubmit: () => !pending && !media.isBlocking(), onSubmit});
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {media.reset([]); setPreview(undefined); return;}
     const values: FinanceIncomeFormValues = item
       ? {
         source: item.source,
@@ -46,7 +48,7 @@ export function FinanceIncomeDialog({open, item, accounts, pending, error, onOpe
       : defaults();
     form.reset(values);
     media.reset(values.images);
-  }, [form, item, media.reset, open]);
+  }, [form, item, media.reset, open, setPreview]);
 
   return (
     <FinanceEntryDialogShell
@@ -54,13 +56,13 @@ export function FinanceIncomeDialog({open, item, accounts, pending, error, onOpe
       pending={pending}
       title={item ? "编辑非经营收入" : "新增非经营收入"}
       description="只登记非销售、非采购单自动生成的临时收入；保存后由后端同步账户和财务流水。"
-      submitLabel={media.blocking ? "请处理图片状态" : pending ? "保存中…" : item ? "保存修改" : "登记收入"}
-      submitDisabled={media.blocking}
-      error={error}
+      submitLabel={pending ? "保存中…" : submission.validating ? "校验中…" : media.blocking ? "请处理图片状态" : item ? "保存修改" : "登记收入"}
+      submitDisabled={media.blocking || submission.validating}
+      error={submission.feedback || error}
       preview={preview}
       previewAlt="收入凭证预览"
       onOpenChange={onOpenChange}
-      onSubmit={(event) => { void form.handleSubmit(onSubmit)(event); }}
+      onSubmit={submission.onSubmit}
       onPreviewChange={setPreview}
     >
       <FinanceEntryField label="收入来源" error={form.formState.errors.source?.message}>

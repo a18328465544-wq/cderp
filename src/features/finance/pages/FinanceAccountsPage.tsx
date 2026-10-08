@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient, type UseQueryResult} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {useNavigate} from "@tanstack/react-router";
 import {AlertCircle, AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, Building2, CheckCircle2, CreditCard, Download, FileCheck2, FileText, Landmark, LockKeyhole, Plus, RefreshCw, Settings2, WalletCards} from "lucide-react";
@@ -28,10 +29,11 @@ function useFinanceAccountUrlState() {
 }
 
 export function FinanceAccountsPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {filters, commit} = useFinanceAccountUrlState();
   const allowed = createCapabilities(session).menu("settlement_accounts");
-  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
 
   useEffect(() => {
     if (accountsQuery.error instanceof ApiError && accountsQuery.error.isUnauthorized) logout();
@@ -45,6 +47,7 @@ export function FinanceAccountsPage() {
 }
 
 function FinanceAccountsContent({session, query, filters, onFiltersChange, onAuthExpired}: {session: AuthSession; query: UseQueryResult<FinanceAccountCollection, Error>; filters: ReturnType<typeof parseFinanceAccountFilters>; onFiltersChange: (filters: ReturnType<typeof parseFinanceAccountFilters>) => void; onAuthExpired: () => void}) {
+  const {active} = useWorkspaceTabActivity();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -66,8 +69,8 @@ function FinanceAccountsContent({session, query, filters, onFiltersChange, onAut
   const distribution = useMemo(() => buildDistribution(accounts), [accounts]);
   const statusRows = useMemo(() => buildAccountStatuses(accounts), [accounts]);
   const exceptions = useMemo(() => buildExceptions(accounts), [accounts]);
-  const accountLedgerQuery = useQuery({queryKey: queryKeys.finance.accountLedger(detail?.id || ""), queryFn: ({signal}) => financeAccountsApi.ledger(detail?.id || "", 1, 20, signal), enabled: Boolean(detail && canViewLedger), retry: false});
-  const recentLedgerQuery = useQuery({queryKey: queryKeys.finance.accountLedger("__recent__"), queryFn: ({signal}) => financeAccountsApi.ledger("", 1, 6, signal), enabled: Boolean(canViewLedger), retry: false});
+  const accountLedgerQuery = useQuery({queryKey: queryKeys.finance.accountLedger(detail?.id || ""), queryFn: ({signal}) => financeAccountsApi.ledger(detail?.id || "", 1, 20, signal), enabled: active && Boolean(detail && canViewLedger), retry: false});
+  const recentLedgerQuery = useQuery({queryKey: queryKeys.finance.accountLedger("__recent__"), queryFn: ({signal}) => financeAccountsApi.ledger("", 1, 6, signal), enabled: active && Boolean(canViewLedger), retry: false});
 
   useEffect(() => {
     const unauthorized = [accountLedgerQuery.error, recentLedgerQuery.error].some((error) => error instanceof ApiError && error.isUnauthorized);

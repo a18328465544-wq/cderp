@@ -45,6 +45,8 @@ export function AnalyticsToolbar({children, actions, className, ...props}: Omit<
   </section>;
 }
 
+AnalyticsToolbar.mobileToolbar = true;
+
 export function AnalyticsMainRegion({variant = "3-1", className, children, ...props}: RegionProps & {variant?: AnalyticsMainVariant}) {
   // Analytics side insights need enough room to remain legible beside charts.
   // At tablet widths the app shell/sidebar leaves too little space for the

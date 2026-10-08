@@ -1,4 +1,5 @@
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient, rollbackTransactionQuietly} from "./dbTransactionCleanup.ts";
 
 export type AccountingPeriodStatus = "open" | "closed";
 
@@ -106,10 +107,10 @@ export function createAccountingPeriodOperations({
       await client.query("COMMIT");
       return closed;
     } catch (error) {
-      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      await rollbackTransactionQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 
@@ -144,10 +145,10 @@ export function createAccountingPeriodOperations({
       await client.query("COMMIT");
       return reopened;
     } catch (error) {
-      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      await rollbackTransactionQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 

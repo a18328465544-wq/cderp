@@ -47,12 +47,13 @@ test("purchase entry omits redundant introduction headers", () => {
 test("live purchase entry keeps its workspace draft without an unsaved-leave guard", () => {
   assert.match(purchasePageSource, /useWorkspaceTabDraft/);
   assert.match(purchasePageSource, /saveDraft\(/);
-  assert.doesNotMatch(purchasePageSource, /ErpUnsavedChangesDialog|useErpDirtyGuard|useWorkspaceTabBlocker|useWorkspaceTabDirty/);
+  assert.doesNotMatch(purchasePageSource, /ErpUnsavedChangesDialog|useErpDirtyGuard|useWorkspaceTabBlocker/);
+  assert.match(purchasePageSource, /useWorkspaceTabDirty\("purchase_add", isDirty\)/);
 });
 
 test("successful purchase entry stays on the form instead of redirecting", () => {
   const saveIndex = purchasePageSource.indexOf("const result = await createMutation.mutateAsync(submitted)");
-  const refreshIndex = purchasePageSource.indexOf("await refreshErpAfterDocument(queryClient)", saveIndex);
+  const refreshIndex = purchasePageSource.indexOf("await refreshErpAfterDocument(queryClient,", saveIndex);
   assert.ok(saveIndex >= 0, "purchase entry must await the create mutation");
   assert.ok(refreshIndex > saveIndex, "purchase entry must refresh reference data after saving");
   assert.match(purchasePageSource.slice(saveIndex, refreshIndex), /setSuccessMessage\(/);

@@ -6,6 +6,8 @@ import {compactStateMerge, stateMergeRecords, statePatchResponse, type StateMerg
 import type {AppState, createStoreActions} from "../store.ts";
 import type {CardInventory, InventoryScanResult, SystemUserAccount} from "../../src/types.ts";
 import {inventoryBatchUpdateDto, inventoryImportDto, inventoryListQueryDto, inventoryScanFlowDto, parseHttpDto} from "../httpDto.ts";
+import {purchaseInvoicesForInventory} from "../purchaseRecordVersion.ts";
+import {publicStateMergeForUser} from "../publicState.ts";
 
 type InventoryRequest = AuthenticatedRequest<SystemUserAccount>;
 
@@ -33,6 +35,7 @@ function relatedProducts(state: AppState, inventory: CardInventory[]) {
 export function inventoryRecordsMerge(state: AppState, inventory: CardInventory[]): StateMergePatch {
   return compactStateMerge({
     inventory,
+    purchaseInvoices: purchaseInvoicesForInventory(state.purchaseInvoices, inventory),
     products: relatedProducts(state, inventory),
     salesInvoices: state.salesInvoices.filter((invoice) =>
       invoice.items.some((item) => inventory.some((card) => card.id === item.inventoryId))
@@ -55,6 +58,7 @@ export function scanFlowMerge(
   ].filter(Boolean));
   return compactStateMerge({
     inventory,
+    purchaseInvoices: purchaseInvoicesForInventory(state.purchaseInvoices, inventory),
     products: relatedProducts(state, inventory),
     salesInvoices: state.salesInvoices.filter((item) => relatedSalesInvoiceIds.has(item.id) || relatedSalesInvoiceIds.has(item.invoiceNo)),
     purchaseCommissions: state.purchaseCommissions.filter((item) => inventoryIds.has(item.inventoryId)),
@@ -73,7 +77,8 @@ export function registerInventoryMutationRoutes(app: Express, dependencies: Inve
         () => dependencies.actions(req).batchUpdateInventory(command.ids, command.updates),
         (inventory) => inventoryRecordsMerge(dependencies.getState(), inventory),
       );
-      res.json(okMerge(updated, stateMerge));
+      const user = (req as InventoryRequest).authUser;
+      res.json(okMerge(dependencies.sanitizeInventoryRows(updated, user), publicStateMergeForUser(dependencies.getState(), stateMerge, user)));
     }),
   );
 
@@ -146,7 +151,8 @@ export function registerInventoryMutationRoutes(app: Express, dependencies: Inve
         () => dependencies.actions(req).importInventoryRows(command.rows, command.handler),
         (inventory) => inventoryRecordsMerge(dependencies.getState(), inventory),
       );
-      res.status(201).json(okMerge(created, stateMerge));
+      const user = (req as InventoryRequest).authUser;
+      res.status(201).json(okMerge(dependencies.sanitizeInventoryRows(created, user), publicStateMergeForUser(dependencies.getState(), stateMerge, user)));
     }),
   );
 
@@ -158,7 +164,7 @@ export function registerInventoryMutationRoutes(app: Express, dependencies: Inve
       const result = dependencies.actions(req).scanInventoryFlow(command);
       const stateMerge = scanFlowMerge(dependencies.getState(), result, command.salesInvoiceId);
       await saveStateRecords(stateMergeRecords(stateMerge));
-      res.json(okMerge(result, stateMerge));
+      res.json(okMerge(result, publicStateMergeForUser(dependencies.getState(), stateMerge, (req as InventoryRequest).authUser)));
     }),
   );
 }

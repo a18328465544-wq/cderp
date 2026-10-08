@@ -13,6 +13,7 @@ import type {
   ProductTemplate,
   Vendor,
 } from "../src/types.ts";
+import type {PaymentRemovalOptions} from "./storePaymentOperations.ts";
 
 export type ReturnOperationsState = {
   products: ProductTemplate[];
@@ -44,8 +45,8 @@ export type ReturnOperationsDependencies = {
   purchaseInvoiceVendorId: (invoice?: PurchaseInvoice) => string | undefined;
   createPaymentIn: (payment: Omit<PaymentInRecord, "id" | "accountName">, options?: {skipInvoiceUpdate?: boolean; internalReturnPayment?: boolean}) => PaymentInRecord;
   createPaymentOut: (payment: Omit<PaymentOutRecord, "id" | "accountName">, options?: {skipInvoiceUpdate?: boolean; internalReturnPayment?: boolean}) => PaymentOutRecord;
-  deletePaymentIn: (id: string, options?: {skipInvoiceUpdate?: boolean; preserveVoided?: boolean}) => PaymentInRecord;
-  deletePaymentOut: (id: string, options?: {skipInvoiceUpdate?: boolean; preserveVoided?: boolean}) => PaymentOutRecord;
+  deletePaymentIn: (id: string, options?: PaymentRemovalOptions) => PaymentInRecord;
+  deletePaymentOut: (id: string, options?: PaymentRemovalOptions) => PaymentOutRecord;
   findPaymentInSettlementLedgerId: (record: PaymentInRecord) => string | undefined;
   findPaymentInFinanceLedgerId: (record: PaymentInRecord) => string | undefined;
   findPaymentOutSettlementLedgerId: (record: PaymentOutRecord) => string | undefined;

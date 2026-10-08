@@ -1,4 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Filter, RefreshCw, Undo2 } from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -54,6 +55,7 @@ function menuAllowed(session: AuthSession, menu: string) {
 }
 
 export function FinanceReturnReconcilePage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const canRead = createCapabilities(session).menu("return_orders") || allowed(session);
   const [filters, setFilters] = useState(defaultFilters);
@@ -61,14 +63,14 @@ export function FinanceReturnReconcilePage() {
   const salesQuery = useQuery({
     queryKey: queryKeys.returns.salesList(apiFilters),
     queryFn: ({ signal }) => returnsApi.listSales(apiFilters, signal),
-    enabled: canRead,
+    enabled: active && canRead,
     placeholderData: keepPreviousData,
     retry: false,
   });
   const purchaseQuery = useQuery({
     queryKey: queryKeys.returns.purchaseList(apiFilters),
     queryFn: ({ signal }) => returnsApi.listPurchase(apiFilters, signal),
-    enabled: canRead,
+    enabled: active && canRead,
     placeholderData: keepPreviousData,
     retry: false,
   });

@@ -1,5 +1,6 @@
 import type {PurchaseLineFormValue, PurchaseProductOption} from "@/src/types/purchase";
-import {normalizePurchaseMoney} from "@/src/lib/purchase";
+import {filledPurchaseLines, normalizePurchaseMoney} from "@/src/lib/purchase";
+import {purchaseQuantity, purchaseQuantityError} from "@/src/utils/purchaseQuantity";
 
 /**
  * Batch paste is deliberately bounded. The parser treats all input as plain
@@ -341,7 +342,8 @@ function validateRow(seed: PurchasePasteRow, options: PurchasePasteOptions): Pur
     if (match.candidates.length > 1) warnings.push("存在多个严格匹配的商品模板，请在预览中手动选择。");
     else if (!match.candidates.length) warnings.push("未匹配到现有商品模板，请在预览中手动选择。");
   }
-  if (!Number.isSafeInteger(line.quantity) || line.quantity < 1) errors.push("数量必须是正整数。");
+  const quantityError = purchaseQuantityError([line]);
+  if (quantityError) errors.push(quantityError);
   if (line.buyPrice <= 0) errors.push("采购价为必填项，且必须大于 0。");
   if (!Number.isFinite(line.estSellPrice) || line.estSellPrice < 0) errors.push("预计售价必须是非负金额。");
   if (options.canEnterCost === false && (seed.explicit.buyPrice !== undefined || line.buyPrice > 0)) errors.push("当前采购表单不允许录入采购价，请沿用手工录入权限。");
@@ -466,6 +468,19 @@ export function revalidatePurchasePasteRow(row: PurchasePasteRow, options: Purch
 
 export function revalidatePurchasePasteRows(rows: readonly PurchasePasteRow[], options: PurchasePasteOptions): PurchasePasteRow[] {
   return applyDuplicateWarnings(rows.map((row) => validateRow(row, options)), options.existingItems || []);
+}
+
+/** Validate the user's exact selection against the current form, never a silent subset. */
+export function planPurchasePasteSelection(rows: readonly PurchasePasteRow[], includedIds: ReadonlySet<string>, options: PurchasePasteOptions) {
+  const refreshedRows = revalidatePurchasePasteRows(rows, options);
+  const selectedRows = refreshedRows.filter((row) => includedIds.has(row.id));
+  const existing = filledPurchaseLines(options.existingItems || []);
+  const selectedQuantity = selectedRows.reduce((total, row) => total + purchaseQuantity(row.line.quantity), 0);
+  const totalQuantity = existing.reduce((total, item) => total + purchaseQuantity(item.quantity), selectedQuantity);
+  const error = !selectedRows.length ? "请选择至少一行有效明细。"
+    : selectedRows.some((row) => row.errors.length || (row.status !== "valid" && row.status !== "warning")) ? "所选明细仍有错误或未确认的商品，请修正或取消勾选。"
+    : purchaseQuantityError([...existing, ...selectedRows.map((row) => row.line)]);
+  return {refreshedRows, selectedRows, selectedQuantity, totalQuantity, error};
 }
 
 export function updatePurchasePasteRow(row: PurchasePasteRow, field: PurchasePasteEditableField, value: PurchaseLineFormValue[PurchasePasteEditableField], options: PurchasePasteOptions): PurchasePasteRow {

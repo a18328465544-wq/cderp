@@ -39,7 +39,7 @@ export function registerOperationalReadRoutes(app: Express, dependencies: Depend
   });
 
   app.get("/api/aftersales/workspace", dependencies.requireMenu("aftersales"), async (req: AuthenticatedRequest, res, next) => {
-    try {res.json(await getAftersalesWorkspace({tenantId: req.tenantId, storeId: req.storeId}));} catch (error) {next(error);}
+    try {res.json(await getAftersalesWorkspace({tenantId: req.tenantId, storeId: req.storeId}, dependencies.permissionsForRequest(req)));} catch (error) {next(error);}
   });
 
   const returnMenus = [...returnMenuValues];
@@ -48,7 +48,7 @@ export function registerOperationalReadRoutes(app: Express, dependencies: Depend
       const query = parseHttpDto(returnListQueryDto, req.query);
       const permissions = dependencies.permissionsForRequest(req);
       const allowedTypes = hasMenu(permissions, "return_orders") ? ["销售退货", "进货退货"] : [hasMenu(permissions, "return_sales") ? "销售退货" : "", hasMenu(permissions, "return_purchase") ? "进货退货" : ""].filter(Boolean);
-      res.json(await listReturnOrders({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, type: query.type, status: query.status, allowedTypes, sortKey: query.sortKey, sortDirection: query.sortDirection}));
+      res.json(await listReturnOrders({tenantId: req.tenantId, storeId: req.storeId}, {page: query.page, pageSize: query.pageSize, keyword: query.keyword, type: query.type, status: query.status, allowedTypes, sortKey: query.sortKey, sortDirection: query.sortDirection}, permissions));
     } catch (error) {next(error);}
   });
 
@@ -59,7 +59,7 @@ export function registerOperationalReadRoutes(app: Express, dependencies: Depend
       const type = query.type || undefined;
       res.json(await getReturnReference(
         {tenantId: req.tenantId, storeId: req.storeId},
-        {showCost: permissions.showCost === true, showProfit: permissions.showProfit === true},
+        {showCost: permissions.showCost === true, showProfit: permissions.showProfit === true, allowedMenus: permissions.allowedMenus},
         {type, keyword: query.keyword, selectedDocNo: query.selectedDocNo},
       ));
     } catch (error) {next(error);}

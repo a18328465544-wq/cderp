@@ -7,11 +7,13 @@ import {Controller, useFieldArray, useForm, useWatch, type FieldPath} from "reac
 import {notify} from "@/src/utils/notification";
 import {useAuth} from "@/src/app/auth";
 import {Button, Card, CardContent, Input, Select, Textarea} from "@/src/components/ui";
-import {ErpDatePicker, ErpFormSection, ErpLoadingState, ErpPageContent, ErpPageError, ErpPageHeader, ErpSubmitBar, ErpTransactionColumns, ErpTransactionPageFrame, ErpTransactionPrimary, ErpTransactionSecondary, ErpUnsavedChangesDialog} from "@/src/components/common";
+import {ErpMobileWorkflow, ErpMobileWorkflowSection, ErpDatePicker, ErpFormSection, ErpLoadingState, ErpPageContent, ErpPageError, ErpPageHeader, ErpSubmitBar, ErpTransactionColumns, ErpTransactionPageFrame, ErpTransactionPrimary, ErpTransactionSecondary, ErpUnsavedChangesDialog} from "@/src/components/common";
 import {ApiError, queryKeys, salesApi} from "@/src/services/api";
 import type {AuthSession} from "@/src/services/api";
 import type {SalesFormValues, SalesListItem, SalesProductCandidate} from "@/src/types/sales";
 import {salesChannelValues} from "@/src/types/sales";
+import {formatCurrency} from "@/src/lib/format";
+import type {PaymentEntryFeedback} from "@/src/lib/paymentEntry";
 import {useDebouncedValue} from "@/src/hooks/useDebouncedValue";
 import {useWorkspaceTabActivity, useWorkspaceTabBlocker, useWorkspaceTabDirty} from "@/src/hooks/useWorkspaceTabRuntime";
 import {createSalesCandidateFromLine, createSalesCustomerOption, createSalesEditValues} from "../sales.edit";
@@ -45,13 +47,14 @@ function errorText(error: unknown) {
 }
 
 export function SalesEditPage({salesId}: {salesId: string}) {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const allowed = hasMenu(session, "sales_list");
   const permissions = useMemo(() => ({showCost: Boolean(session?.permissions.showCost), showProfit: Boolean(session?.permissions.showProfit)}), [session?.permissions.showCost, session?.permissions.showProfit]);
   const detailQuery = useQuery({
     queryKey: queryKeys.sales.detail(salesId),
     queryFn: ({signal}) => salesApi.detail(salesId, permissions, signal),
-    enabled: Boolean(session && allowed),
+    enabled: active && (Boolean(session && allowed)),
     retry: false,
   });
 
@@ -70,17 +73,22 @@ export function SalesEditPage({salesId}: {salesId: string}) {
   if (!detailQuery.data) return <ErpPageError title="销售单不存在" description="该单据可能已删除，或当前账号无权访问。" />;
 
   const policy = deriveSalesEditPolicy(detailQuery.data, {canEditHistory: true, hasFullRecordAccess: hasFullSalesRecordAccess(session)});
-  return <SalesEditForm item={detailQuery.data} policy={policy} session={session} onAuthExpired={logout} />;
+  return <SalesEditForm key={detailQuery.data.id} item={detailQuery.data} policy={policy} session={session} onAuthExpired={logout} />;
 }
 
 function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListItem; policy: SalesEditPolicy; session: AuthSession; onAuthExpired: () => void}) {
+  const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const fullMode = policy.mode === "full";
   const permissions = {showCost: session.permissions.showCost, showProfit: session.permissions.showProfit};
   const [customerKeyword, setCustomerKeyword] = useState("");
+  const [settlementEntry, setSettlementEntry] = useState<PaymentEntryFeedback>({ready: true});
   const [activeInventoryFieldId, setActiveInventoryFieldId] = useState<string | null>(null);
   const [inventoryKeywords, setInventoryKeywords] = useState<Record<string, string>>({});
+  // Keep the revision that initialized this draft. A background detail refetch
+  // must not make stale form values look like edits against the newest version.
+  const [editVersion, setEditVersion] = useState(() => item.recordVersion || 1);
   const debouncedCustomerKeyword = useDebouncedValue(customerKeyword.trim(), 250);
   const activeInventoryKeyword = activeInventoryFieldId ? inventoryKeywords[activeInventoryFieldId] || "" : "";
   const debouncedInventoryKeyword = useDebouncedValue(activeInventoryKeyword.trim(), 250);
@@ -91,14 +99,14 @@ function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListI
   const values = useWatch({control}) as SalesFormValues;
   const [selectedCustomer, setSelectedCustomer] = useState(() => createSalesCustomerOption(item));
   const [selectedCandidates, setSelectedCandidates] = useState<Record<string, SalesProductCandidate | null>>(() => Object.fromEntries(fields.map((field, index) => [field.id, initialValues.items[index] ? createSalesCandidateFromLine({...initialValues.items[index], id: field.id}) : null])));
-  const customerQuery = useQuery({queryKey: queryKeys.sales.customers(debouncedCustomerKeyword), queryFn: ({signal}) => salesApi.searchCustomers(debouncedCustomerKeyword, signal), enabled: fullMode && !selectedCustomer && debouncedCustomerKeyword.length > 0, retry: false, staleTime: 30_000});
-  const inventoryQuery = useQuery({queryKey: queryKeys.sales.productCandidates(debouncedInventoryKeyword), queryFn: ({signal}) => salesApi.searchProductCandidates(debouncedInventoryKeyword, permissions, signal), enabled: fullMode && Boolean(activeInventoryFieldId), retry: false, staleTime: 15_000});
-  const accountQuery = useQuery({queryKey: queryKeys.sales.settlementAccounts(), queryFn: ({signal}) => salesApi.settlementAccounts(signal), enabled: fullMode && hasMenu(session, "settlement_accounts"), retry: false, staleTime: 30_000});
+  const customerQuery = useQuery({queryKey: queryKeys.sales.customers(debouncedCustomerKeyword), queryFn: ({signal}) => salesApi.searchCustomers(debouncedCustomerKeyword, signal), enabled: active && fullMode, retry: false, staleTime: 30_000});
+  const inventoryQuery = useQuery({queryKey: queryKeys.sales.productCandidates(debouncedInventoryKeyword), queryFn: ({signal}) => salesApi.searchProductCandidates(debouncedInventoryKeyword, permissions, signal), enabled: active && (fullMode && Boolean(activeInventoryFieldId)), retry: false, staleTime: 15_000});
+  const accountQuery = useQuery({queryKey: queryKeys.sales.settlementAccounts(), queryFn: ({signal}) => salesApi.settlementAccounts(signal), enabled: active && fullMode && hasMenu(session, "settlement_accounts"), retry: false, staleTime: 30_000});
   const amounts = useMemo(() => calculateSalesAmounts({items: values.items || [], paidAmount: values.paidAmount || 0}, permissions.showCost && permissions.showProfit), [permissions.showCost, permissions.showProfit, values.items, values.paidAmount]);
   const selectedAccount = accountQuery.data?.find((account) => account.id === values.settlementAccountId);
-  const canSubmit = formState.isDirty && (fullMode ? salesOrderSchema.safeParse(values).success : values.expressNo.length <= 160 && values.remarks.length <= 500);
+  const canSubmit = formState.isDirty && (fullMode ? salesOrderSchema.safeParse(values).success && settlementEntry.ready : values.expressNo.length <= 160 && values.remarks.length <= 500);
   const defaultPaymentMode: "full" | "credit" = item.unpaidAmount <= 0 ? "full" : "credit";
-  const mutation = useMutation({mutationFn: (submitted: SalesFormValues) => salesApi.update(item.id, submitted, selectedAccount, fullMode ? "full" : "metadata", permissions)});
+  const mutation = useMutation({mutationFn: (submitted: SalesFormValues) => salesApi.update(item.id, submitted, selectedAccount, editVersion, fullMode ? "full" : "metadata", permissions)});
   const {tabId} = useWorkspaceTabActivity();
   useWorkspaceTabDirty(tabId || `sales-edit:${item.id}`, formState.isDirty);
   const blocker = useWorkspaceTabBlocker(formState.isDirty);
@@ -164,6 +172,7 @@ function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListI
   const leave = () => void navigate({to: "/sales/$salesId", params: {salesId: item.id}});
   const submit = async (submitted: SalesFormValues) => {
     if (fullMode) {
+      if (!settlementEntry.ready) {setError("root", {type: "validation", message: settlementEntry.reason}); return;}
       const parsed = salesOrderSchema.safeParse(submitted);
       if (!parsed.success) {
         const first = parsed.error.issues[0]?.message || "请完善销售单信息";
@@ -173,6 +182,7 @@ function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListI
     }
     try {
       const result = await mutation.mutateAsync(submitted);
+      setEditVersion(result.invoice.recordVersion || 1);
       blocker.markSaved();
       // The response is authoritative for server-calculated payment status;
       // reset with the submitted model before navigating to clear RHF dirty
@@ -200,9 +210,11 @@ function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListI
     <Card className="border-[var(--erp-color-border-strong)]"><CardContent className="p-3"><ErpPageHeader title={`编辑销售单 ${item.invoiceNo}`} subtitle={policy.summary} actions={<Button type="button" variant="secondary" onClick={leave}><ArrowLeft className="h-4 w-4" />返回详情</Button>} /></CardContent></Card>
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
       {fieldsError && <Card role="alert" className="border-[var(--erp-color-danger)] bg-[var(--erp-color-danger-soft)]"><CardContent className="p-4 text-sm text-[var(--erp-color-danger)]">{fieldsError}</CardContent></Card>}
+      <ErpMobileWorkflow resetKey={item.id} pending={mutation.isPending} steps={[{label: "编辑信息"}, {label: "核对与保存"}]} summary={fullMode ? `${amounts.quantity} 件 · ${formatCurrency(amounts.subtotal)}` : "仅修改物流与备注"} errorStep={fieldsError ? 1 : undefined}>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {void handleSubmit(submit, (errors) => setError("root", {type: "validation", message: salesFormValidationMessage(errors)}))(event);}}>
         <ErpTransactionColumns>
           <ErpTransactionPrimary>
+            <ErpMobileWorkflowSection step={0}>
             <Card><CardContent><div className="grid items-start gap-4 md:grid-cols-12">
               <div className="md:col-span-2"><p className="text-sm font-semibold">单据编号</p><div className="mt-2 flex h-10 items-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 erp-data-number text-xs font-semibold">{item.invoiceNo}</div></div>
               <div className="md:col-span-2"><p className="text-sm font-semibold">销售日期</p>{fullMode ? <Controller control={control} name="date" render={({field}) => <ErpDatePicker className="mt-2" value={field.value} onChange={field.onChange} disabled={mutation.isPending} aria-label="销售日期" />} /> : <div className="mt-2 flex h-10 items-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 text-sm">{item.date}</div>}</div>
@@ -214,15 +226,19 @@ function SalesEditForm({item, policy, session, onAuthExpired}: {item: SalesListI
 
             {fullMode ? <SalesLineItemsTable control={control} setValue={setValue} fields={fields} selectedCandidates={selectedCandidates} pickerKeyword={(fieldId) => inventoryKeywords[fieldId] || ""} pickerOptions={(fieldId) => {const current = selectedCandidates[fieldId]; const remote = activeInventoryFieldId === fieldId ? inventoryQuery.data || [] : []; return current ? [current, ...remote.filter((option) => option.productId !== current.productId)] : remote;}} pickerLoading={(fieldId) => activeInventoryFieldId === fieldId && (activeInventoryKeyword !== debouncedInventoryKeyword || inventoryQuery.isPending || inventoryQuery.isFetching)} pickerError={(fieldId) => activeInventoryFieldId === fieldId ? inventoryError : undefined} pickerDisabled={mutation.isPending} onPickerFocus={setActiveInventoryFieldId} onPickerKeywordChange={(fieldId, keyword) => {setActiveInventoryFieldId(fieldId); setInventoryKeywords((current) => ({...current, [fieldId]: keyword}));}} onPickerRetry={() => void inventoryQuery.refetch()} onCandidateSelect={selectCandidate} onCandidateClear={clearCandidate} onAdd={() => append(createSalesLineDefaults(values.aftersalesTerms || ""))} onRemove={removeLine} /> : <Card><CardContent><div className="mb-3 flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[var(--erp-color-warning)]" /><h2 className="text-sm font-semibold">商品、数量与收款已锁定</h2></div><p className="text-xs leading-5 text-[var(--erp-color-text-secondary)]">{policy.reasons.join("；")}</p><div className="mt-4 grid gap-2 sm:grid-cols-2">{item.lines.slice(0, 12).map((line) => <div key={line.id} className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 py-2 text-xs"><span className="font-semibold">{line.productName}</span><span className="ml-2 text-[var(--erp-color-text-muted)]">{line.quantity} 件</span></div>)}</div></CardContent></Card>}
             <ErpFormSection title="销售备注" description="可补充交付、售后和客户特殊要求。"><Textarea {...register("remarks")} className="min-h-32" maxLength={500} disabled={mutation.isPending} placeholder="补充销售单说明" /></ErpFormSection>
+            </ErpMobileWorkflowSection>
           </ErpTransactionPrimary>
 
           <ErpTransactionSecondary>
-            <Card><CardContent className="space-y-4 p-4"><div className="flex items-start gap-3"><span className={`rounded-full p-2 ${fullMode ? "bg-[var(--erp-color-success-soft)] text-[var(--erp-color-success)]" : "bg-[var(--erp-color-warning-soft)] text-[var(--erp-color-warning)]"}`}>{fullMode ? <ShieldCheck className="h-4 w-4" /> : <LockKeyhole className="h-4 w-4" />}</span><div><h2 className="text-sm font-semibold">{fullMode ? "完整编辑" : "受限编辑"}</h2><p className="mt-1 text-xs leading-5 text-[var(--erp-color-text-secondary)]">{fullMode ? "保存时会重新校验型号库存、收款和往来对象。" : "已出库或权限不足的销售单只开放快递单号和备注。"}</p></div></div>{fullMode && <><SalesPaymentSection embedded compact control={control} setValue={setValue} accounts={accountQuery.data || []} accountsLoading={accountQuery.isPending || accountQuery.isFetching} accountsError={accountQuery.error ? errorText(accountQuery.error) : undefined} accountDisabled={!hasMenu(session, "settlement_accounts")} onRetryAccounts={() => void accountQuery.refetch()} paidAmount={values.paidAmount || 0} totalAmount={amounts.subtotal} salesperson={values.handleBy} defaultPaymentMode={defaultPaymentMode} /><div className="grid grid-cols-2 gap-2"><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("needInvoice")} />{values.needInvoice ? "普通发票" : "不开票"}</label><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("freeShipping")} />{values.freeShipping ? "客户自提" : "到付自理"}</label></div><div className="border-t border-[var(--erp-color-border)] pt-3"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">销售结算汇总</h2><span className="erp-data-number text-xs text-[var(--erp-color-text-secondary)]">{amounts.quantity} 件</span></div><SalesAmountSummary embedded amounts={amounts} showCost={permissions.showCost && permissions.showProfit} /></div></>}
-              <ErpSubmitBar embedded compact showCancel={false} dirty={formState.isDirty} canSubmit={canSubmit} blockedReason={fullMode ? "请完善客户、商品和收款状态" : "请填写可编辑字段"} submitting={mutation.isPending} onCancel={leave} submitLabel="保存销售单修改"><span>开单销售：{item.handleBy}</span></ErpSubmitBar>
+            <ErpMobileWorkflowSection step={1}>
+            <Card><CardContent className="space-y-4 p-4"><div className="flex items-start gap-3"><span className={`rounded-full p-2 ${fullMode ? "bg-[var(--erp-color-success-soft)] text-[var(--erp-color-success)]" : "bg-[var(--erp-color-warning-soft)] text-[var(--erp-color-warning)]"}`}>{fullMode ? <ShieldCheck className="h-4 w-4" /> : <LockKeyhole className="h-4 w-4" />}</span><div><h2 className="text-sm font-semibold">{fullMode ? "完整编辑" : "受限编辑"}</h2><p className="mt-1 text-xs leading-5 text-[var(--erp-color-text-secondary)]">{fullMode ? "保存时会重新校验型号库存、收款和往来对象。" : "已出库或权限不足的销售单只开放快递单号和备注。"}</p></div></div>{fullMode && <><SalesPaymentSection embedded compact control={control} setValue={setValue} accounts={accountQuery.data || []} accountsLoading={accountQuery.isPending || accountQuery.isFetching} accountsError={accountQuery.error ? errorText(accountQuery.error) : undefined} accountDisabled={!hasMenu(session, "settlement_accounts")} onRetryAccounts={() => void accountQuery.refetch()} paidAmount={values.paidAmount || 0} totalAmount={amounts.subtotal} salesperson={values.handleBy} defaultPaymentMode={defaultPaymentMode} onReadinessChange={setSettlementEntry} /><div className="grid grid-cols-2 gap-2"><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("needInvoice")} />{values.needInvoice ? "普通发票" : "不开票"}</label><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("freeShipping")} />{values.freeShipping ? "客户自提" : "到付自理"}</label></div><div className="border-t border-[var(--erp-color-border)] pt-3"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">销售结算汇总</h2><span className="erp-data-number text-xs text-[var(--erp-color-text-secondary)]">{amounts.quantity} 件</span></div><SalesAmountSummary embedded amounts={amounts} showCost={permissions.showCost && permissions.showProfit} /></div></>}
+              <ErpSubmitBar embedded compact showCancel={false} dirty={formState.isDirty} canSubmit={canSubmit} blockedReason={fullMode ? settlementEntry.reason || "请完善客户、商品和收款状态" : "请填写可编辑字段"} submitting={mutation.isPending} onCancel={leave} submitLabel="保存销售单修改"><span>开单销售：{item.handleBy}</span></ErpSubmitBar>
             </CardContent></Card>
+            </ErpMobileWorkflowSection>
           </ErpTransactionSecondary>
         </ErpTransactionColumns>
       </form>
+      </ErpMobileWorkflow>
       <ErpUnsavedChangesDialog open={blocker.status === "blocked"} onStay={() => blocker.reset?.()} onLeave={() => blocker.proceed?.()} />
     </ErpPageContent>
   </ErpTransactionPageFrame>;

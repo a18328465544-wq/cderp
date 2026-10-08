@@ -60,6 +60,7 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
     systemActor,
     replaceState,
     purchaseInvoiceVendorId,
+    findPurchaseInvoiceForCard,
     createPaymentIn,
     createPaymentOut,
     deletePaymentOut,
@@ -139,6 +140,7 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
   };
   const {deleteReturnOrder} = createReturnDeletionHelpers({
     state,
+    replaceState,
     systemActor,
     deletePaymentIn,
     deletePaymentOut,
@@ -151,6 +153,9 @@ export function createReturnOperationHelpers(dependencies: ReturnOperationsDepen
   });
 
   const reverseReturnOrder = (id: string) => {
+    const existing = state.returnOrders.find((item) => item.id === id || item.returnNo === id);
+    if (!existing) throw new NotFoundError(`退货单不存在: ${id}`);
+    if (existing.status !== "已完成") throw new ConflictError("只有已完成退货单可以冲销，待处理退货请使用删除或作废");
     const reversed = deleteReturnOrder(id, {preserveVoidedPayments: true});
     const voided: ReturnOrder = {...reversed, status: "已作废", accountingStatus: "作废"};
     state.returnOrders = [voided, ...state.returnOrders];

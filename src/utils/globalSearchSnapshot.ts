@@ -1,6 +1,7 @@
 import type {ErpStateSnapshot} from "@/src/services/api/adapters/state.adapter";
 import type {GlobalSearchResult, GlobalSearchResultKind} from "@/src/types/global-search";
-import {matchesKeyword} from "@/src/utils/search";
+import {compactSearchText, matchesKeyword} from "@/src/utils/search";
+import {productModelCode, productSearchMatches} from "@/src/utils/productSearch";
 
 type SearchEntry = {
   kind: GlobalSearchResultKind;
@@ -11,6 +12,7 @@ type SearchEntry = {
   reference: string;
   route: string;
   values: unknown[];
+  matches?: (query: string) => boolean;
 };
 
 function text(...values: unknown[]) {
@@ -32,6 +34,7 @@ function entry(
   reference: unknown,
   subtitle: unknown,
   values: unknown[],
+  matches?: (query: string) => boolean,
 ): SearchEntry | null {
   const normalizedId = text(id);
   const normalizedTitle = text(title) || normalizedId;
@@ -46,6 +49,7 @@ function entry(
     reference: text(reference) || normalizedId,
     route,
     values,
+    ...(matches ? {matches} : {}),
   };
 }
 
@@ -76,10 +80,17 @@ function snapshotEntries(snapshot: ErpStateSnapshot, allowedMenus: readonly stri
   };
 
   for (const item of snapshot.products) {
-    add(entry("product", ["products"], "/products", item.id, item.name || text(item.brand, item.model, item.version, item.vram), item.model, [item.category, item.brand, item.model, item.version, item.vram].filter(Boolean).join(" · "), [item.id, item.name, item.category, item.brand, item.model, item.version, item.vram, item.remarks]));
+    add(entry("product", ["products"], "/products", item.id, item.name || text(item.brand, item.model, item.version, item.vram), item.model, [item.category, item.brand, item.model, item.version, item.vram].filter(Boolean).join(" · "), [item.id, item.name, item.category, item.brand, item.model, item.version, item.vram], (query) => productSearchMatches(item, query)));
   }
   for (const item of snapshot.inventory) {
-    add(entry("inventory", ["inventory"], "/inventory", item.id, item.productName || item.model, item.sn, [item.sn, item.status, item.warehouseLocation].filter(Boolean).join(" · "), [item.id, item.productId, item.productName, item.category, item.brand, item.model, item.version, item.vram, item.sn, item.expressNo, item.supplierName, item.warehouseLocation, item.remarks]));
+    const identifiers = [item.id, item.productId, item.sn, item.expressNo];
+    add(entry("inventory", ["inventory"], "/inventory", item.id, item.productName || item.model, item.sn, [item.sn, item.status, item.warehouseLocation].filter(Boolean).join(" · "), [item.id, item.productId, item.productName, item.category, item.brand, item.model, item.version, item.vram, item.sn, item.expressNo], (query) => {
+      const compact = compactSearchText(query);
+      const exactIdentifier = identifiers.some((value) => value && compactSearchText(value) === compact);
+      return productSearchMatches({id: item.productId, productName: item.productName, category: item.category, brand: item.brand, model: item.model, version: item.version, vram: item.vram}, query)
+        || Boolean(exactIdentifier)
+        || (!productModelCode(query) && matchesKeyword(identifiers, query));
+    }));
   }
   for (const item of snapshot.inspections) {
     add(entry("inspection", ["inspections"], "/inspections", item.id, item.sn || item.inventoryId, item.inventoryId, [item.resultStatus, item.inspector, item.inspectTime].filter(Boolean).join(" · "), [item.id, item.inventoryId, item.sn, item.inspector, item.resultStatus, item.remarks]));
@@ -124,7 +135,7 @@ export function searchGlobalSnapshot(
 ) {
   if (!snapshot || !query.trim()) return [];
   return snapshotEntries(snapshot, allowedMenus)
-    .filter((item) => matchesKeyword(item.values, query))
+    .filter((item) => item.matches ? item.matches(query) : matchesKeyword(item.values, query))
     .slice(0, Math.max(1, Math.min(60, Math.floor(limit))))
     .map(toResult);
 }

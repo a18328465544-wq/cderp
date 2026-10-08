@@ -1,4 +1,5 @@
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient, rollbackTransactionQuietly} from "./dbTransactionCleanup.ts";
 import type {DailyClosing} from "../src/types.ts";
 
 type DailyOperationsDependencies = {
@@ -92,10 +93,10 @@ export function createDailyOperations({
       await client.query("COMMIT");
       return saved;
     } catch (error) {
-      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      await rollbackTransactionQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 

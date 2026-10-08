@@ -1,8 +1,14 @@
 import {Select as BaseSelect} from "@base-ui/react/select";
 import {Combobox as BaseCombobox} from "@base-ui/react/combobox";
 import {Check, ChevronDown, Plus, Search, X} from "lucide-react";
-import {useState, type ReactNode} from "react";
+import {useEffect, useState, type ReactNode} from "react";
 import {Button} from "./button";
+import {selectOptionLabelText, selectOptionMatches} from "./select-search";
+export {selectOptionLabelText, normalizeSelectSearchText, selectOptionMatches} from "./select-search";
+import {PhoneSearchSelect} from "./phone-search-select";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {usePhoneBackLayer} from "@/src/hooks/usePhoneBack";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {cn, hasBaseWidthUtilityClass} from "@/src/lib/cn";
 
 export interface SelectOption {
@@ -47,33 +53,15 @@ export interface SelectProps {
   searchFilter?: (option: SelectOption, query: string) => boolean;
   /** Limits rendered results and protects dense ERP forms from very large option lists. */
   searchResultLimit?: number;
+  /** Phone lookup presentation; features retain the original field/controller. */
+  phoneDialogTitle?: string;
+  phoneOpenRequest?: number;
+  hidePhoneTrigger?: boolean;
+  onPhoneOpenChange?: (open: boolean) => void;
   /** Optional explicit clear behavior for entity fields with dependent form data. */
   onClear?: () => void;
   /** Optional create action rendered inside the searchable popup before the options. */
   quickCreateAction?: {label: string; onClick: (searchText: string) => void; disabled?: boolean};
-}
-
-export function selectOptionLabelText(option: SelectOption): string {
-  if (option.labelText) return option.labelText;
-  return typeof option.label === "string" ? option.label : option.value;
-}
-
-export function normalizeSelectSearchText(value: string): string {
-  return value
-    .normalize("NFKC")
-    .toLocaleLowerCase()
-    .replace(/[\u00b7•・/_|,-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function selectOptionMatches(option: SelectOption, query: string): boolean {
-  const normalizedQuery = normalizeSelectSearchText(query);
-  if (!normalizedQuery) return true;
-  const corpus = normalizeSelectSearchText(`${selectOptionLabelText(option)} ${option.searchText || ""}`);
-  const tokensMatch = normalizedQuery.split(" ").every((token) => corpus.includes(token));
-  const compactMatch = corpus.replace(/\s+/g, "").includes(normalizedQuery.replace(/\s+/g, ""));
-  return tokensMatch || compactMatch;
 }
 
 export function shouldShowQuickCreateAction({hasSelection, searchLoading}: {
@@ -89,12 +77,23 @@ export function shouldShowQuickCreateAction({hasSelection, searchLoading}: {
  * Keep option data at the feature boundary and keep popup styling here so
  * business pages never fall back to browser-native selects.
  */
-export function Select({value, options, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchFilter, searchResultLimit = 60, onClear, quickCreateAction}: SelectProps) {
+export function Select({value, options, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchFilter, searchResultLimit = 60, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}: SelectProps) {
+  const phone = useErpPhone();
   const hasCustomWidth = hasBaseWidthUtilityClass(className);
   const compact = density === "compact" || size === "sm";
   const controlHeight = compact ? "h-[var(--erp-control-height-compact)]" : "h-[var(--erp-control-height)]";
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [selectOpen, setSelectOpen] = useState(false);
+  const {active} = useWorkspaceTabActivity();
+  usePhoneBackLayer(active && !searchable && selectOpen && !disabled, () => setSelectOpen(false), 400);
+  useEffect(() => {
+    if (!disabled) return;
+    setSearchOpen(false);
+    setSelectOpen(false);
+    setSearchText("");
+  }, [disabled]);
+  if (searchable && phone) return <PhoneSearchSelect {...{value, options, onValueChange, placeholder, disabled, required, name, id, className, density, size, searchPlaceholder, emptyText, searchLoading, onSearchValueChange, shouldFilter, searchFilter, searchResultLimit, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}} aria-label={ariaLabel} aria-describedby={ariaDescribedBy} aria-invalid={ariaInvalid} />;
   if (searchable) {
     const selected = options.find((option) => option.value === value) || null;
     const inputPlaceholder = searchPlaceholder || (typeof placeholder === "string" ? placeholder : "搜索并选择");
@@ -105,15 +104,16 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
       filter={shouldFilter ? (option, query) => searchFilter ? searchFilter(option, query) : selectOptionMatches(option, query) : null}
       value={selected}
       onValueChange={(option) => {
+        if (disabled) return;
         if (!option && onClear) onClear();
         else onValueChange(option?.value ?? "");
       }}
       itemToStringLabel={selectOptionLabelText}
       itemToStringValue={(option) => option.value}
       isItemEqualToValue={(option, current) => option.value === current.value}
-      open={searchOpen}
+      open={searchOpen && !disabled}
       onOpenChange={(nextOpen) => {
-        setSearchOpen(nextOpen);
+        setSearchOpen(nextOpen && !disabled);
         if (!nextOpen) {
           setSearchText("");
           onSearchValueChange?.("");
@@ -147,7 +147,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
       <BaseCombobox.Portal>
         <BaseCombobox.Positioner className="erp-popover-layer erp-option-positioner max-w-[calc(100vw-2rem)] outline-none" sideOffset={4} align="start">
           <BaseCombobox.Popup className="erp-option-popup w-[var(--anchor-width)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-1 text-[var(--erp-color-text)] shadow-[var(--erp-shadow-popover)] outline-none">
-            {showQuickCreateAction && quickCreateAction ? <div className="mb-0.5 flex min-h-8 items-center justify-between gap-2 border-b border-[var(--erp-color-border)] px-2 py-1"><span className="text-xs font-medium text-[var(--erp-color-text-muted)]">快捷新建</span><Button type="button" size="xs" variant="ghost" disabled={quickCreateAction.disabled} onClick={() => {const query = searchText.trim(); setSearchOpen(false); setSearchText(""); onSearchValueChange?.(""); quickCreateAction.onClick(query);}}><Plus className="h-3.5 w-3.5" />{quickCreateAction.label}</Button></div> : null}
+            {showQuickCreateAction && quickCreateAction ? <div className="mb-0.5 flex min-h-8 items-center justify-between gap-2 border-b border-[var(--erp-color-border)] px-2 py-1"><span className="text-xs font-medium text-[var(--erp-color-text-muted)]">快捷新建</span><Button type="button" size="xs" variant="ghost" disabled={disabled || quickCreateAction.disabled} onClick={() => {const query = searchText.trim(); setSearchOpen(false); setSearchText(""); onSearchValueChange?.(""); quickCreateAction.onClick(query);}}><Plus className="h-3.5 w-3.5" />{quickCreateAction.label}</Button></div> : null}
             {searchLoading ? <div className="px-3 py-4 text-center text-xs text-[var(--erp-color-text-muted)]" role="status">正在搜索…</div> : null}
             {!searchLoading ? <BaseCombobox.Empty>
               <div className="px-3 py-5 text-center text-xs text-[var(--erp-color-text-muted)]">{emptyText}</div>
@@ -156,7 +156,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
               {(option: SelectOption) => <BaseCombobox.Item
                 key={option.value}
                 value={option}
-                disabled={option.disabled}
+                disabled={disabled || option.disabled}
                 className="flex h-12 cursor-default items-center gap-2 rounded-[var(--erp-radius-sm)] px-2.5 py-1 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-highlighted:bg-[var(--erp-color-surface-muted)] data-selected:text-[var(--erp-color-primary)]"
               >
                 <BaseCombobox.ItemIndicator className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--erp-color-primary)]">
@@ -176,7 +176,9 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
   return <BaseSelect.Root<string>
     items={options}
     value={value || null}
-    onValueChange={(nextValue) => onValueChange(nextValue ?? "")}
+    onValueChange={(nextValue) => {if (!disabled) onValueChange(nextValue ?? "");}}
+    open={selectOpen && !disabled}
+    onOpenChange={(nextOpen) => setSelectOpen(nextOpen && !disabled)}
     disabled={disabled}
     required={required}
     name={name}
@@ -202,7 +204,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
             {options.map((option) => <BaseSelect.Item
               key={option.value}
               value={option.value}
-              disabled={option.disabled}
+              disabled={disabled || option.disabled}
               label={typeof option.label === "string" ? option.label : undefined}
               className="flex cursor-default items-center gap-2 rounded-[var(--erp-radius-sm)] px-2.5 py-2 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-highlighted:bg-[var(--erp-color-surface-muted)] data-selected:text-[var(--erp-color-primary)]"
             >

@@ -1,5 +1,7 @@
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 import type {
   CustomerCard,
+  AftersalesRecord,
   FinanceLedger,
   PaymentInRecord,
   PaymentOutRecord,
@@ -23,12 +25,57 @@ import {isPersonalPurchaseSource} from "../src/utils/purchaseSources.ts";
 export {NON_OPERATING_EXPENSE_TYPES, NON_OPERATING_INCOME_TYPES} from "./financeAccountingBoundaries.ts";
 
 export type PaymentOperationsState = SettlementState & {
+  aftersales: AftersalesRecord[];
   returnOrders: ReturnOrder[];
   salesInvoices: SalesInvoice[];
   purchaseInvoices: PurchaseInvoice[];
   customers: CustomerCard[];
   vendors: Vendor[];
 };
+
+export type PaymentRemovalOptions = {
+  skipInvoiceUpdate?: boolean;
+  allowPostedReverse?: boolean;
+  preserveVoided?: boolean;
+  /** Domain-only capability: the owning return reverses its refund atomically. */
+  owningReturnId?: string;
+};
+
+export function assertPaymentRemovalDependencies(
+  state: PaymentOperationsState,
+  payment: PaymentInRecord | PaymentOutRecord,
+  direction: "in" | "out",
+  options?: PaymentRemovalOptions,
+) {
+  const activeReturns = state.returnOrders.filter((order) => order.status !== "已作废" && order.accountingStatus !== "作废");
+  const refundType = direction === "in" ? "进货退货" : "销售退货";
+  const refundOwners = activeReturns.filter((order) => order.type === refundType && (
+    order.paymentRecordId === payment.id || order.refundPaymentRecordIds?.includes(payment.id)
+    || (payment.relatedDocType === "退货单" && [order.id, order.returnNo].includes(payment.relatedDocNo || ""))
+  ));
+  const isReturnRefund = payment.relatedDocType === "退货单" || (direction === "in" && payment.businessType === "采购退款");
+  if (refundOwners.length || isReturnRefund) {
+    if (refundOwners.length !== 1 || !options?.owningReturnId || refundOwners[0]!.id !== options.owningReturnId) {
+      throw new ConflictError("退货退款流水不能单独删除或冲销，请通过关联退货单作废或冲销，保持库存和资金同步");
+    }
+  }
+  const sourceType = direction === "in" ? "销售退货" : "进货退货";
+  const invoice = direction === "in"
+    ? state.salesInvoices.find((item) => item.id === payment.relatedDocNo || item.invoiceNo === payment.relatedDocNo)
+    : state.purchaseInvoices.find((item) => item.id === payment.relatedDocNo || item.invoiceNo === payment.relatedDocNo);
+  const docNos = new Set([payment.relatedDocNo, invoice?.id, invoice?.invoiceNo].filter(Boolean));
+  if (activeReturns.some((order) => order.type === sourceType && (
+    order.refundAllocations?.some((allocation) => allocation.sourcePaymentRecordId === payment.id)
+    || (!(order.refundAllocations || []).length && docNos.has(order.relatedDocNo)
+      && (order.settlementMode === "原路退款" || Number(order.cashReleasedAmount || 0) > 0))
+  ))) {
+    throw new ConflictError("该收付款已被待处理或已完成退货退款引用，请先作废或冲销关联退货单，再调整原流水");
+  }
+  if (payment.relatedDocType === "售后单" || state.aftersales.some((claim) =>
+    claim.accountingStatus !== "作废" && (claim.repairPaymentOutId === payment.id || claim.refundPaymentOutId === payment.id))) {
+    throw new ConflictError("售后费用或退款流水不能单独冲销，请核对关联售后单并通过所属业务流程更正");
+  }
+}
 
 export type PaymentOperationsDependencies = {
   state: PaymentOperationsState;
@@ -105,6 +152,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     const effectiveCustomerPartnerType = payment.customerPartnerType || linkedSalesInvoice?.customerPartnerType || "customer";
     const baseRecord: PaymentInRecord = {
       ...payment,
+      businessType,
       accountingStatus: "已入账",
       accountingEventId,
       amount: paymentAmount,
@@ -153,6 +201,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
         const unpaidAmount = Math.max(0, invoice.totalAmount - paidAmount);
         return {
           ...invoice,
+          recordVersion: getRecordVersion(invoice) + 1,
           paidAmount,
           unpaidAmount,
           isPaid: unpaidAmount === 0,
@@ -184,7 +233,9 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
   const updatePaymentIn = (id: string, payment: Partial<PaymentInRecord>) => {
     const existing = state.paymentInRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`收款单不存在: ${id}`);
+    if (existing.accountingStatus === "作废") throw new ConflictError("收款单已作废，不能编辑");
     if (existing.relatedDocNo) throw new ConflictError("已绑定业务单据的收款单不能直接编辑，请在关联销售单或冲销流程中处理");
+    if (payment.relatedDocNo) throw new ConflictError("收款编辑不能补绑业务单据，请通过所属单据的收款流程处理");
     const nextAmount = Number(payment.amount ?? existing.amount);
     const nextBusinessType = payment.businessType ?? existing.businessType;
     if (!Number.isFinite(nextAmount) || nextAmount <= 0) throw new ValidationError("收款金额必须大于 0");
@@ -232,10 +283,11 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     return updated;
   };
 
-  const deletePaymentIn = (id: string, options?: {skipInvoiceUpdate?: boolean; allowPostedReverse?: boolean; preserveVoided?: boolean}) => {
+  const deletePaymentIn = (id: string, options?: PaymentRemovalOptions) => {
     const existing = state.paymentInRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`收款单不存在: ${id}`);
     if (existing.accountingStatus === "作废") throw new ConflictError("收款单已作废，不能重复处理");
+    assertPaymentRemovalDependencies(state, existing, "in", options);
     if (!options?.skipInvoiceUpdate && existing.relatedDocNo && !options?.allowPostedReverse) throw new ConflictError("已绑定业务单据的收款单不能直接删除，请先处理关联销售单或使用冲销流程");
     const settlementLedgerId = findPaymentInSettlementLedgerId(existing);
     const financeLedgerId = findPaymentInFinanceLedgerId(existing);
@@ -254,7 +306,7 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
         const paidAmount = Math.max(0, invoice.paidAmount - existing.amount);
         const unpaidAmount = Math.max(0, invoice.totalAmount - paidAmount);
         restoredDebt = unpaidAmount - invoice.unpaidAmount;
-        return {...invoice, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已收款" : paidAmount > 0 ? "部分收款" : "未收款"};
+        return {...invoice, recordVersion: getRecordVersion(invoice) + 1, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已收款" : paidAmount > 0 ? "部分收款" : "未收款"};
       });
       if (restoredDebt > 0 && existing.customerName) {
         if (existing.customerPartnerType === "vendor") {
@@ -339,9 +391,10 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       state.purchaseInvoices = state.purchaseInvoices.map((invoice) => {
         if (invoice.invoiceNo !== payment.relatedDocNo && invoice.id !== payment.relatedDocNo) return invoice;
         invoiceUnpaidBeforePayment = invoice.unpaidAmount;
-        const paidAmount = Math.min(invoice.totalCost, invoice.paidAmount + paymentAmount);
-        const unpaidAmount = Math.max(0, invoice.totalCost - paidAmount);
-        return {...invoice, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 ? "部分付款" : "未付款", settlementAccountId: account.id, settlementAccountName: account.name, paymentHandler: payment.handler};
+        const credit = Math.max(0, Number(invoice.vendorCreditAppliedAmount || 0));
+        const paidAmount = Math.min(Math.max(0, invoice.totalCost - credit), invoice.paidAmount + paymentAmount);
+        const unpaidAmount = Math.max(0, invoice.totalCost - paidAmount - credit);
+        return {...invoice, recordVersion: getRecordVersion(invoice) + 1, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 || credit > 0 ? "部分付款" : "未付款", settlementAccountId: account.id, settlementAccountName: account.name, paymentHandler: payment.handler};
       });
       const payableReduction = Math.min(invoiceUnpaidBeforePayment, paymentAmount);
       if (payment.supplierName || effectiveSupplierId) {
@@ -366,7 +419,9 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
   const updatePaymentOut = (id: string, payment: Partial<PaymentOutRecord>) => {
     const existing = state.paymentOutRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`付款单不存在: ${id}`);
+    if (existing.accountingStatus === "作废") throw new ConflictError("付款单已作废，不能编辑");
     if (existing.relatedDocNo) throw new ConflictError("已绑定业务单据的付款单不能直接编辑，请在关联进货/入库单或冲销流程中处理");
+    if (payment.relatedDocNo) throw new ConflictError("付款编辑不能补绑业务单据，请通过所属单据的付款流程处理");
     const nextAmount = Number(payment.amount ?? existing.amount);
     const nextBusinessType = payment.businessType ?? existing.businessType;
     if (!Number.isFinite(nextAmount) || nextAmount <= 0) throw new ValidationError("付款金额必须大于 0");
@@ -406,10 +461,11 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
     return updated;
   };
 
-  const deletePaymentOut = (id: string, options?: {skipInvoiceUpdate?: boolean; allowPostedReverse?: boolean; preserveVoided?: boolean}) => {
+  const deletePaymentOut = (id: string, options?: PaymentRemovalOptions) => {
     const existing = state.paymentOutRecords.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`付款单不存在: ${id}`);
     if (existing.accountingStatus === "作废") throw new ConflictError("付款单已作废，不能重复处理");
+    assertPaymentRemovalDependencies(state, existing, "out", options);
     if (!options?.skipInvoiceUpdate && existing.relatedDocNo && !options?.allowPostedReverse) throw new ConflictError("已绑定业务单据的付款单不能直接删除，请先处理关联进货/入库单或使用冲销流程");
     const settlementLedgerId = findPaymentOutSettlementLedgerId(existing);
     const financeLedgerId = findPaymentOutFinanceLedgerId(existing);
@@ -426,9 +482,10 @@ export function createPaymentOperationHelpers(dependencies: PaymentOperationsDep
       state.purchaseInvoices = state.purchaseInvoices.map((invoice) => {
         if (invoice.invoiceNo !== existing.relatedDocNo && invoice.id !== existing.relatedDocNo) return invoice;
         const paidAmount = Math.max(0, invoice.paidAmount - existing.amount);
-        const unpaidAmount = Math.max(0, invoice.totalCost - paidAmount);
+        const credit = Math.max(0, Number(invoice.vendorCreditAppliedAmount || 0));
+        const unpaidAmount = Math.max(0, invoice.totalCost - paidAmount - credit);
         restoredPayable = unpaidAmount - invoice.unpaidAmount;
-        return {...invoice, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 ? "部分付款" : "未付款"};
+        return {...invoice, recordVersion: getRecordVersion(invoice) + 1, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 || credit > 0 ? "部分付款" : "未付款"};
       });
       if (existing.supplierName || existing.supplierId) {
         state.vendors = state.vendors.map((vendor) =>

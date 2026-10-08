@@ -128,7 +128,7 @@ test("acceptance: preview edits revalidate the row before it can be added", asyn
   const row = result.parsedRows[0]!;
   const invalid = updatePurchasePasteRow(row, "quantity", 0, pasteOptions());
   assert.equal(invalid.status, "invalid");
-  assert.ok(invalid.errors.some((message) => message.includes("数量必须是正整数")));
+  assert.ok(invalid.errors.includes("采购商品数量必须为正整数"));
   const corrected = updatePurchasePasteRow(invalid, "quantity", 5, pasteOptions());
   assert.equal(corrected.status, "valid");
   assert.equal(corrected.line.quantity, 5);

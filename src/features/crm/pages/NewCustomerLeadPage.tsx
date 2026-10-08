@@ -20,7 +20,7 @@ export function NewCustomerLeadPage() {
   if (status === "error") return <ErpPageError title="无法读取登录状态" description={error?.message || "请重新登录后继续。"} onRetry={() => void refresh()} />;
   if (!session) return <LeadState title="登录状态为空" icon={<LogIn className="h-5 w-5" />} />;
   if (!canAccess) return <LeadState title="当前账号没有 CRM 权限" description="服务器已拒绝 crm 菜单访问（403）。" icon={<UserPlus className="h-5 w-5" />} />;
-  return <LeadForm onSuccess={() => refreshErpAfterDocument(queryClient)} />;
+  return <LeadForm onSuccess={() => refreshErpAfterDocument(queryClient, ["state","crm","customers"])} />;
 }
 
 function LeadForm({onSuccess}: {onSuccess: () => void | Promise<void>}) {

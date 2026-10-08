@@ -1,4 +1,5 @@
 import {keepPreviousData, useQuery} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {ArrowDownLeft, ArrowUpRight, Filter, RefreshCw} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -49,10 +50,11 @@ function serializeCustomerFundsUrl(value: CustomerFundsUrlState) {
 }
 
 export function FinanceCustomerFundsPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const canRead = createCapabilities(session).menu("customer_funds") || allowed(session);
   const {value, commit} = useUrlSearchState<CustomerFundsUrlState>({defaultValue: {dateFilters: initialFilters(), keyword: "", balance: "all"}, parse: parseCustomerFundsUrl, serialize: serializeCustomerFundsUrl});
-  const query = useQuery({queryKey: queryKeys.finance.customerFunds(value.dateFilters), queryFn: ({signal}) => customerFundsApi.snapshot(value.dateFilters, signal), enabled: canRead, placeholderData: keepPreviousData, retry: false});
+  const query = useQuery({queryKey: queryKeys.finance.customerFunds(value.dateFilters), queryFn: ({signal}) => customerFundsApi.snapshot(value.dateFilters, signal), enabled: active && canRead, placeholderData: keepPreviousData, retry: false});
   useEffect(() => {if (query.error instanceof ApiError && query.error.isUnauthorized) logout();}, [logout, query.error]);
   if (status === "loading") return <Card><p className="p-5 text-sm">正在验证客户资金权限…</p></Card>;
   if (status === "error") return <ErpPageError title="无法读取登录状态" description={authError?.message || "请重新登录后继续。"} onRetry={() => void refresh()} />;

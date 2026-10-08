@@ -3,6 +3,7 @@ import {adaptSalesCustomers, adaptSalesInventoryCandidates, adaptSalesInvoice, a
 import type {SalesCreateResponseDto, SalesCustomerListResponseDto, SalesInventoryListResponseDto, SalesListStateResponseDto, SalesOutboundPreflightResponseDto, SalesOutboundResponseDto, SalesProductCandidatesResponseDto, SalesSettlementAccountsResponseDto} from "../dto/sales.dto";
 import type {SalesFormValues, SalesCustomerOption, SalesInventoryCandidate, SalesInvoiceResult, SalesListDataset, SalesListFilters, SalesListItem, SalesMutationResult, SalesOutboundDataset, SalesOutboundFilters, SalesOutboundPreflightResult, SalesOutboundRequest, SalesOutboundResult, SalesProductCandidate, SalesSettlementAccountOption} from "@/src/types/sales";
 import {ApiError} from "../errors";
+import {resolveSubmissionKey, type SubmissionKey} from "../submissionIdentity";
 import type {SalesApiPermissions} from "../adapters/sales.adapter";
 
 export function toSalesCustomerQueryParams(keyword: string, page = 1, pageSize = 20) {
@@ -43,21 +44,6 @@ export const salesApi = {
     const item = await this.findByReference(id, permissions, signal);
     if (!item) throw new ApiError(404, "销售单不存在，或当前账号无权查看该单据");
     return item;
-  },
-
-  async listAllForReport(permissions: SalesApiPermissions, signal?: AbortSignal): Promise<SalesListDataset> {
-    const base: SalesListFilters = {keyword: "", channel: "", paymentStatus: "", outboundStatus: "", dateStart: "", dateEnd: "", page: 1, pageSize: 200, sortKey: "date", sortDirection: "desc"};
-    const first = await this.list(base, permissions, signal);
-    const totalPages = first.selection?.meta.totalPages || 1;
-    if (totalPages <= 1) return first;
-    const items = [...first.items];
-    // This is an explicit whole-period finance report, not an interactive list. Walk the
-    // database pages sequentially so a long history cannot create an unbounded request burst.
-    for (let page = 2; page <= totalPages; page += 1) {
-      const next = await this.list({...base, page}, permissions, signal);
-      items.push(...next.items);
-    }
-    return {items, source: "database-page"};
   },
 
   async outbound(filters: SalesOutboundFilters, signal?: AbortSignal): Promise<SalesOutboundDataset> {
@@ -103,14 +89,15 @@ export const salesApi = {
     return adaptSalesSettlementAccounts(response);
   },
 
-  async create(values: SalesFormValues, account?: SalesSettlementAccountOption, signal?: AbortSignal, idempotencyKey?: string): Promise<SalesInvoiceResult> {
+  async create(values: SalesFormValues, account?: SalesSettlementAccountOption, signal?: AbortSignal, identity?: SubmissionKey): Promise<SalesInvoiceResult> {
     const request = toCreateSalesRequest(values, account);
+    const idempotencyKey = resolveSubmissionKey(identity, request);
     const response = await apiRequest<SalesCreateResponseDto>("/api/sales-invoices", {method: "POST", body: JSON.stringify(request), signal, headers: idempotencyKey ? {"Idempotency-Key": idempotencyKey} : undefined});
     return adaptSalesInvoice(response.data);
   },
 
-  async update(id: string, values: SalesFormValues, account: SalesSettlementAccountOption | undefined, mode: "full" | "metadata", permissions: SalesApiPermissions, signal?: AbortSignal): Promise<SalesMutationResult> {
-    const request = toSalesUpdateRequestDto(values, account, mode);
+  async update(id: string, values: SalesFormValues, account: SalesSettlementAccountOption | undefined, expectedRecordVersion: number, mode: "full" | "metadata", permissions: SalesApiPermissions, signal?: AbortSignal): Promise<SalesMutationResult> {
+    const request = toSalesUpdateRequestDto(values, account, expectedRecordVersion, mode);
     const response = await apiRequest<SalesCreateResponseDto>(`/api/sales-invoices/${encodeURIComponent(id)}`, {method: "PUT", body: JSON.stringify(request), signal});
     return adaptSalesMutationResponse(response, permissions);
   },

@@ -9,6 +9,7 @@ import {storeDate} from "@/src/utils/storeTime";
 import {financeExpenseSchema} from "../finance-expense.schema";
 import {useFinanceExpenseMediaUpload} from "../hooks/useFinanceExpenseMediaUpload";
 import {FinanceEntryDialogShell, FinanceEntryField, useFinanceEntryPreview} from "./FinanceEntryDialogShell";
+import {useValidatedFormSubmit} from "@/src/components/common/useValidatedFormSubmit";
 
 const defaults = (): FinanceExpenseFormValues => ({party: "", accountId: "", amount: 0, paymentMethod: "微信", businessType: "其他支出", referenceNo: "", date: storeDate(), remarks: "", images: []});
 
@@ -25,10 +26,11 @@ type FinanceExpenseDialogProps = {
 export function FinanceExpenseDialog({open, item, accounts, pending, error, onOpenChange, onSubmit}: FinanceExpenseDialogProps) {
   const {preview, setPreview} = useFinanceEntryPreview();
   const form = useForm<FinanceExpenseFormValues>({defaultValues: defaults(), resolver: zodResolver(financeExpenseSchema), mode: "onBlur"});
-  const media = useFinanceExpenseMediaUpload((urls) => form.setValue("images", urls, {shouldDirty: true, shouldValidate: true}));
+  const media = useFinanceExpenseMediaUpload((urls) => form.setValue("images", urls, {shouldDirty: true, shouldValidate: true}), 6, open, pending);
+  const submission = useValidatedFormSubmit({form, enabled: open, scope: media.draftId, getScope: media.getDraftId, canSubmit: () => !pending && !media.isBlocking(), onSubmit});
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {media.reset([]); setPreview(undefined); return;}
     const values: FinanceExpenseFormValues = item
       ? {
         party: item.party,
@@ -46,7 +48,7 @@ export function FinanceExpenseDialog({open, item, accounts, pending, error, onOp
       : defaults();
     form.reset(values);
     media.reset(values.images);
-  }, [form, item, media.reset, open]);
+  }, [form, item, media.reset, open, setPreview]);
 
   return (
     <FinanceEntryDialogShell
@@ -54,13 +56,13 @@ export function FinanceExpenseDialog({open, item, accounts, pending, error, onOp
       pending={pending}
       title={item ? "编辑非经营支出" : "新增非经营支出"}
       description="只登记非采购、非退款流程自动生成的临时支出；保存后由后端同步账户和财务流水。"
-      submitLabel={media.blocking ? "请处理图片状态" : pending ? "保存中…" : item ? "保存修改" : "登记支出"}
-      submitDisabled={media.blocking}
-      error={error}
+      submitLabel={pending ? "保存中…" : submission.validating ? "校验中…" : media.blocking ? "请处理图片状态" : item ? "保存修改" : "登记支出"}
+      submitDisabled={media.blocking || submission.validating}
+      error={submission.feedback || error}
       preview={preview}
       previewAlt="支出凭证预览"
       onOpenChange={onOpenChange}
-      onSubmit={(event) => { void form.handleSubmit(onSubmit)(event); }}
+      onSubmit={submission.onSubmit}
       onPreviewChange={setPreview}
     >
       <FinanceEntryField label="支出对象" error={form.formState.errors.party?.message}>

@@ -1,5 +1,5 @@
 import {ApiError, normalizeApiError} from "./errors";
-import {reportClientError, reportClientRequest} from "../observability/clientTelemetry";
+import {reportClientError, reportClientRequest, setTelemetrySession} from "../observability/clientTelemetry";
 
 export {ApiError};
 
@@ -10,10 +10,12 @@ if (typeof window !== "undefined") window.localStorage.removeItem(LEGACY_ACCESS_
 
 export function setCsrfToken(value: unknown) {
   csrfToken = typeof value === "string" ? value : "";
+  setTelemetrySession(csrfToken);
 }
 
 export function clearBrowserAuthState() {
   csrfToken = "";
+  setTelemetrySession("");
   // One-time cleanup for sessions created before the HttpOnly-cookie migration.
   if (typeof window !== "undefined") window.localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
 }

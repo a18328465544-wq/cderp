@@ -14,6 +14,7 @@ import {buildProductTemplateName} from "@/src/lib/productName";
 import {productCategoryValues, productTemplateSchema} from "./productTemplateSchema";
 import {getProductTemplateFields, type ProductTemplateFieldKey} from "./productTemplateFieldConfig";
 import {useProductMediaUpload} from "./useProductMediaUpload";
+import {useValidatedFormSubmit} from "./useValidatedFormSubmit";
 
 const emptyValues: ProductTemplateFormValues = {category: "显卡", brand: "", model: "", version: "", vram: "", refBuyPrice: 0, refSellPrice: 0, remarks: "", imageUrls: []};
 const textFieldKeys: readonly ProductTemplateFieldKey[] = ["brand", "model", "version", "vram"];
@@ -43,9 +44,10 @@ export interface ErpProductTemplateDialogProps {
  */
 export function ErpProductTemplateDialog({open, product, initialValues, showCost, showProfit, pending, error, onOpenChange, onSubmit}: ErpProductTemplateDialogProps) {
   const form = useForm<ProductTemplateFormValues>({defaultValues: emptyValues, resolver: zodResolver(productTemplateSchema), mode: "onBlur"});
-  const {control, register, reset, handleSubmit, setValue, watch, formState} = form;
+  const {control, register, reset, setValue, watch, formState} = form;
   const setImageUrls = (urls: string[]) => setValue("imageUrls", urls, {shouldDirty: true, shouldValidate: true});
-  const media = useProductMediaUpload(setImageUrls);
+  const media = useProductMediaUpload(setImageUrls, 6, open, pending);
+  const submission = useValidatedFormSubmit({form, enabled: open, scope: media.draftId, getScope: media.getDraftId, canSubmit: () => !pending && !media.isBlocking(), onSubmit});
   const [previewUrl, setPreviewUrl] = useState<string>();
   const values = watch();
   const fieldDefinitions = useMemo(() => getProductTemplateFields(values.category), [values.category]);
@@ -57,7 +59,7 @@ export function ErpProductTemplateDialog({open, product, initialValues, showCost
   }, [values.brand, values.model, values.version, values.vram]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {media.reset([]); setPreviewUrl(undefined); return;}
     const next = valuesFromProduct(product, initialValues);
     reset(next);
     media.reset(next.imageUrls);
@@ -82,9 +84,9 @@ export function ErpProductTemplateDialog({open, product, initialValues, showCost
       size="xl"
       title={<span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--erp-color-primary)]" />{product ? "编辑商品规格模板" : "新建商品规格模板"}</span>}
       description="用于采购、销售、检测和库存共用；标准名称由核心字段自动生成。"
-      footer={<><Button type="button" variant="secondary" onClick={() => onOpenChange(false)} disabled={pending}>取消</Button><Button form={formId} type="submit" variant="primary" disabled={pending || media.blocking}>{pending ? "保存中…" : media.blocking ? "等待图片处理" : product ? "保存修改" : "保存模板"}</Button></>}
+      footer={<><Button type="button" variant="secondary" onClick={() => onOpenChange(false)} disabled={pending}>取消</Button><Button form={formId} type="submit" variant="primary" disabled={pending || media.blocking || submission.validating}>{pending ? "保存中…" : submission.validating ? "校验中…" : media.blocking ? "等待图片处理" : product ? "保存修改" : "保存模板"}</Button></>}
     >
-      <form id={formId} onSubmit={(event) => {void handleSubmit(onSubmit)(event);}} className="space-y-4">
+      <form id={formId} onSubmit={submission.onSubmit} className="space-y-4">
         <section className="rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)]/45 p-3 sm:p-4" aria-labelledby="product-category-title">
           <div className="mb-2 flex items-center justify-between gap-3"><h2 id="product-category-title" className="text-sm font-semibold text-[var(--erp-color-text)]">商品分类</h2><span className="text-xs text-[var(--erp-color-text-muted)]">当前：{values.category}</span></div>
           <Controller control={control} name="category" render={({field}) => <div className="flex flex-wrap gap-2">{productCategoryValues.map((category) => <Button key={category} type="button" size="sm" variant={field.value === category ? "primary" : "secondary"} className={field.value === category ? "shadow-sm" : "bg-[var(--erp-color-surface)]"} onClick={() => handleCategoryChange(category, field.onChange)} disabled={pending} aria-pressed={field.value === category}>{category}</Button>)}</div>} />
@@ -111,7 +113,7 @@ export function ErpProductTemplateDialog({open, product, initialValues, showCost
           <div className="mb-3"><h2 id="product-images-title" className="text-sm font-semibold text-[var(--erp-color-text)]">商品图片</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">可选，最多 6 张；支持 JPG、PNG、WEBP。</p></div>
           <ErpUploader items={media.items} maxCount={6} accept={media.accept} disabled={pending} showHeading={false} compact description="外观、包装和规格图片" uploadedDescription="图片已上传，等待随商品模板保存" footerDescription={`已选择 ${media.items.length} / 6 张；图片会在上传前压缩到约 100KB。`} error={media.error} onFilesSelected={media.addFiles} onRetry={media.retry} onRemove={media.remove} onPreview={(item) => setPreviewUrl(item.previewUrl)} />
         </section>
-        {error && <p role="alert" className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-danger-soft)] px-3 py-2 text-xs text-[var(--erp-color-danger)]">{error}</p>}
+        {(submission.feedback || error) && <p role="alert" className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-danger-soft)] px-3 py-2 text-xs text-[var(--erp-color-danger)]">{submission.feedback || error}</p>}
       </form>
     </ErpDialogShell>
     <ErpImagePreviewDialog open={Boolean(previewUrl)} src={previewUrl} alt="商品图片预览" title="商品图片预览" onOpenChange={(next) => {if (!next) setPreviewUrl(undefined);}} />

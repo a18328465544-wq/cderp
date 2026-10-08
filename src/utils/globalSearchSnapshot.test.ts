@@ -23,3 +23,18 @@ test("snapshot search respects menu permissions", () => {
   }, "4090", ["inventory"]);
   assert.deepEqual(results, []);
 });
+
+test("snapshot fallback does not turn supplier metadata or a different GPU variant into an inventory hit", () => {
+  const snapshot = {
+    products: [], inspections: [], purchaseInvoices: [], salesInvoices: [], purchaseCommissions: [], marketQuotes: [], aftersales: [],
+    customers: [], vendors: [], crmFollowUps: [], crmRequirements: [], crmQuotes: [], financeLedger: [], settlementAccounts: [], settlementLedger: [],
+    paymentInRecords: [], paymentOutRecords: [], accountTransfers: [], assemblyOperations: [], returnOrders: [], returnReservations: [], systemUsers: [], logs: [], currentRole: "店员",
+    inventory: [
+      {id: "KC-1", productId: "P-5090", productName: "微星 RTX5090 魔龙", model: "RTX5090", supplierName: "4090 供货商", remarks: "曾询价 4090", sn: "SN-5090"},
+      {id: "KC-2", productId: "P-4090D", productName: "微星 RTX4090D 魔龙", model: "RTX4090D", sn: "SN-4090D"},
+      {id: "KC-3", productId: "P-4090", productName: "微星 RTX4090 魔龙", model: "RTX4090", sn: "SN-4090"},
+    ],
+  } as Parameters<typeof searchGlobalSnapshot>[0];
+  assert.deepEqual(searchGlobalSnapshot(snapshot, "4090", ["inventory"]).map((item) => item.id), ["KC-3"]);
+  assert.deepEqual(searchGlobalSnapshot(snapshot, "SN-5090", ["inventory"]).map((item) => item.id), ["KC-1"]);
+});

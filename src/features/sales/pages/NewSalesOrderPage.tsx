@@ -1,6 +1,9 @@
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {usePhoneBackAction} from "@/src/hooks/usePhoneBack";
 import {ArrowLeft, RefreshCw} from "lucide-react";
-import {useEffect, useMemo, useRef, useState, type FormEvent} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useFieldArray, useForm, useWatch, type FieldPath} from "react-hook-form";
 import {zodResolver} from "@hookform/resolvers/zod";
 import {notify} from "@/src/utils/notification";
@@ -21,6 +24,14 @@ import {SalesAmountSummary} from "@/src/features/sales/components/SalesAmountSum
 import {SalesLineItemsTable} from "@/src/features/sales/components/SalesLineItemsTable";
 import {SalesPaymentSection} from "@/src/features/sales/components/SalesPaymentSection";
 import {salesFieldErrors, salesFormValidationMessage, salesSubmitErrorMessage} from "@/src/features/sales/sales.errors";
+import {useValidatedFormSubmit} from "@/src/components/common/useValidatedFormSubmit";
+import {createSubmissionIdentity} from "@/src/services/api/submissionIdentity";
+import {useWorkspaceTabDirty} from "@/src/hooks/useWorkspaceTabRuntime";
+import {ErpMobileWorkflow, ErpMobileWorkflowSection} from "@/src/components/common";
+import {hasWorkflowErrors, workflowBlockedReason} from "@/src/components/common/mobileWorkflowValidation";
+import type {PaymentEntryFeedback} from "@/src/lib/paymentEntry";
+import {ErpMobileWorkflowEditButton} from "@/src/components/common/ErpMobileWorkflow";
+import {formatCurrency} from "@/src/lib/format";
 
 const permissionDefaults = {showCost: false, showProfit: false, canDelete: false, canEditHistory: false, allowedMenus: [] as string[]};
 const salesChannels: SalesChannel[] = ["到店", "闲鱼", "抖音", "小红书", "B站", "微信私域", "同行网店"];
@@ -54,6 +65,9 @@ export function NewSalesOrderPage() {
 }
 
 function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthExpired: () => void}) {
+  const {active} = useWorkspaceTabActivity();
+  const phone = useErpPhone();
+  const [settlementEntry, setSettlementEntry] = useState<PaymentEntryFeedback>({ready: true});
   const queryClient = useQueryClient();
   const operatorName = session.user.displayName.trim() || session.user.username;
   const permissions = session.permissions || permissionDefaults;
@@ -70,11 +84,13 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
   const {draft: restoredDraft, saveDraft, discardDraft} = useWorkspaceTabDraft<SalesOrderDraft>("sales_add");
   const [restoredDraftActive, setRestoredDraftActive] = useState(Boolean(restoredDraft));
   const form = useForm<SalesFormValues>({defaultValues: restoredDraft?.values || defaultValues, mode: "onBlur", resolver: zodResolver(salesOrderSchema)});
-  const {control, register, handleSubmit, setValue, setError, clearErrors, reset, getValues, formState} = form;
+  const {control, register, setValue, setError, clearErrors, reset, getValues, formState} = form;
   const {fields, append, remove} = useFieldArray({control, name: "items"});
   const watchedValues = useWatch({control});
   const values = watchedValues as SalesFormValues;
-  const canSubmit = useMemo(() => salesOrderSchema.safeParse(values).success, [values]);
+  const validation = useMemo(() => salesOrderSchema.safeParse(values), [values]);
+  const canSubmit = validation.success && settlementEntry.ready;
+  const issues = validation.success ? [] : validation.error.issues;
   const amounts = useMemo(() => calculateSalesAmounts({items: values.items || [], paidAmount: values.paidAmount || 0}, showCost && permissions.showProfit), [permissions.showProfit, showCost, values.items, values.paidAmount]);
   const [selectedCustomer, setSelectedCustomer] = useState<SalesCustomerOption | null>(() => restoredDraft?.selectedCustomer || null);
   const [recentCustomerIds, setRecentCustomerIds] = useState<string[]>([]);
@@ -86,15 +102,16 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
   const debouncedCustomerKeyword = useDebouncedValue(customerKeyword);
   const activeInventoryKeyword = activeInventoryFieldId ? inventoryKeywords[activeInventoryFieldId] || "" : "";
   const debouncedInventoryKeyword = useDebouncedValue(activeInventoryKeyword);
-  const customerQuery = useQuery({queryKey: queryKeys.sales.customers(debouncedCustomerKeyword), queryFn: ({signal}) => salesApi.searchCustomers(debouncedCustomerKeyword, signal), enabled: Boolean(session) && canReadCustomers && !selectedCustomer, retry: false, staleTime: 30_000});
-  const inventoryQuery = useQuery({queryKey: queryKeys.sales.productCandidates(debouncedInventoryKeyword), queryFn: ({signal}) => salesApi.searchProductCandidates(debouncedInventoryKeyword, {showCost, showProfit: permissions.showProfit}, signal), enabled: Boolean(session) && canReadInventory && Boolean(activeInventoryFieldId), retry: false, staleTime: 15_000});
-  const accountQuery = useQuery({queryKey: queryKeys.sales.settlementAccounts(), queryFn: ({signal}) => salesApi.settlementAccounts(signal), enabled: Boolean(session) && canReadSettlementAccounts, retry: false, staleTime: 30_000});
+  const customerQuery = useQuery({queryKey: queryKeys.sales.customers(debouncedCustomerKeyword), queryFn: ({signal}) => salesApi.searchCustomers(debouncedCustomerKeyword, signal), enabled: active && (Boolean(session) && canReadCustomers), retry: false, staleTime: 30_000});
+  const inventoryQuery = useQuery({queryKey: queryKeys.sales.productCandidates(debouncedInventoryKeyword), queryFn: ({signal}) => salesApi.searchProductCandidates(debouncedInventoryKeyword, {showCost, showProfit: permissions.showProfit}, signal), enabled: active && (Boolean(session) && canReadInventory && Boolean(activeInventoryFieldId)), retry: false, staleTime: 15_000});
+  const accountQuery = useQuery({queryKey: queryKeys.sales.settlementAccounts(), queryFn: ({signal}) => salesApi.settlementAccounts(signal), enabled: active && (Boolean(session) && canReadSettlementAccounts), retry: false, staleTime: 30_000});
   const [serverError, setServerError] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const submitLock = useRef(false);
-  const createIdempotencyKeyRef = useRef(createIdempotencyKey("sales-create"));
+  const editorScope = useRef(createIdempotencyKey("sales-editor"));
+  const submissionIdentity = useRef(createSubmissionIdentity("sales-create"));
   const isDirty = formState.isDirty || restoredDraftActive;
+  useWorkspaceTabDirty("sales_add", isDirty);
   // 录单页使用实时工作区草稿，离开或切换时不拦截；回到标签页即可继续录入。
   useEffect(() => {
     const persist = () => {
@@ -110,7 +127,7 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
   }, [discardDraft, fields, form, formState.isDirty, restoredDraftActive, saveDraft, selectedCandidates, selectedCustomer]);
   const createMutation = useMutation({mutationFn: (payload: {values: SalesFormValues}) => {
     const account = accountQuery.data?.find((item) => item.id === payload.values.settlementAccountId);
-    return salesApi.create(payload.values, account, undefined, createIdempotencyKeyRef.current);
+    return salesApi.create(payload.values, account, undefined, submissionIdentity.current);
   }});
   const customerCreateMutation = useMutation({mutationFn: (values: PartnerQuickCreateValues) => partnersApi.createCustomer({name: values.name, contact: values.contact, channel: values.channel, remarks: values.remarks})});
 
@@ -199,20 +216,19 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
   };
 
   const submit = async (submitted: SalesFormValues) => {
-    if (submitLock.current) return;
-    submitLock.current = true;
+    if (!settlementEntry.ready) {setServerError(settlementEntry.reason || "请填写本次收款金额"); return;}
     setServerError(null);
     setConflictError(false);
     setSuccessMessage(null);
     const parsed = salesOrderSchema.safeParse(submitted);
     if (!parsed.success) {
       setServerError(parsed.error.issues[0]?.message || "请先完善销售单信息");
-      submitLock.current = false;
       return;
     }
     try {
       const result = await createMutation.mutateAsync({values: submitted});
-      createIdempotencyKeyRef.current = createIdempotencyKey("sales-create");
+      submissionIdentity.current.reset();
+      editorScope.current = createIdempotencyKey("sales-editor");
       setSuccessMessage(`销售单 ${result.invoiceNo || "已创建"} 已提交，当前状态：${result.outboundStatus || "待出库"}`);
       notify.success("销售单已提交，等待出库绑定 SN");
       discardDraft();
@@ -223,7 +239,7 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
       setCustomerKeyword("");
       setInventoryKeywords({});
       setActiveInventoryFieldId(null);
-      await refreshErpAfterDocument(queryClient);
+      await refreshErpAfterDocument(queryClient, ["state","sales","inventory","finance","customers","ai"]);
     } catch (caught) {
       const error = caught instanceof ApiError ? caught : undefined;
       setServerError(salesSubmitErrorMessage(caught));
@@ -232,8 +248,6 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
         setError(path as FieldPath<SalesFormValues>, {type: "server", message});
       }
       if (error?.isUnauthorized) onAuthExpired();
-    } finally {
-      submitLock.current = false;
     }
   };
   const handleInvalid = (errors: unknown) => {
@@ -242,7 +256,13 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
     setConflictError(false);
     notify.error(message);
   };
-  const leave = () => { window.history.back(); };
+  const submission = useValidatedFormSubmit({
+    form, enabled: active, scope: editorScope.current, getScope: () => editorScope.current,
+    canSubmit: () => !createMutation.isPending && settlementEntry.ready, onSubmit: submit, onInvalid: handleInvalid,
+  });
+  const submitError = submission.feedback || serverError;
+  const phoneBack = usePhoneBackAction("/sales");
+  const leave = () => {if (phone) phoneBack(); else window.history.back();};
   const customerError = !canReadCustomers ? "当前账号没有客户搜索权限" : customerQuery.error ? (customerQuery.error instanceof ApiError && customerQuery.error.isForbidden ? "当前账号没有客户搜索权限" : errorText(customerQuery.error)) : undefined;
   const customerOptions = useMemo(() => {
     const recentRank = new Map(recentCustomerIds.map((id, index) => [id, index]));
@@ -256,25 +276,43 @@ function SalesOrderForm({session, onAuthExpired}: {session: AuthSession; onAuthE
     void queryClient.invalidateQueries({queryKey: queryKeys.sales.productCandidates(debouncedInventoryKeyword)}).then(() => inventoryQuery.refetch());
   };
 
-  return <ErpTransactionPageFrame>
-    <Card className="border-[var(--erp-color-border-strong)]"><CardContent className="p-3"><ErpPageHeader density="default" title="销售开单" subtitle="选择客户、收款账户和销售型号，提交后由仓库出库扫码绑定 SN。" actions={<Button type="button" variant="secondary" onClick={leave}><ArrowLeft className="h-4 w-4" />返回销售管理</Button>} /></CardContent></Card>
+  const salesExtraFields = <>{phone && <ErpFormSection title="交付与质保"><div className="space-y-3"><label className="block text-sm font-semibold md:col-span-3">物流快递单号<Input {...register("expressNo")} className="mt-2 erp-data-number" disabled={values.freeShipping} placeholder={values.freeShipping ? "无需物流" : "如：SF148..."} /></label><label className="block text-sm font-semibold md:col-span-12">整单质保协议<Input {...register("aftersalesTerms")} className="mt-2" placeholder="例如：店保三个月、保到手好" /></label></div></ErpFormSection>}
+          <ErpFormSection title="销售备注" description="记录交付、售后和客户特殊要求。"><Textarea {...register("remarks")} className="min-h-24" placeholder="销售单备注、交付说明或客户特殊要求" /></ErpFormSection></>;
+  const backAction = <Button type="button" variant={phone ? "ghost" : "secondary"} size={phone ? "iconTouch" : "md"} aria-label="返回销售管理" disabled={createMutation.isPending} onClick={leave}><ArrowLeft className="h-4 w-4" />{!phone && "返回销售管理"}</Button>;
+  return <ErpTransactionPageFrame className="erp-order-entry-page">
+    <Card className="border-[var(--erp-color-border-strong)]"><CardContent className="p-3"><ErpPageHeader density="default" title="销售开单" subtitle="选择客户、收款账户和销售型号，提交后由仓库出库扫码绑定 SN。" leading={phone ? backAction : undefined} actions={phone ? <span className="erp-order-draft-label">草稿 · 切页保留</span> : backAction} /></CardContent></Card>
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     {successMessage && <Card role="status" className="border-[var(--erp-color-border-strong)] bg-[var(--erp-color-success-soft)]"><CardContent className="flex items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-[var(--erp-color-success)]">{successMessage}</p><p className="mt-1 text-xs text-[var(--erp-color-success)]">库存未在开单阶段改为已售出，出库时再完成物理卡绑定。</p></div><ErpStatusBadge label="已提交" tone="success" /></CardContent></Card>}
-    {serverError && <Card role="alert" className="border-[var(--erp-color-border-strong)] bg-[var(--erp-color-danger-soft)]"><CardContent className="flex items-start justify-between gap-3 p-4"><div className="min-w-0"><p className="text-sm text-[var(--erp-color-danger)]">{serverError}</p>{conflictError && <p className="mt-1 text-xs text-[var(--erp-color-danger)]">库存可能已被其他订单占用；刷新候选不会清空当前表单。</p>}</div><div className="flex shrink-0 items-center gap-2">{conflictError && <Button type="button" size="sm" variant="secondary" onClick={refreshInventoryCandidates}><RefreshCw className="h-3.5 w-3.5" />刷新库存候选</Button>}<Button type="button" size="icon" variant="ghost" onClick={() => { setServerError(null); setConflictError(false); }} aria-label="关闭错误提示">×</Button></div></CardContent></Card>}
+    {submitError && <Card role="alert" className="border-[var(--erp-color-border-strong)] bg-[var(--erp-color-danger-soft)]"><CardContent className="flex items-start justify-between gap-3 p-4"><div className="min-w-0"><p className="text-sm text-[var(--erp-color-danger)]">{submitError}</p>{conflictError && <p className="mt-1 text-xs text-[var(--erp-color-danger)]">库存可能已被其他订单占用；刷新候选不会清空当前表单。</p>}</div><div className="flex shrink-0 items-center gap-2">{conflictError && <Button type="button" size="sm" variant="secondary" onClick={refreshInventoryCandidates}><RefreshCw className="h-3.5 w-3.5" />刷新库存候选</Button>}<Button type="button" size="icon" variant="ghost" onClick={() => { submission.clearFeedback(); setServerError(null); setConflictError(false); }} aria-label="关闭错误提示">×</Button></div></CardContent></Card>}
     {!canReadCustomers && <Card role="status" className="border-[var(--erp-color-border-strong)] bg-[var(--erp-color-warning-soft)]"><CardContent className="p-3 text-sm text-[var(--erp-color-warning)]">当前账号没有 CRM 客户读取权限，客户选择已禁用；请联系管理员授权后再开单。</CardContent></Card>}
     {!canReadInventory && <Card role="status" className="border-[var(--erp-color-border-strong)] bg-[var(--erp-color-warning-soft)]"><CardContent className="p-3 text-sm text-[var(--erp-color-warning)]">当前账号没有库存读取权限，商品选择已禁用；服务端仍会校验销售库存。</CardContent></Card>}
-    <form onSubmit={(event: FormEvent<HTMLFormElement>) => { void handleSubmit(submit, handleInvalid)(event); }}>
+    <ErpMobileWorkflow resetKey={editorScope.current} pending={createMutation.isPending || submission.validating} steps={[
+      {label: "客户与商品", ready: !hasWorkflowErrors(issues, ["customerId", "customerName", "customerPartnerType", "items"]), blockedReason: workflowBlockedReason(issues, ["customerId", "customerName", "customerPartnerType", "items"], "请完善商品价格与数量")},
+      {label: "结算"},
+    ]} summary={<span className="erp-order-action-total"><strong className="erp-data-number">{formatCurrency(amounts.subtotal)}</strong><small>共 {amounts.quantity} 件</small></span>}>
+    <form noValidate onSubmit={submission.onSubmit}>
+      <fieldset disabled={createMutation.isPending} className="m-0 min-w-0 border-0 p-0">
       <ErpTransactionColumns>
         <ErpTransactionPrimary>
-            <Card><CardContent className="p-4"><div className="grid items-start gap-3 md:grid-cols-12"><div className="min-w-0 md:col-span-2"><p className="text-sm font-semibold">单据编号</p><div className="mt-2 flex h-[var(--erp-control-height)] items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3"><span className="min-w-0 truncate erp-data-number text-xs text-[var(--erp-color-text-secondary)]">提交后生成</span><span className="shrink-0 rounded-full bg-[var(--erp-color-info-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--erp-color-primary)]">待出库</span></div></div><label className="block text-sm font-semibold md:col-span-7">客户档案<div className="mt-2"><CustomerPicker value={selectedCustomer} keyword={customerKeyword} options={customerOptions} loading={customerQuery.isPending || customerQuery.isFetching} error={customerError} disabled={!canReadCustomers} placeholder="搜索客户、供应商或联系方式" searchLabel="搜索销售客户" candidateLabel="客户候选" entityLabel="客户" quickCreateActions={canReadCustomers && canCreateCustomer ? [{label: "新建客户", onClick: openCustomerCreate}] : []} onKeywordChange={setCustomerKeyword} onRetry={() => void customerQuery.refetch()} onSelect={handleSelectCustomer} onClear={clearCustomer} /></div></label><label className="block text-sm font-semibold md:col-span-3">物流快递单号<Input {...register("expressNo")} className="mt-2 erp-data-number" disabled={values.freeShipping} placeholder={values.freeShipping ? "无需物流" : "如：SF148..."} /></label><label className="block text-sm font-semibold md:col-span-12">整单质保协议<Input {...register("aftersalesTerms")} className="mt-2" placeholder="例如：店保三个月、保到手好" /></label></div></CardContent></Card>
-          <SalesLineItemsTable control={control} setValue={setValue} fields={fields} selectedCandidates={selectedCandidates} pickerKeyword={(fieldId) => inventoryKeywords[fieldId] || ""} pickerOptions={(fieldId) => activeInventoryFieldId === fieldId ? inventoryQuery.data || [] : []} pickerLoading={(fieldId) => activeInventoryFieldId === fieldId && (activeInventoryKeyword.trim() !== debouncedInventoryKeyword.trim() || inventoryQuery.isPending || inventoryQuery.isFetching)} pickerError={(fieldId) => activeInventoryFieldId === fieldId ? inventoryError : undefined} pickerDisabled={!canReadInventory} onPickerFocus={focusInventoryPicker} onPickerKeywordChange={updateInventoryKeyword} onPickerRetry={() => void inventoryQuery.refetch()} onCandidateSelect={selectCandidate} onCandidateClear={clearCandidate} onAdd={addLine} onRemove={removeLine} />
-          <ErpFormSection title="销售备注" description="记录交付、售后和客户特殊要求。"><Textarea {...register("remarks")} className="min-h-24" placeholder="销售单备注、交付说明或客户特殊要求" /></ErpFormSection>
+            <ErpMobileWorkflowSection step={0}>
+            <Card className={phone ? "erp-order-partner" : undefined}><CardContent className="p-4"><div className="grid items-start gap-3 md:grid-cols-12"><div className="hidden min-w-0 md:block md:col-span-2"><p className="text-sm font-semibold">单据编号</p><div className="mt-2 flex h-[var(--erp-control-height)] items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3"><span className="min-w-0 truncate erp-data-number text-xs text-[var(--erp-color-text-secondary)]">提交后生成</span><span className="shrink-0 rounded-full bg-[var(--erp-color-info-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--erp-color-primary)]">待出库</span></div></div><label className="block text-sm font-semibold md:col-span-7">客户档案<div className="mt-2"><CustomerPicker value={selectedCustomer} keyword={customerKeyword} options={customerOptions} loading={customerQuery.isPending || customerQuery.isFetching} error={customerError} disabled={createMutation.isPending || !canReadCustomers} placeholder="搜索客户、供应商或联系方式" searchLabel="搜索销售客户" candidateLabel="客户候选" entityLabel="客户" quickCreateActions={canReadCustomers && canCreateCustomer ? [{label: "新建客户", onClick: openCustomerCreate}] : []} onKeywordChange={setCustomerKeyword} onRetry={() => void customerQuery.refetch()} onSelect={handleSelectCustomer} onClear={clearCustomer} /></div></label>{!phone && <label className="block text-sm font-semibold md:col-span-3">物流快递单号<Input {...register("expressNo")} className="mt-2 erp-data-number" disabled={values.freeShipping} placeholder={values.freeShipping ? "无需物流" : "如：SF148..."} /></label>}{!phone && <label className="block text-sm font-semibold md:col-span-12">整单质保协议<Input {...register("aftersalesTerms")} className="mt-2" placeholder="例如：店保三个月、保到手好" /></label>}</div></CardContent></Card>
+          </ErpMobileWorkflowSection>
+          <ErpMobileWorkflowSection step={0}>
+          <SalesLineItemsTable control={control} setValue={setValue} fields={fields} selectedCandidates={selectedCandidates} pickerKeyword={(fieldId) => inventoryKeywords[fieldId] || ""} pickerOptions={(fieldId) => activeInventoryFieldId === fieldId ? inventoryQuery.data || [] : []} pickerLoading={(fieldId) => activeInventoryFieldId === fieldId && (activeInventoryKeyword.trim() !== debouncedInventoryKeyword.trim() || inventoryQuery.isPending || inventoryQuery.isFetching)} pickerError={(fieldId) => activeInventoryFieldId === fieldId ? inventoryError : undefined} pickerDisabled={createMutation.isPending || !canReadInventory} onPickerFocus={focusInventoryPicker} onPickerKeywordChange={updateInventoryKeyword} onPickerRetry={() => void inventoryQuery.refetch()} onCandidateSelect={selectCandidate} onCandidateClear={clearCandidate} onAdd={addLine} onRemove={removeLine} />
+          </ErpMobileWorkflowSection>
+          <ErpMobileWorkflowSection step={1}>
+          {!phone && salesExtraFields}
+          </ErpMobileWorkflowSection>
         </ErpTransactionPrimary>
         <ErpTransactionSecondary>
-          <Card><CardContent className="space-y-4 p-4"><div><h2 className="text-sm font-semibold">收款信息</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">选择账户并确认全款或挂账状态。</p></div><SalesPaymentSection embedded compact control={control} setValue={setValue} accounts={accountQuery.data || []} accountsLoading={accountQuery.isPending || accountQuery.isFetching} accountsError={accountError} accountDisabled={!canReadSettlementAccounts} onRetryAccounts={() => void accountQuery.refetch()} paidAmount={values.paidAmount || 0} totalAmount={amounts.subtotal} salesperson={values.handleBy} /><div className="grid grid-cols-2 gap-2"><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("needInvoice")} />{values.needInvoice ? "普通发票" : "不开票"}</label><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("freeShipping")} />{values.freeShipping ? "顺丰包邮" : "到付自理"}</label></div><div className="border-t border-[var(--erp-color-border)] pt-3"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">销售结算汇总</h2><span className="erp-data-number text-xs text-[var(--erp-color-text-secondary)]">{amounts.quantity} 件</span></div><SalesAmountSummary embedded amounts={amounts} showCost={showCost && permissions.showProfit} /></div><ErpSubmitBar embedded compact showCancel={false} dirty={isDirty} canSubmit={canSubmit} blockedReason="请选择客户、商品和有效收款状态" submitting={createMutation.isPending} onCancel={leave} submitLabel="确认开单 · 待出库"><span>经办人：{operatorName}</span></ErpSubmitBar></CardContent></Card>
+          <ErpMobileWorkflowSection step={1}>
+          <Card className={phone ? "erp-order-checkout" : undefined}><CardContent className="space-y-4 p-4">{phone && <section className="erp-order-review"><div><span>{selectedCustomer?.name || "请选择客户"}</span><ErpMobileWorkflowEditButton disabled={createMutation.isPending} /></div><details><summary>{amounts.quantity} 件商品 · 查看明细</summary>{(values.items || []).filter((item) => item.productId).map((item, index) => <p key={index}><span>{item.productName}</span><span className="erp-data-number">×{item.quantity}</span></p>)}</details></section>}{!phone && <div><h2 className="text-sm font-semibold">收款信息</h2><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">选择账户并确认全款或挂账状态。</p></div>}<SalesPaymentSection disabled={createMutation.isPending} embedded compact control={control} setValue={setValue} accounts={accountQuery.data || []} accountsLoading={accountQuery.isPending || accountQuery.isFetching} accountsError={accountError} accountDisabled={!canReadSettlementAccounts} onRetryAccounts={() => void accountQuery.refetch()} paidAmount={values.paidAmount || 0} totalAmount={amounts.subtotal} salesperson={values.handleBy} resetKey={editorScope.current} onReadinessChange={setSettlementEntry} /><div className="grid grid-cols-2 gap-2"><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("needInvoice")} />{values.needInvoice ? "普通发票" : "不开票"}</label><label className="flex h-10 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-sm font-semibold"><input type="checkbox" {...register("freeShipping")} />{values.freeShipping ? "顺丰包邮" : "到付自理"}</label></div>{phone ? <details className="erp-phone-order-extras"><summary>金额明细</summary><SalesAmountSummary embedded amounts={amounts} showCost={showCost && permissions.showProfit} /></details> : <div className="border-t border-[var(--erp-color-border)] pt-3"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">销售结算汇总</h2><span className="erp-data-number text-xs text-[var(--erp-color-text-secondary)]">{amounts.quantity} 件</span></div><SalesAmountSummary embedded amounts={amounts} showCost={showCost && permissions.showProfit} /></div>}{phone && <details className="erp-phone-order-extras"><summary>物流、质保与备注（可选）</summary>{salesExtraFields}</details>}<ErpSubmitBar embedded compact showCancel={false} dirty={isDirty} canSubmit={canSubmit} blockedReason={settlementEntry.reason || issues[0]?.message || "请完善当前必填信息"} summary={phone ? <><strong className="erp-data-number">{formatCurrency(amounts.subtotal)}</strong><small>{amounts.quantity} 件 · 提交后待出库</small></> : undefined} submitting={createMutation.isPending || submission.validating} onCancel={leave} submitLabel={phone ? "提交销售单" : "确认开单 · 待出库"}>{!phone && <span>经办人：{operatorName}</span>}</ErpSubmitBar></CardContent></Card>
+          </ErpMobileWorkflowSection>
         </ErpTransactionSecondary>
       </ErpTransactionColumns>
+      </fieldset>
     </form>
+    </ErpMobileWorkflow>
     <ErpPartnerQuickCreateDialog open={Boolean(customerCreate)} target="customer" initialName={customerCreate?.initialName || ""} pending={customerCreateMutation.isPending} error={customerCreateMutation.error ? customerQuickCreateError(customerCreateMutation.error) : undefined} onOpenChange={(open) => {if (!open) {setCustomerCreate(null); customerCreateMutation.reset();}}} onSubmit={submitCustomerCreate} />
     </ErpPageContent>
   </ErpTransactionPageFrame>;

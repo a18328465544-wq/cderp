@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {OnChangeFn, SortingState} from "@tanstack/react-table";
 import {
   CalendarRange,
@@ -71,6 +72,7 @@ function useExpenseUrlState() {
 }
 
 export function FinanceExpensePage() {
+  const {active} = useWorkspaceTabActivity();
   const { session, logout } = useAuth();
   const { value: filters, commit } = useExpenseUrlState();
   const canAccess = createCapabilities(session).menu("payment_out");
@@ -78,14 +80,14 @@ export function FinanceExpensePage() {
   const expenseQuery = useQuery({
     queryKey: queryKeys.finance.expense(filters),
     queryFn: ({ signal }) => financeExpenseApi.list(filters, signal),
-    enabled: Boolean(session && canAccess),
+    enabled: active && Boolean(session && canAccess),
     placeholderData: keepPreviousData,
     retry: false,
   });
   const accountsQuery = useQuery({
     queryKey: queryKeys.finance.accounts(),
     queryFn: ({ signal }) => financeAccountsApi.listAll(signal),
-    enabled: Boolean(session && canAccess && canReadAccounts),
+    enabled: active && Boolean(session && canAccess && canReadAccounts),
     staleTime: 60_000,
     retry: false,
   });
@@ -164,7 +166,7 @@ function FinanceExpenseContent({
       setEditing(null);
       saveIdempotencyKeyRef.current = createIdempotencyKey("finance-expense");
       setDetail(item);
-      await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient));
+      await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient, ["state","finance","purchase","vendors","ai"]));
     },
     onError: mutationError,
   });

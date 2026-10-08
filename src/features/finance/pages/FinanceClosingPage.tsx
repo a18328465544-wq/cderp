@@ -4,6 +4,7 @@ import {
   useQuery,
   type UseQueryResult,
 } from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type { VisibilityState } from "@tanstack/react-table";
 import {
   AlertTriangle,
@@ -90,6 +91,7 @@ function useFinanceClosingUrlState() {
 }
 
 export function FinanceClosingPage() {
+  const {active} = useWorkspaceTabActivity();
   const { filters, commit } = useFinanceClosingUrlState();
   const {session, status, error: authError, refresh, logout} = useAuth();
   // Both daily-closing endpoints are protected by the server's `finance`
@@ -99,14 +101,14 @@ export function FinanceClosingPage() {
   const closingQuery = useQuery({
     queryKey: queryKeys.finance.dailyClosings.list(30),
     queryFn: ({ signal }) => financeClosingApi.list(30, signal),
-    enabled: Boolean(session && allowed),
+    enabled: active && Boolean(session && allowed),
     placeholderData: keepPreviousData,
     retry: false,
   });
   const accountingPeriodsQuery = useQuery({
     queryKey: queryKeys.finance.accountingPeriods(24),
     queryFn: ({signal}) => financeClosingApi.listAccountingPeriods(24, signal),
-    enabled: Boolean(session && allowed),
+    enabled: active && Boolean(session && allowed),
     retry: false,
   });
   const reconciliationQuery = useQuery<FinanceReconciliationReport, Error>({

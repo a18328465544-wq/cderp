@@ -1,4 +1,5 @@
 import {keepPreviousData, useQuery} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef} from "@tanstack/react-table";
 import {ClipboardList, Filter, RefreshCw} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -12,10 +13,11 @@ import type {LogsFilters} from "@/src/services/api/endpoints/finance-remaining";
 
 function allowed(session: AuthSession | null | undefined) {return Boolean(session?.permissions.allowedMenus.some((id) => id === "all" || id === "logs"));}
 export function SettingsLogsPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const canRead = createCapabilities(session).menu("logs") || allowed(session);
   const [filters, setFilters] = useState<LogsFilters>({page: 1, pageSize: 20, keyword: ""});
-  const query = useQuery({queryKey: queryKeys.settings.logs(filters), queryFn: ({signal}) => logsApi.list(filters, signal), enabled: Boolean(session && canRead), placeholderData: keepPreviousData, retry: false});
+  const query = useQuery({queryKey: queryKeys.settings.logs(filters), queryFn: ({signal}) => logsApi.list(filters, signal), enabled: active && Boolean(session && canRead), placeholderData: keepPreviousData, retry: false});
   useEffect(() => {if (query.error instanceof ApiError && query.error.isUnauthorized) logout();}, [logout, query.error]);
   if (status === "loading") return <Card><p className="p-5 text-sm">正在验证操作日志权限…</p></Card>;
   if (status === "error") return <ErpPageError title="无法读取登录状态" description={authError?.message || "请重新登录后继续。"} onRetry={() => void refresh()} />;

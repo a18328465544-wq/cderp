@@ -56,7 +56,8 @@ test("drawer omits the description row when no annotation is provided", () => {
 
 test("interactive detail drawers let the page remain operable without dismissing the panel", () => {
   assert.match(drawerSource, /modal\?: boolean/);
-  assert.match(drawerSource, /const isModal = modal !== false/);
+  assert.match(drawerSource, /const isModal = phone \|\| modal !== false/);
+  assert.match(drawerSource, /phone \? <ArrowLeft/);
   assert.match(drawerSource, /<Dialog\.Root open=\{active && open\} modal=\{isModal\} disablePointerDismissal=\{!isModal\}/);
   assert.match(drawerSource, /\{isModal && <Dialog\.Backdrop/);
   assert.match(drawerSource, /!isModal && "pointer-events-none"/);

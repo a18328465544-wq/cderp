@@ -2,71 +2,8 @@ import type {SalesListItem} from "@/src/types/sales";
 import type {FinanceProfitOtherFlow} from "@/src/types/finance";
 import {getDateRangePreset, readDateRange} from "@/src/lib/dateRangePickerUtils";
 
-export type FinanceProfitDimension = "product" | "customer" | "channel" | "handler";
-
-export interface FinanceProfitFilters {
-  keyword: string;
-  dateStart: string;
-  dateEnd: string;
-  dimension: FinanceProfitDimension;
-  page: number;
-  pageSize: number;
-}
-
-export interface FinanceProfitGroupRow {
-  id: string;
-  label: string;
-  secondary: string;
-  orderCount: number;
-  quantity: number;
-  revenue: number;
-  cost?: number;
-  profit?: number;
-  margin?: number;
-}
-
-export interface FinanceProfitTrendPoint {
-  date: string;
-  label: string;
-  revenue: number;
-  profit?: number;
-  otherIncome?: number;
-  otherExpense?: number;
-  netProfit?: number;
-}
-
-export interface FinanceProfitReport {
-  sourceItems: SalesListItem[];
-  rows: FinanceProfitGroupRow[];
-  pageRows: FinanceProfitGroupRow[];
-  trend: FinanceProfitTrendPoint[];
-  summary: {
-    orderCount: number;
-    quantity: number;
-    revenue: number;
-    cost?: number;
-    profit?: number;
-    margin?: number;
-    otherIncome?: number;
-    otherExpense?: number;
-    netProfit?: number;
-    profitableGroups: number;
-    lossGroups: number;
-  };
-  meta: {total: number; page: number; pageSize: number; totalPages: number};
-}
-
-export type FinanceProfitInsightTone = "success" | "warning" | "danger";
-
-export interface FinanceProfitInsight {
-  id: "top-profit" | "lowest-margin" | "loss-group";
-  label: string;
-  title: string;
-  detail: string;
-  value: number;
-  valueType: "currency" | "percentage";
-  tone: FinanceProfitInsightTone;
-}
+export type {FinanceProfitDimension, FinanceProfitFilters, FinanceProfitGroupRow, FinanceProfitTrendPoint, FinanceProfitReport, FinanceProfitInsightTone, FinanceProfitInsight} from "../../types/finance-profit-report";
+import type {FinanceProfitDimension, FinanceProfitFilters, FinanceProfitGroupRow, FinanceProfitReport, FinanceProfitInsight} from "../../types/finance-profit-report";
 
 const currentMonthRange = getDateRangePreset("thisMonth");
 
@@ -91,6 +28,7 @@ export function parseFinanceProfitFilters(search: string): FinanceProfitFilters 
   const dateRange = readDateRange(params, "dateStart", "dateEnd");
   const dimension = params.get("dimension");
   const pageSize = positiveInteger(params.get("pageSize"), 20);
+  const sortKey = params.get("sortKey");
   return {
     ...defaultFinanceProfitFilters,
     keyword: (params.get("keyword") || "").trim(),
@@ -99,6 +37,7 @@ export function parseFinanceProfitFilters(search: string): FinanceProfitFilters 
     dimension: dimensions.includes(dimension as FinanceProfitDimension) ? dimension as FinanceProfitDimension : "product",
     page: positiveInteger(params.get("page"), 1),
     pageSize: [20, 50, 100].includes(pageSize) ? pageSize : 20,
+    ...(["label", "orderCount", "quantity", "revenue", "cost", "profit", "margin"].includes(sortKey || "") ? {sortKey: sortKey as FinanceProfitFilters["sortKey"], sortDirection: params.get("sortDirection") === "asc" ? "asc" as const : "desc" as const} : {}),
   };
 }
 
@@ -110,6 +49,7 @@ export function financeProfitFiltersToSearch(filters: FinanceProfitFilters) {
   if (filters.dimension !== "product") params.set("dimension", filters.dimension);
   if (filters.page > 1) params.set("page", String(filters.page));
   if (filters.pageSize !== 20) params.set("pageSize", String(filters.pageSize));
+  if (filters.sortKey) {params.set("sortKey", filters.sortKey); params.set("sortDirection", filters.sortDirection || "desc");}
   return params;
 }
 

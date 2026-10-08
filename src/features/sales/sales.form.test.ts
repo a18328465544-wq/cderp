@@ -100,6 +100,15 @@ test("sales line total and unit price stay linked with integer currency", () => 
   assert.equal(calculateSalesUnitPrice(500, 0), 500);
 });
 
+test("an empty sales quantity is invalid and has no one-item amount preview", () => {
+  const values = validValues();
+  values.items[0]!.quantity = 0;
+  assert.equal(salesOrderSchema.safeParse(values).success, false);
+  assert.deepEqual(calculateSalesAmounts(values, true), {quantity: 0, subtotal: 0, paidAmount: 0, unpaidAmount: 0, estimatedCost: 0, estimatedProfit: 0});
+  assert.equal(values.items[0]!.sellPrice, 1000);
+  assert.equal(calculateSalesLineTotal(0, 1000), 0);
+});
+
 test("sales payment amount follows the current item total", () => {
   assert.equal(normalizeSalesPaidAmount(22500, 4720, "full"), 4720);
   assert.equal(normalizeSalesPaidAmount(22500, 4720, "credit"), 4720);
@@ -110,6 +119,10 @@ test("sales submit errors preserve actionable permission and conflict messages",
   assert.match(salesSubmitErrorMessage(new ApiError(401, "expired")), /重新登录/);
   assert.match(salesSubmitErrorMessage(new ApiError(403, "forbidden")), /权限/);
   assert.match(salesSubmitErrorMessage(new ApiError(409, "库存已被其他订单占用")), /并发冲突/);
+  const staleSales = salesSubmitErrorMessage(new ApiError(409, "本次修改未保存", {payload: {error: {details: {kind: "STALE_SALES_RECORD"}}}}));
+  assert.match(staleSales, /输入已保留/);
+  assert.match(staleSales, /重新打开销售单核对/);
+  assert.doesNotMatch(staleSales, /刷新候选后重试/);
   assert.match(salesSubmitErrorMessage(new ApiError(422, "客户不能为空")), /客户不能为空/);
 });
 
@@ -132,8 +145,9 @@ test("sales form validation failures produce visible actionable feedback", () =>
   assert.equal(salesFormValidationMessage({}), "请先完善销售单信息");
 });
 
-test("live sales entry keeps its workspace draft without an unsaved-leave guard", () => {
+test("live sales entry keeps its workspace draft and only marks dirty for close/eviction", () => {
   assert.match(salesOrderPageSource, /useWorkspaceTabDraft/);
   assert.match(salesOrderPageSource, /saveDraft\(/);
-  assert.doesNotMatch(salesOrderPageSource, /ErpUnsavedChangesDialog|useErpDirtyGuard|useWorkspaceTabBlocker|useWorkspaceTabDirty/);
+  assert.match(salesOrderPageSource, /useWorkspaceTabDirty\("sales_add", isDirty\)/);
+  assert.doesNotMatch(salesOrderPageSource, /ErpUnsavedChangesDialog|useErpDirtyGuard|useWorkspaceTabBlocker/);
 });

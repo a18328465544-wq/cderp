@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient, type UseQueryResult} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {OnChangeFn, SortingState} from "@tanstack/react-table";
 import {ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarRange, Download, Pencil, Plus, RefreshCw, RotateCcw, ShieldCheck, Trash2} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -22,12 +23,13 @@ function useTransferUrlState() {
 }
 
 export function FinanceTransfersPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useTransferUrlState();
   const canAccess = createCapabilities(session).menu("account_transfer");
   const canReadAccounts = createCapabilities(session).menu("settlement_accounts");
-  const transferQuery = useQuery({queryKey: queryKeys.finance.transfers(filters), queryFn: ({signal}) => financeTransfersApi.list(filters, signal), enabled: Boolean(session && canAccess), placeholderData: keepPreviousData, retry: false});
-  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: Boolean(session && canAccess && canReadAccounts), staleTime: 60_000, retry: false});
+  const transferQuery = useQuery({queryKey: queryKeys.finance.transfers(filters), queryFn: ({signal}) => financeTransfersApi.list(filters, signal), enabled: active && Boolean(session && canAccess), placeholderData: keepPreviousData, retry: false});
+  const accountsQuery = useQuery({queryKey: queryKeys.finance.accounts(), queryFn: ({signal}) => financeAccountsApi.listAll(signal), enabled: active && Boolean(session && canAccess && canReadAccounts), staleTime: 60_000, retry: false});
   useEffect(() => {if (transferQuery.error instanceof ApiError && transferQuery.error.isUnauthorized) logout();}, [logout, transferQuery.error]);
   if (!session) return <Card><ErpLoadingState title="正在验证资金调拨权限" /></Card>;
   if (!session || !canAccess) return <ErpPageError title="当前账号没有资金调拨权限" description="服务端权限未包含 account_transfer；页面不会请求或展示调拨记录。" />;
@@ -44,7 +46,7 @@ function FinanceTransfersContent({session, onAuthExpired, filters, onFiltersChan
   const collection = transferQuery.data || {items: [], total: 0, totalAmount: 0, totalFee: 0, totalReceived: 0, page: filters.page, pageSize: filters.pageSize, source: "database-page" as const};
   const invalidate = () => invalidateErpDomains(queryClient, ["finance"]);
   const mutationError = (caught: Error) => {if (caught instanceof ApiError && caught.isUnauthorized) {onAuthExpired(); return;} notify.error(caught.message);};
-  const saveMutation = useMutation({mutationFn: ({values, item, idempotencyKey}: {values: FinanceTransferFormValues; item: FinanceTransferItem | null; idempotencyKey: string}) => item ? financeTransfersApi.update(item.id, values, session.user.displayName, {idempotencyKey}) : financeTransfersApi.create(values, session.user.displayName, {idempotencyKey}), onSuccess: async (item, variables) => {notify.success(`${item.id} 调拨已保存，账户余额与流水已同步`); setDialogOpen(false); setEditing(null); setDetail(item); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient));}, onError: mutationError});
+  const saveMutation = useMutation({mutationFn: ({values, item, idempotencyKey}: {values: FinanceTransferFormValues; item: FinanceTransferItem | null; idempotencyKey: string}) => item ? financeTransfersApi.update(item.id, values, session.user.displayName, {idempotencyKey}) : financeTransfersApi.create(values, session.user.displayName, {idempotencyKey}), onSuccess: async (item, variables) => {notify.success(`${item.id} 调拨已保存，账户余额与流水已同步`); setDialogOpen(false); setEditing(null); setDetail(item); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); await (variables.item ? invalidate() : refreshErpAfterDocument(queryClient, ["state","finance","ai"]));}, onError: mutationError});
   const deleteMutation = useMutation({mutationFn: (id: string) => financeTransfersApi.reverse(id), onSuccess: async () => {notify.success("资金调拨已冲销，两边账户余额与流水已反向修正"); setDeleting(null); setDetail(null); await invalidate();}, onError: mutationError});
   const openCreate = () => {saveMutation.reset(); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); setEditing(null); setDialogOpen(true);};
   const openEdit = (item: FinanceTransferItem) => {saveMutation.reset(); saveIdempotencyKeyRef.current = createIdempotencyKey("finance-transfer"); setEditing(item); setDialogOpen(true);};

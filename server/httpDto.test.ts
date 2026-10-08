@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {ValidationError} from "./errors.ts";
+import {salesInvoiceUpdateDto} from "./httpDto.ts";
 import {
   inspectionCreateDto,
   inspectionUpdateDto,
@@ -13,7 +14,32 @@ import {
   purchaseInvoiceCreateDto,
   purchaseInvoiceUpdateDto,
   returnCreateDto,
+  salesOutboundDto,
 } from "./httpDto.ts";
+
+test("outbound DTO separates scanner requirements from authorized manual confirmation", () => {
+  const base = {handler: "仓库员", manual: false, codes: [" SN-1 "], remarks: ""};
+  assert.deepEqual(parseHttpDto(salesOutboundDto, base).codes, ["SN-1"]);
+  assert.throws(() => parseHttpDto(salesOutboundDto, {...base, codes: []}), /至少扫描/);
+  assert.throws(() => parseHttpDto(salesOutboundDto, {...base, codes: [" "]}), /SN 不能为空/);
+  assert.throws(() => parseHttpDto(salesOutboundDto, {...base, manual: true, codes: [], remarks: " "}), /手动确认出库必须填写原因/);
+  assert.deepEqual(parseHttpDto(salesOutboundDto, {...base, manual: true, codes: [], remarks: " 扫码设备异常 "}), {handler: "仓库员", manual: true, codes: [], remarks: "扫码设备异常"});
+});
+
+test("sales edits require a real positive revision and cannot submit server-owned revisions", () => {
+  assert.deepEqual(parseHttpDto(salesInvoiceUpdateDto, {expectedRecordVersion: 4, remarks: " 正常修改 "}), {expectedRecordVersion: 4, remarks: "正常修改"});
+  for (const expectedRecordVersion of [undefined, null, 0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => parseHttpDto(salesInvoiceUpdateDto, {expectedRecordVersion, remarks: "过期或无效页面"}), ValidationError);
+  }
+  assert.throws(() => parseHttpDto(salesInvoiceUpdateDto, {expectedRecordVersion: 1, recordVersion: 100}), /Unrecognized key/);
+});
+
+test("purchase edits require a safe positive revision and reject forged persisted versions", () => {
+  for (const expectedRecordVersion of [undefined, null, 0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => parseHttpDto(purchaseInvoiceUpdateDto, {expectedRecordVersion, remarks: "无效版本"}), ValidationError);
+  }
+  assert.throws(() => parseHttpDto(purchaseInvoiceUpdateDto, {expectedRecordVersion: 1, recordVersion: 100}), /Unrecognized key/);
+});
 
 test("payment DTOs normalize allowed text and reject unknown or invalid fields", () => {
   const income = parseHttpDto(paymentInCreateDto, {
@@ -40,6 +66,16 @@ test("purchase DTO validates nested lines before entering the domain store", () 
   assert.throws(() => parseHttpDto(purchaseInvoiceCreateDto, {...base, totalCost: 100}), /Unrecognized key/);
   assert.equal(parseHttpDto(purchaseInvoiceUpdateDto, {remarks: "补充说明", expectedRecordVersion: 2}).expectedRecordVersion, 2);
   assert.throws(() => parseHttpDto(purchaseInvoiceUpdateDto, {remarks: "缺少版本"}), /采购单版本号无效|Invalid input/);
+  const line = {...base.items[0]!, sn: ""};
+  const atLimit = {...base, items: [{...line, quantity: 500}]};
+  assert.equal(parseHttpDto(purchaseInvoiceCreateDto, atLimit).items[0]?.quantity, 500);
+  for (const items of [[{...line, quantity: 501}], [{...line, quantity: 500}, line]]) {
+    assert.throws(() => parseHttpDto(purchaseInvoiceCreateDto, {...base, items}), /不能超过 500 件/);
+    assert.throws(() => parseHttpDto(purchaseInvoiceUpdateDto, {items, expectedRecordVersion: 1}), /不能超过 500 件/);
+  }
+  for (const quantity of [0, -1, 1.5, null]) {
+    assert.throws(() => parseHttpDto(purchaseInvoiceCreateDto, {...base, items: [{...line, quantity}]}), ValidationError);
+  }
 });
 
 test("return DTO accepts selected multi-item purchase returns", () => {

@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {ColumnDef, OnChangeFn, SortingState} from "@tanstack/react-table";
 import {BadgePercent, CheckCircle2, Clock3, Filter, RefreshCw, Settings2, UserRound} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
@@ -21,15 +22,16 @@ function initialFilters(mode: FinanceCommissionFilters["mode"]): FinanceCommissi
 }
 
 export function FinanceCommissionPage({mode}: {mode: "purchase" | "sales"}) {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh} = useAuth();
   const menu = mode === "purchase" ? "purchase_commission" : "sales_commission";
   const allowed = Boolean(createCapabilities(session).menu(menu));
   const [filters, setFilters] = useState<FinanceCommissionFilters>(() => initialFilters(mode));
-  const query = useQuery({queryKey: queryKeys.finance.commissions(filters), queryFn: ({signal}) => financeCommissionApi.list(filters, signal), enabled: allowed, placeholderData: keepPreviousData, retry: false});
+  const query = useQuery({queryKey: queryKeys.finance.commissions(filters), queryFn: ({signal}) => financeCommissionApi.list(filters, signal), enabled: active && allowed, placeholderData: keepPreviousData, retry: false});
   const queryClient = useQueryClient();
   const canManageRules = session?.user.role === "老板";
   const [rulesOpen, setRulesOpen] = useState(false);
-  const rulesQuery = useQuery({queryKey: queryKeys.finance.commissionRules(), queryFn: ({signal}) => financeCommissionApi.getRules(signal), enabled: allowed && canManageRules && rulesOpen, retry: false});
+  const rulesQuery = useQuery({queryKey: queryKeys.finance.commissionRules(), queryFn: ({signal}) => financeCommissionApi.getRules(signal), enabled: active && allowed && canManageRules && rulesOpen, retry: false});
   const rulesMutation = useMutation({mutationFn: (rules: CommissionRules) => financeCommissionApi.updateRules(rules), onSuccess: async (updated) => {queryClient.setQueryData(queryKeys.finance.commissionRules(), updated); notify.success("提成规则已保存"); await queryClient.invalidateQueries({queryKey: queryKeys.finance.commissionsRoot()});}});
   const openRules = () => { rulesMutation.reset(); setRulesOpen(true); };
   const updateFilters = (patch: Partial<FinanceCommissionFilters>) => setFilters((current) => ({...current, ...patch}));

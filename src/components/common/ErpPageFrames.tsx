@@ -8,12 +8,12 @@ import {ErpPageFrame, type ErpPageFrameDensity} from "./ErpPageFrame";
  */
 type FrameProps = HTMLAttributes<HTMLDivElement> & {children: ReactNode};
 
-function FrameBase({density = "standard", className, children, ...props}: FrameProps & {density?: ErpPageFrameDensity}) {
+function FrameBase({density = "standard", className, children, ...props}: FrameProps & {density?: ErpPageFrameDensity; mobileSearchFirst?: boolean}) {
   return <ErpPageFrame {...props} density={density} className={className}>{children}</ErpPageFrame>;
 }
 
-export function ErpListPageFrame({className, children, ...props}: FrameProps) {
-  return <FrameBase {...props} density="standard" data-page-frame="list" className={className}>{children}</FrameBase>;
+export function ErpListPageFrame({className, children, mobileSearchFirst = true, ...props}: FrameProps & {mobileSearchFirst?: boolean}) {
+  return <FrameBase {...props} mobileSearchFirst={mobileSearchFirst} density="standard" data-page-frame="list" className={className}>{children}</FrameBase>;
 }
 
 export function ErpTransactionPageFrame({className, children, ...props}: FrameProps) {
@@ -32,16 +32,16 @@ export function ErpTransactionSecondary({className, children, ...props}: FramePr
   return <aside {...props} data-page-frame-region="transaction-secondary" className={cn("space-y-3 xl:sticky xl:top-20", className)}>{children}</aside>;
 }
 
-export function ErpWarehousePageFrame({className, children, ...props}: FrameProps) {
-  return <FrameBase {...props} density="standard" data-page-frame="warehouse" className={className}>{children}</FrameBase>;
+export function ErpWarehousePageFrame({className, children, mobileSearchFirst = true, ...props}: FrameProps & {mobileSearchFirst?: boolean}) {
+  return <FrameBase {...props} mobileSearchFirst={mobileSearchFirst} density="standard" data-page-frame="warehouse" className={className}>{children}</FrameBase>;
 }
 
 export function ErpFinancePageFrame({className, children, ...props}: FrameProps) {
-  return <FrameBase {...props} density="standard" data-page-frame="finance" className={className}>{children}</FrameBase>;
+  return <FrameBase {...props} mobileSearchFirst density="standard" data-page-frame="finance" className={className}>{children}</FrameBase>;
 }
 
 export function ErpCrmPageFrame({className, children, ...props}: FrameProps) {
-  return <FrameBase {...props} density="standard" data-page-frame="crm" className={className}>{children}</FrameBase>;
+  return <FrameBase {...props} mobileSearchFirst density="standard" data-page-frame="crm" className={className}>{children}</FrameBase>;
 }
 
 export function ErpAnalyticsPageFrame({className, children, ...props}: FrameProps) {
@@ -53,5 +53,5 @@ export function ErpDetailPageFrame({className, children, ...props}: FrameProps) 
 }
 
 export function ErpSettingsPageFrame({className, children, ...props}: FrameProps) {
-  return <FrameBase {...props} density="standard" data-page-frame="settings" className={className}>{children}</FrameBase>;
+  return <FrameBase {...props} mobileSearchFirst density="standard" data-page-frame="settings" className={className}>{children}</FrameBase>;
 }

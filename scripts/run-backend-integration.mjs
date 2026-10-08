@@ -78,6 +78,10 @@ try {
     BACKEND_TEST_PASSWORD: testPassword,
     BOOTSTRAP_ADMIN_PASSWORD: testPassword,
     OPEN_API_TOKEN: "test-only-open-api-token-not-for-production",
+    // Synthetic integration fixtures must not call or bill an external model.
+    AI_API_KEY: "",
+    AI_BASE_URL: "",
+    AI_MODEL: "",
   });
 
   const result = spawnSync("npm", ["run", "test:backend-http"], {

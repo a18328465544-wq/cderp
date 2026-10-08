@@ -1,4 +1,4 @@
-import type {CardInventory, FinanceLedger, PaymentInRecord, ProductTemplate, SalesInvoice, SettlementAccount} from "../src/types.ts";
+import type {CardInventory, FinanceLedger, PaymentInRecord, ProductTemplate, ReturnOrder, SalesInvoice, SettlementAccount} from "../src/types.ts";
 import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
 import {
   buildInventoryById,
@@ -10,6 +10,7 @@ import {
   salesItemMatchesCard,
 } from "./storeInventoryPlanning.ts";
 import {createProductIdentityIndex} from "../src/utils/productIdentity.ts";
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 
 export interface SalesOutboundPreflightRow {
   lineId: string;
@@ -36,7 +37,7 @@ export type SalesOperationsState = {
   inventory: CardInventory[];
   salesInvoices: SalesInvoice[];
   paymentInRecords: PaymentInRecord[];
-  returnOrders: Array<{type: string; status: string; relatedDocNo?: string}>;
+  returnOrders: Array<Pick<ReturnOrder, "type" | "status" | "relatedDocNo" | "accountingStatus">>;
   financeLedger: FinanceLedger[];
 };
 
@@ -138,6 +139,7 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
       items,
       id: genId("XS"),
       invoiceNo,
+      recordVersion: 1,
       accountingStatus: "已入账",
       accountingEventId,
       totalCount,
@@ -171,24 +173,29 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
     return newInvoice;
   };
 
-  const updateSalesInvoice = (id: string, updates: Partial<SalesInvoice>) => {
+  const updateSalesInvoice = (id: string, updates: Partial<SalesInvoice>, options: {expectedRecordVersion?: number} = {}) => {
     const existing = state.salesInvoices.find((item) => item.id === id || item.invoiceNo === id);
     if (!existing) throw new NotFoundError(`销售单不存在: ${id}`);
-    const hasCompletedReturn = state.returnOrders.some((order) =>
-      order.type === "销售退货" && order.status === "已完成" && (order.relatedDocNo === existing.invoiceNo || order.relatedDocNo === existing.id),
+    if (options.expectedRecordVersion !== undefined && options.expectedRecordVersion !== getRecordVersion(existing)) {
+      throw new ConflictError("该销售单已有新的修改、收款或出库记录，请刷新核对后重新编辑；本次修改未保存", {kind: "STALE_SALES_RECORD"});
+    }
+    const activeReturns = state.returnOrders.filter((order) =>
+      order.type === "销售退货" && order.status !== "已作废" && order.accountingStatus !== "作废" && (order.relatedDocNo === existing.invoiceNo || order.relatedDocNo === existing.id),
     );
+    const hasActiveReturn = activeReturns.length > 0;
     const protectedAfterReturn = [
       "customerId", "customerPartnerType", "customerName", "contact", "items",
       "paidAmount", "unpaidAmount", "settlementAccountId", "paymentMethod", "paymentHandler",
     ] as const;
-    if (hasCompletedReturn && protectedAfterReturn.some((key) =>
+    if (hasActiveReturn && protectedAfterReturn.some((key) =>
       key in updates && JSON.stringify(updates[key]) !== JSON.stringify(existing[key]),
     )) {
-      throw new ConflictError("该销售单已有已完成退货，不能修改往来对象、商品或结算结构；请先冲销退货单后再调整");
+      const stage = activeReturns.some((order) => order.status === "已完成") ? "已完成" : "待处理";
+      throw new ConflictError(`该销售单已有${stage}退货，不能修改往来对象、商品或结算结构；请先作废或冲销退货单后再调整`);
     }
     const productIdentityIndex = createProductIdentityIndex(state.products);
     const linkedPayments = state.paymentInRecords.filter((payment) =>
-      payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id,
+      payment.accountingStatus !== "作废" && (payment.relatedDocNo === existing.invoiceNo || payment.relatedDocNo === existing.id),
     );
     const existingIds = new Set(existing.items.map((item) => item.inventoryId).filter(Boolean));
     const inventoryById = buildInventoryById(state.inventory);
@@ -276,6 +283,7 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
       ...updates,
       id: existing.id,
       invoiceNo: existing.invoiceNo,
+      recordVersion: getRecordVersion(existing) + 1,
       items,
       totalCount,
       totalCost,
@@ -426,15 +434,6 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
           missingItems.push({item, index: itemIndex, reason: `销售单重复绑定库存卡 ${card.id}`});
           continue;
         }
-        const scannedLegacyCard = [
-          item.inventoryId,
-          item.sn,
-          card?.sn,
-        ].filter(Boolean).some((code) => codeSet.has(String(code).toLowerCase()));
-        if (!input.manual && !scannedLegacyCard) {
-          missingItems.push({item, index: itemIndex, reason: "请扫描该销售行已绑定的库存卡"});
-          continue;
-        }
       } else {
         const matched = state.inventory
           .map((candidate, index) => ({ candidate, index }))
@@ -453,8 +452,18 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
         missingItems.push({item, index: itemIndex, reason: input.manual ? "当前没有可匹配的可售库存" : "请扫描同型号可售库存卡"});
         continue;
       }
-      if (!input.manual && !item.inventoryId && ![card.id, card.sn].filter(Boolean).some((code) => codeSet.has(String(code).toLowerCase()))) {
-        missingItems.push({item, index: itemIndex, reason: "扫码内容未匹配到该销售商品"});
+      // A legacy physical binding is not permission to reuse stock. Both scanner
+      // and manual confirmation must validate the current card just like model-only lines.
+      if (!isCardSellableForSales(card)) {
+        missingItems.push({item, index: itemIndex, reason: `已绑定库存卡当前为${card.status}，不可销售出库`});
+        continue;
+      }
+      if (!salesItemMatchesCard(item, card, productIdentityIndex)) {
+        missingItems.push({item, index: itemIndex, reason: "已绑定库存卡的商品型号与销售明细不一致，请核对原单据"});
+        continue;
+      }
+      if (!input.manual && ![card.id, card.sn].filter(Boolean).some((code) => codeSet.has(String(code).toLowerCase()))) {
+        missingItems.push({item, index: itemIndex, reason: item.inventoryId ? "请扫描该销售行已绑定库存卡的当前 ID / SN" : "扫码内容未匹配到该销售商品"});
         continue;
       }
       selectedOutboundItems.push({ item, cardIndex, card });
@@ -553,6 +562,7 @@ export function createSalesOperationHelpers(dependencies: SalesOperationsDepende
 
     const updated: SalesInvoice = {
       ...invoice,
+      recordVersion: getRecordVersion(invoice) + 1,
       items: outboundItems,
       totalCount,
       totalCost,

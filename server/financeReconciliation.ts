@@ -299,10 +299,16 @@ function linkedPaymentAmount<T extends PaymentLike>(payments: readonly T[], invo
 }
 
 function inspectInvoiceSettlements(state: AppState, issues: FinanceReconciliationIssue[]) {
+  // Invoice amounts describe the remaining goods, not lifetime cash receipts.
+  // Completed returns reduce paidAmount while retaining original payment history.
+  // Direct reversal already voids/removes that payment, so never subtract twice.
+  const releasedPayment = (invoice: {id: string; invoiceNo: string}, type: "进货退货" | "销售退货") => state.returnOrders
+    .filter((order) => order.type === type && order.status === "已完成" && order.settlementMode !== "直接冲销" && documentMatches(order.relatedDocNo, invoice))
+    .reduce((sum, order) => sum + (numberValue(order.cashReleasedAmount) ?? 0), 0);
   let checked = 0;
   state.salesInvoices.forEach((invoice: SalesInvoice) => {
     checked += 1;
-    const linkedAmount = linkedPaymentAmount(state.paymentInRecords, invoice, true);
+    const linkedAmount = linkedPaymentAmount(state.paymentInRecords, invoice, true) - releasedPayment(invoice, "销售退货");
     if (!sameAmount(linkedAmount, invoice.paidAmount)) {
       addIssue(issues, "invoices", "SALES_PAID_AMOUNT_DRIFT", `销售单 ${invoice.invoiceNo} 的已收款 ${invoice.paidAmount} 元与关联收款流水 ${linkedAmount} 元不一致。`, {severity: "warning", entityId: invoice.id});
     }
@@ -312,7 +318,7 @@ function inspectInvoiceSettlements(state: AppState, issues: FinanceReconciliatio
   });
   state.purchaseInvoices.forEach((invoice: PurchaseInvoice) => {
     checked += 1;
-    const linkedAmount = linkedPaymentAmount(state.paymentOutRecords, invoice, false);
+    const linkedAmount = linkedPaymentAmount(state.paymentOutRecords, invoice, false) - releasedPayment(invoice, "进货退货");
     if (!sameAmount(linkedAmount, invoice.paidAmount)) {
       addIssue(issues, "invoices", "PURCHASE_PAID_AMOUNT_DRIFT", `采购单 ${invoice.invoiceNo} 的已付款 ${invoice.paidAmount} 元与关联付款流水 ${linkedAmount} 元不一致。`, {severity: "warning", entityId: invoice.id});
     }

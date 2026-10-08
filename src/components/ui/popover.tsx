@@ -1,6 +1,20 @@
 import {Popover as PopoverPrimitive} from "@base-ui/react/popover";
-import type {ComponentProps} from "react";
+import {useRef, useState, type ComponentProps} from "react";
 import {cn} from "@/src/lib/cn";
+import {usePhoneBackLayer} from "@/src/hooks/usePhoneBack";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
+
+function ErpPopoverRoot(props: ComponentProps<typeof PopoverPrimitive.Root>) {
+  const {active} = useWorkspaceTabActivity();
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(Boolean(props.defaultOpen));
+  const ownActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
+  const actions = props.actionsRef || ownActions;
+  usePhoneBackLayer(active && Boolean(props.open ?? uncontrolledOpen), () => actions.current?.close(), 400);
+  return <PopoverPrimitive.Root {...props} actionsRef={actions} onOpenChange={(open, details) => {
+    props.onOpenChange?.(open, details);
+    if (!details.isCanceled) setUncontrolledOpen(open);
+  }} />;
+}
 
 type PopoverPositionerProps = ComponentProps<typeof PopoverPrimitive.Positioner>;
 type PopoverPopupProps = ComponentProps<typeof PopoverPrimitive.Popup>;
@@ -23,6 +37,7 @@ function ErpPopoverPopup({className, ...props}: PopoverPopupProps) {
  */
 export const Popover = {
   ...PopoverPrimitive,
+  Root: ErpPopoverRoot,
   Positioner: ErpPopoverPositioner,
   Popup: ErpPopoverPopup,
 } as typeof PopoverPrimitive;

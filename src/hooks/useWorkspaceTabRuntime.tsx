@@ -1,5 +1,6 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {useBlocker} from "@tanstack/react-router";
+import {usePhoneBackBoundary} from "./usePhoneBack";
 import {WORKSPACE_KEEP_ALIVE_ENTRIES, type WorkspaceKeepAliveKey} from "./workspaceTabRuntimeConfig";
 
 export type WorkspaceNavigationIntent = "switch" | "close" | null;
@@ -120,6 +121,7 @@ export function shouldBlockWorkspaceNavigation(dirty: boolean, navigationIntent:
 export function useWorkspaceTabBlocker(dirty: boolean) {
   const {navigationIntentRef} = useWorkspaceTabRuntime();
   const {active} = useWorkspaceTabActivity();
+  const phoneBack = usePhoneBackBoundary();
   const saveCompletedRef = useRef(false);
   useEffect(() => {
     if (!dirty) saveCompletedRef.current = false;
@@ -133,7 +135,7 @@ export function useWorkspaceTabBlocker(dirty: boolean) {
   }, []);
   const blocker = useBlocker({
     withResolver: true,
-    shouldBlockFn: () => active && shouldBlockWorkspaceNavigation(dirty, navigationIntentRef.current, saveCompletedRef.current),
+    shouldBlockFn: ({action}) => !(action === "BACK" && phoneBack?.hasLayer()) && active && shouldBlockWorkspaceNavigation(dirty, navigationIntentRef.current, saveCompletedRef.current),
     enableBeforeUnload: false,
     disabled: !dirty || !active,
   });

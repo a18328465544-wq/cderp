@@ -1,5 +1,7 @@
-import {keepPreviousData, useQuery} from "@tanstack/react-query";
-import type {ColumnDef, VisibilityState} from "@tanstack/react-table";
+import {notify} from "@/src/utils/notification";
+import {useDebouncedValue} from "@/src/hooks/useDebouncedValue";
+import {useQuery} from "@tanstack/react-query";
+import type {ColumnDef, VisibilityState, SortingState} from "@tanstack/react-table";
 import {BarChart3, CircleDollarSign, Download, FileText, Layers3, LockKeyhole, RefreshCw, RotateCcw, TrendingUp, WalletCards} from "lucide-react";
 import {ErpSearchInput} from "@/src/components/common";
 import {useEffect, useMemo} from "react";
@@ -7,15 +9,15 @@ import {Button, Card, Select} from "@/src/components/ui";
 import {AreaTrendChart} from "@/src/components/ui/chart-primitives";
 import {ChartMeta} from "@/src/components/ui/chart";
 import {AnalyticsDetailRegion, AnalyticsInsightItem, AnalyticsKpiRegion, AnalyticsMainRegion, AnalyticsToolbar, DashboardSection, ErpAnalyticsPageFrame, ErpDataTable, ErpDateRangePicker, ErpEmptyState, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpStatusBadge, type AnalyticsVisualizationSize, type QuickStatusItemData} from "@/src/components/common";
-import {ApiError, financeApi, queryKeys, salesApi, type AuthSession} from "@/src/services/api";
+import {ApiError, financeApi, queryKeys, type AuthSession} from "@/src/services/api";
 import {createCapabilities, useAuth} from "@/src/app/auth";
 import {useTablePreferences} from "@/src/hooks/useTablePreferences";
 import {useUrlSearchState} from "@/src/hooks/useUrlSearchState";
-import type {SalesListDataset} from "@/src/types/sales";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {formatCurrency} from "@/src/lib/format";
 import {storeDate} from "@/src/utils/storeTime";
 import {FinanceTableControls} from "../components/FinanceTableControls";
-import {countActiveFinanceProfitFilters, defaultFinanceProfitFilters, financeProfitFiltersToSearch, parseFinanceProfitFilters, selectFinanceProfitInsights, selectFinanceProfitReport, type FinanceProfitDimension, type FinanceProfitFilters, type FinanceProfitGroupRow, type FinanceProfitInsight, type FinanceProfitReport} from "../finance-profit";
+import {countActiveFinanceProfitFilters, defaultFinanceProfitFilters, financeProfitFiltersToSearch, parseFinanceProfitFilters, selectFinanceProfitInsights, type FinanceProfitDimension, type FinanceProfitFilters, type FinanceProfitGroupRow, type FinanceProfitInsight, type FinanceProfitReport} from "../finance-profit";
 import {financeNetTone, financeProfitChartConfig} from "../finance-chart.utils";
 
 const dimensionOptions = [
@@ -34,46 +36,45 @@ function useFinanceProfitUrlState() {
 }
 
 export function FinanceProfitPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useFinanceProfitUrlState();
   const allowed = createCapabilities(session).menu("finance_reports");
+  const requestFilters = useDebouncedValue(filters, 300);
   const permissions = session?.permissions || {showCost: false, showProfit: false};
   const salesQuery = useQuery({
-    queryKey: queryKeys.finance.profitSales({userId: session?.user.id || "anonymous", showCost: permissions.showCost, showProfit: permissions.showProfit}),
-    queryFn: ({signal}) => salesApi.listAllForReport({showCost: permissions.showCost, showProfit: permissions.showProfit}, signal),
-    enabled: Boolean(session && allowed),
-    placeholderData: keepPreviousData,
-    retry: false,
-  });
-  const flowQuery = useQuery({
-    queryKey: queryKeys.finance.profitFlows({userId: session?.user.id || "anonymous"}, {startDate: filters.dateStart, endDate: filters.dateEnd}),
-    queryFn: ({signal}) => financeApi.profitFlows({startDate: filters.dateStart, endDate: filters.dateEnd}, signal),
-    enabled: Boolean(session && allowed && permissions.showProfit),
+    queryKey: queryKeys.finance.profitReport({userId: session?.user.id || "anonymous", showCost: permissions.showCost, showProfit: permissions.showProfit}, requestFilters),
+    queryFn: ({signal}) => financeApi.profitReport(requestFilters, signal),
+    enabled: active && Boolean(session && allowed) && JSON.stringify(filters) === JSON.stringify(requestFilters),
     retry: false,
   });
   useEffect(() => {if (salesQuery.error instanceof ApiError && salesQuery.error.isUnauthorized) logout();}, [logout, salesQuery.error]);
-  useEffect(() => {if (flowQuery.error instanceof ApiError && flowQuery.error.isUnauthorized) logout();}, [logout, flowQuery.error]);
   if (!session) return <Card><ErpLoadingState title="正在验证销售利润权限" /></Card>;
   if (!session || !allowed) return <ErpPageError title="当前账号没有销售利润权限" description="服务端权限未包含 finance_reports；页面不会请求或展示销售利润数据。" />;
-  return <FinanceProfitContent session={session} filters={filters} onFiltersChange={commit} query={salesQuery} flowQuery={flowQuery} />;
+  return <FinanceProfitContent session={session} filters={filters} onFiltersChange={commit} query={salesQuery} />;
 }
 
-function FinanceProfitContent({session, filters, onFiltersChange, query, flowQuery}: {session: AuthSession; filters: FinanceProfitFilters; onFiltersChange: (filters: FinanceProfitFilters) => void; query: ReturnType<typeof useQuery<SalesListDataset>>; flowQuery: ReturnType<typeof useQuery<Awaited<ReturnType<typeof financeApi.profitFlows>>> >}) {
+function FinanceProfitContent({session, filters, onFiltersChange, query}: {session: AuthSession; filters: FinanceProfitFilters; onFiltersChange: (filters: FinanceProfitFilters) => void; query: ReturnType<typeof useQuery<FinanceProfitReport>>}) {
   const {columnVisibility, setColumnVisibility, density, setDensity} = useTablePreferences<VisibilityState>({feature: "finance-profit", userId: session.user.id, defaultVisibility: {}});
-  const report = useMemo(() => selectFinanceProfitReport(query.data?.items || [], filters, flowQuery.data), [filters, flowQuery.data, query.data?.items]);
+  const ready = !query.isPending && !query.isError && Object.entries(filters).every(([key, value]) => (query.data?.filters as unknown as Record<string, unknown> | undefined)?.[key] === value);
+  const report = ready && query.data ? query.data : emptyReport;
+  const metricValue = (value: string) => query.isError ? "—" : ready ? value : "更新中";
   const activeFilters = countActiveFinanceProfitFilters(filters);
-  const insights = useMemo(() => selectFinanceProfitInsights(report, session.permissions.showProfit), [report, session.permissions.showProfit]);
+  const insights = useMemo(() => selectFinanceProfitInsights({...report, rows: report.insightRows || report.rows}, session.permissions.showProfit), [report, session.permissions.showProfit]);
   const visualizationSize: AnalyticsVisualizationSize = report.trend.length <= 3 ? "compact" : report.trend.length <= 30 ? "standard" : "expanded";
   const columns = useMemo(() => createFinanceProfitColumns({showCost: session.permissions.showCost, showProfit: session.permissions.showProfit}), [session.permissions.showCost, session.permissions.showProfit]);
   const update = (partial: Partial<FinanceProfitFilters>) => onFiltersChange({...filters, ...partial, page: partial.page ?? 1});
-  const exportReport = () => {
+  const sorting: SortingState = filters.sortKey ? [{id: filters.sortKey, desc: filters.sortDirection !== "asc"}] : [];
+  const exportReport = async () => {
+    let exported: FinanceProfitReport;
+    try {exported = await financeApi.profitReport(filters, undefined, true);} catch {notify.error("导出失败，请稍后重试"); return;}
     const headers = ["分组", "辅助信息", "订单数", "数量", "销售额", ...(session.permissions.showCost ? ["成本"] : []), ...(session.permissions.showProfit ? ["毛利", "毛利率"] : [])];
-    const rows = report.rows.map((row) => [row.label, row.secondary, row.orderCount, row.quantity, row.revenue, ...(session.permissions.showCost ? [row.cost === undefined ? "" : row.cost] : []), ...(session.permissions.showProfit ? [row.profit === undefined ? "" : row.profit, row.margin === undefined ? "" : `${(row.margin * 100).toFixed(2)}%`] : [])]);
+    const rows = exported.rows.map((row) => [row.label, row.secondary, row.orderCount, row.quantity, row.revenue, ...(session.permissions.showCost ? [row.cost === undefined ? "" : row.cost] : []), ...(session.permissions.showProfit ? [row.profit === undefined ? "" : row.profit, row.margin === undefined ? "" : `${(row.margin * 100).toFixed(2)}%`] : [])]);
     const summaryRows = session.permissions.showProfit ? [
-      ["销售毛利", report.summary.profit ?? ""],
-      ["其他收入（按日期）", report.summary.otherIncome ?? ""],
-      ["其他支出（按日期）", report.summary.otherExpense ?? ""],
-      ["净利润", report.summary.netProfit ?? ""],
+      ["销售毛利", exported.summary.profit ?? ""],
+      ["其他收入（按日期）", exported.summary.otherIncome ?? ""],
+      ["其他支出（按日期）", exported.summary.otherExpense ?? ""],
+      ["净利润", exported.summary.netProfit ?? ""],
     ] : [];
     const csv = `\uFEFF${[headers, ...rows, [], ["汇总项", "金额"], ...summaryRows].map((row) => row.map(csvCell).join(",")).join("\n")}`;
     const url = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
@@ -81,27 +82,26 @@ function FinanceProfitContent({session, filters, onFiltersChange, query, flowQue
   };
   const quickStatus: QuickStatusItemData[] = [
     {icon: <LockKeyhole className="h-4 w-4" />, label: "利润权限", value: session.permissions.showProfit ? "可查看" : "已隐藏", description: "跟随当前账号权限", tone: session.permissions.showProfit ? "success" : "neutral"},
-    {icon: <FileText className="h-4 w-4" />, label: "分析单据", value: `${report.summary.orderCount} 单`, description: "当前筛选结果", tone: "info"},
+    {icon: <FileText className="h-4 w-4" />, label: "分析单据", value: metricValue(`${report.summary.orderCount} 单`), description: "当前筛选结果", tone: "info"},
   ];
   return <ErpAnalyticsPageFrame>
-    <ErpPageHeader title="销售毛利" subtitle="按商品、客户、渠道或经办人查看销售额、成本与销售毛利表现。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" disabled={query.isFetching || flowQuery.isFetching} onClick={() => {void query.refetch(); if (session.permissions.showProfit) void flowQuery.refetch();}}><RefreshCw className={`h-4 w-4 ${query.isFetching || flowQuery.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="secondary" disabled={!report.rows.length} onClick={exportReport}><Download className="h-4 w-4" />导出结果</Button></>} />
+    <ErpPageHeader title="销售毛利" subtitle="按商品、客户、渠道或经办人查看销售额、成本与销售毛利表现。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" disabled={query.isFetching} onClick={() => {void query.refetch(); }}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="secondary" disabled={query.isFetching || query.isPending || !report.rows.length} onClick={() => void exportReport()}><Download className="h-4 w-4" />导出结果</Button></>} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
-    {flowQuery.error && <div className="flex items-center gap-2 bg-[var(--erp-color-warning-soft)] px-4 py-3 text-sm text-[var(--erp-color-text-secondary)]"><LockKeyhole className="h-4 w-4 shrink-0 text-[var(--erp-color-warning)]" />其他收支加载失败，净利润暂不计算；销售毛利仍按销售单独立展示。</div>}
     <AnalyticsKpiRegion
       primary={<>
-        <ErpMetricCard label="销售额" value={formatCurrency(report.summary.revenue)} detail="当前筛选汇总" icon={<CircleDollarSign className="h-4 w-4" />} tone="info" />
-        <ErpMetricCard label="销售毛利" value={session.permissions.showProfit && report.summary.profit !== undefined ? formatCurrency(report.summary.profit) : "—"} detail={session.permissions.showProfit ? "销售额 − 商品成本" : "当前账号无利润权限"} icon={<TrendingUp className="h-4 w-4" />} tone={report.summary.profit !== undefined && report.summary.profit < 0 ? "danger" : "success"} />
-        <ErpMetricCard label="净利润" value={session.permissions.showProfit && report.summary.netProfit !== undefined ? formatCurrency(report.summary.netProfit) : "—"} detail={session.permissions.showProfit ? "销售毛利 + 其他收入 − 其他支出" : "当前账号无利润权限"} icon={<BarChart3 className="h-4 w-4" />} tone={session.permissions.showProfit && report.summary.netProfit !== undefined ? financeNetTone(report.summary.netProfit) : "neutral"} />
+        <ErpMetricCard label="销售额" value={metricValue(formatCurrency(report.summary.revenue))} detail="当前筛选汇总" icon={<CircleDollarSign className="h-4 w-4" />} tone="info" />
+        <ErpMetricCard label="销售毛利" value={metricValue(session.permissions.showProfit && report.summary.profit !== undefined ? formatCurrency(report.summary.profit) : "—")} detail={session.permissions.showProfit ? "销售额 − 商品成本" : "当前账号无利润权限"} icon={<TrendingUp className="h-4 w-4" />} tone={report.summary.profit !== undefined && report.summary.profit < 0 ? "danger" : "success"} />
+        <ErpMetricCard label="净利润" value={metricValue(session.permissions.showProfit && report.summary.netProfit !== undefined ? formatCurrency(report.summary.netProfit) : "—")} detail={session.permissions.showProfit ? "销售毛利 + 其他收入 − 其他支出" : "当前账号无利润权限"} icon={<BarChart3 className="h-4 w-4" />} tone={session.permissions.showProfit && report.summary.netProfit !== undefined ? financeNetTone(report.summary.netProfit) : "neutral"} />
       </>}
       secondary={<>
-        {session.permissions.showCost && <ErpMetricCard label="销售成本" value={report.summary.cost === undefined ? "—" : formatCurrency(report.summary.cost)} detail="当前筛选汇总" icon={<WalletCards className="h-4 w-4" />} tone="danger" variant="compact" />}
-        {session.permissions.showProfit && <ErpMetricCard label="毛利率" value={report.summary.margin === undefined ? "—" : `${(report.summary.margin * 100).toFixed(2)}%`} detail="销售毛利 ÷ 销售额" icon={<BarChart3 className="h-4 w-4" />} tone="success" variant="compact" />}
-        {session.permissions.showProfit && <ErpMetricCard label="其他收入" value={report.summary.otherIncome === undefined ? "—" : formatCurrency(report.summary.otherIncome)} detail="按日期范围，不分摊到明细" icon={<CircleDollarSign className="h-4 w-4" />} tone="success" variant="compact" />}
-        {session.permissions.showProfit && <ErpMetricCard label="其他支出" value={report.summary.otherExpense === undefined ? "—" : formatCurrency(report.summary.otherExpense)} detail="按日期范围，不分摊到明细" icon={<WalletCards className="h-4 w-4" />} tone="danger" variant="compact" />}
-        <ErpMetricCard label="分析订单" value={`${report.summary.orderCount} 单`} detail="当前筛选结果" icon={<FileText className="h-4 w-4" />} tone="neutral" variant="compact" />
-        <ErpMetricCard label="销售数量" value={`${report.summary.quantity} 件`} detail="销售单实物数量" icon={<Layers3 className="h-4 w-4" />} tone="neutral" variant="compact" />
-        {session.permissions.showProfit && <ErpMetricCard label="盈利分组" value={`${report.summary.profitableGroups} 组`} detail="当前维度有利润" icon={<TrendingUp className="h-4 w-4" />} tone="success" variant="compact" />}
-        {session.permissions.showProfit && <ErpMetricCard label="亏损分组" value={`${report.summary.lossGroups} 组`} detail="需要重点关注" icon={<BarChart3 className="h-4 w-4" />} tone={report.summary.lossGroups ? "danger" : "neutral"} variant="compact" />}
+        {session.permissions.showCost && <ErpMetricCard label="销售成本" value={metricValue(report.summary.cost === undefined ? "—" : formatCurrency(report.summary.cost))} detail="当前筛选汇总" icon={<WalletCards className="h-4 w-4" />} tone="danger" variant="compact" />}
+        {session.permissions.showProfit && <ErpMetricCard label="毛利率" value={metricValue(report.summary.margin === undefined ? "—" : `${(report.summary.margin * 100).toFixed(2)}%`)} detail="销售毛利 ÷ 销售额" icon={<BarChart3 className="h-4 w-4" />} tone="success" variant="compact" />}
+        {session.permissions.showProfit && <ErpMetricCard label="其他收入" value={metricValue(report.summary.otherIncome === undefined ? "—" : formatCurrency(report.summary.otherIncome))} detail="按日期范围，不分摊到明细" icon={<CircleDollarSign className="h-4 w-4" />} tone="success" variant="compact" />}
+        {session.permissions.showProfit && <ErpMetricCard label="其他支出" value={metricValue(report.summary.otherExpense === undefined ? "—" : formatCurrency(report.summary.otherExpense))} detail="按日期范围，不分摊到明细" icon={<WalletCards className="h-4 w-4" />} tone="danger" variant="compact" />}
+        <ErpMetricCard label="分析订单" value={metricValue(`${report.summary.orderCount} 单`)} detail="当前筛选结果" icon={<FileText className="h-4 w-4" />} tone="neutral" variant="compact" />
+        <ErpMetricCard label="销售数量" value={metricValue(`${report.summary.quantity} 件`)} detail="销售单实物数量" icon={<Layers3 className="h-4 w-4" />} tone="neutral" variant="compact" />
+        {session.permissions.showProfit && <ErpMetricCard label="盈利分组" value={metricValue(`${report.summary.profitableGroups} 组`)} detail="当前维度有利润" icon={<TrendingUp className="h-4 w-4" />} tone="success" variant="compact" />}
+        {session.permissions.showProfit && <ErpMetricCard label="亏损分组" value={metricValue(`${report.summary.lossGroups} 组`)} detail="需要重点关注" icon={<BarChart3 className="h-4 w-4" />} tone={report.summary.lossGroups ? "danger" : "neutral"} variant="compact" />}
       </>}
     />
     <AnalyticsToolbar actions={<Button type="button" size="sm" variant="ghost" onClick={() => onFiltersChange(defaultFinanceProfitFilters)}><RotateCcw className="h-4 w-4" />重置</Button>}>
@@ -113,7 +113,7 @@ function FinanceProfitContent({session, filters, onFiltersChange, query, flowQue
       <AnalyticsMainRegion.Visualization size={visualizationSize}><DashboardSection title="毛利趋势" description="销售毛利来自销售额减商品成本；净利润额外叠加日期范围内的其他收支。" actions={<ErpStatusBadge label={`${report.trend.length} 个日期`} tone="info" />}><ProfitTrend trend={report.trend} showProfit={session.permissions.showProfit} showNetProfit={session.permissions.showProfit && report.summary.netProfit !== undefined} updatedAt={storeDate()} /></DashboardSection></AnalyticsMainRegion.Visualization>
       <AnalyticsMainRegion.Insights><DashboardSection title="毛利洞察" description="从当前销售毛利结果中优先展示机会与风险。"><ProfitInsights insights={insights} showProfit={session.permissions.showProfit} /></DashboardSection></AnalyticsMainRegion.Insights>
     </AnalyticsMainRegion>
-    <AnalyticsDetailRegion><DashboardSection title="毛利明细" description="按当前维度展示销售毛利；其他收支只在净利润汇总中体现，不分摊到商品、客户或经办人。" actions={<div className="flex items-center gap-2"><ErpStatusBadge label={`${report.meta.page} / ${report.meta.totalPages} 页 · ${report.pageRows.length} 条`} tone="info" /><FinanceTableControls columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} density={density} onDensityChange={setDensity} /></div>}><ErpDataTable ariaLabel="销售毛利明细" surface="plain" columns={columns} data={report.pageRows} getRowId={(row) => row.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="销售毛利加载失败" emptyTitle="暂无毛利数据" emptyDescription={activeFilters ? "当前筛选条件没有匹配的销售单。" : "当前没有可展示的销售单据。"} onRetry={() => void query.refetch()} page={report.meta.page} pageSize={report.meta.pageSize} total={report.meta.total} onPageChange={(page) => update({page})} onPageSizeChange={(pageSize) => update({page: 1, pageSize})} columnVisibility={columnVisibility} onColumnVisibilityChange={setColumnVisibility} enableColumnResizing density={density} stickyHeader /></DashboardSection></AnalyticsDetailRegion>
+    <AnalyticsDetailRegion><DashboardSection title="毛利明细" description="按当前维度展示销售毛利；其他收支只在净利润汇总中体现，不分摊到商品、客户或经办人。" actions={<div className="flex items-center gap-2"><ErpStatusBadge label={`${report.meta.page} / ${report.meta.totalPages} 页 · ${report.pageRows.length} 条`} tone="info" /><FinanceTableControls columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} density={density} onDensityChange={setDensity} /></div>}><ErpDataTable ariaLabel="销售毛利明细" surface="plain" columns={columns} data={report.pageRows} getRowId={(row) => row.id} loading={!ready && !query.isError} fetching={query.isFetching || !ready} error={query.error as Error | null} errorTitle="销售毛利加载失败" emptyTitle="暂无毛利数据" emptyDescription={activeFilters ? "当前筛选条件没有匹配的销售单。" : "当前没有可展示的销售单据。"} onRetry={() => void query.refetch()} page={report.meta.page} pageSize={report.meta.pageSize} total={report.meta.total} onPageChange={(page) => update({page})} onPageSizeChange={(pageSize) => update({page: 1, pageSize})} columnVisibility={columnVisibility} onColumnVisibilityChange={setColumnVisibility} enableColumnResizing density={density} manualSorting sorting={sorting} onSortingChange={(updater) => {const next = typeof updater === "function" ? updater(sorting) : updater; update({sortKey: next[0]?.id as FinanceProfitFilters["sortKey"], sortDirection: next[0] ? next[0].desc ? "desc" : "asc" : undefined});}} stickyHeader /></DashboardSection></AnalyticsDetailRegion>
     </ErpPageContent>
   </ErpAnalyticsPageFrame>;
 }
@@ -171,3 +171,4 @@ function csvCell(value: string | number) {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
+const emptyReport: FinanceProfitReport = {sourceItems: [], rows: [], pageRows: [], trend: [], summary: {orderCount: 0, quantity: 0, revenue: 0, profitableGroups: 0, lossGroups: 0}, meta: {total: 0, page: 1, pageSize: 20, totalPages: 1}};

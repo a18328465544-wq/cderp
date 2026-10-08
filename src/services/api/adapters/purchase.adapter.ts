@@ -30,6 +30,7 @@ import {calculatePurchaseSettlement, expandPurchaseLines} from "@/src/lib/purcha
 import {PURCHASE_PENDING_INSPECTION_DEFAULTS} from "@/src/features/purchase/purchase.defaults";
 import {storeDate} from "@/src/utils/storeTime";
 import {isInventoryLinkedToPurchase} from "@/src/utils/inventoryRelations";
+import {getRecordVersion} from "@/src/utils/recordVersion";
 
 const productCategories = productCategoryValues;
 const purchaseSourceTypes = sourceTypeValues;
@@ -157,7 +158,7 @@ export function adaptPurchaseInvoice(value: PurchaseInvoiceResponseDto | unknown
   return {
     id: text(dto.id),
     invoiceNo: text(dto.invoiceNo),
-    recordVersion: Math.max(1, Math.floor(numberValue(dto.recordVersion, 1))),
+    recordVersion: getRecordVersion(dto),
     date: text(dto.date, storeDate()),
     sourceType: sourceTypeValue(dto.sourceType),
     sourcePartnerId: optionalText(dto.sourcePartnerId),

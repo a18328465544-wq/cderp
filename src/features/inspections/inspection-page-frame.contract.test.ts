@@ -53,13 +53,24 @@ test("inspection grids follow form width and share label control and error track
 });
 
 test("phone inspection keeps a single form alive while returning to its queue", () => {
-  assert.ok(source.includes('if ((selectedId || form.getValues("inventoryId")) === candidate.id && !editingHistory) {'));
-  assert.match(source, /const activeInventoryId = selectedId \|\| formInventoryId/);
+  assert.ok(source.includes('if (form.getValues("inventoryId") === candidate.id && !editingHistory) {'));
+  assert.match(source, /const activeInventoryId = formInventoryId \|\| selectedId/);
   assert.equal((source.match(/<InspectionFormDrawer /g) || []).length, 1);
   assert.match(source, /hidden=\{mobile && \(!selectedCandidate \|\| showMobileList\)\}/);
   assert.match(source, /onBack=\{\(\) => setShowMobileList\(true\)\}/);
   assert.match(source, /unsavedChanges.requestLeave\(applySelection\)/);
-  assert.match(source, /setCompletedInventoryId\(variables.values.inventoryId\)/);
+  assert.match(source, /setCompletedInventoryId\(attempt.values.inventoryId\)/);
+});
+
+test("inspection completions only reset their owning editor and never another Tab's URL", () => {
+  assert.match(source, /mounted.current && isCurrentInspectionAttempt\(variables, scopeRef.current, form.getValues\(\)\)/);
+  assert.match(source, /if \(latestActive.current\) clearSavedInspection\(variables\)/);
+  assert.match(source, /deferredCompletion.current = variables/);
+  assert.match(source, /if \(!active \|\| !attempt\) return/);
+  assert.match(source, /isCurrentInspectionAttempt\(mutation.variables, scopeRef.current, formValues\)/);
+  assert.match(source, /<fieldset disabled=\{draftPending\}/);
+  assert.match(source, /inFlight.current = attempt;[\s\S]*mutation.mutate\(attempt\)/);
+  assert.match(source, /if \(!currentUrlId \|\| currentUrlId === attempt.values.inventoryId\) setSelectedId\(""\)/);
 });
 
 test("phone groups expose errors and leave desktop fields flat", () => {
@@ -69,5 +80,21 @@ test("phone groups expose errors and leave desktop fields flat", () => {
   assert.match(source, /<form noValidate/);
   assert.match(source, /if \(mobile\) return;\s*const frame = requestAnimationFrame/);
   assert.match(styles, /\.erp-inspection-submit \{[^}]*position: sticky;[^}]*env\(safe-area-inset-bottom\)/);
-  assert.match(styles, /\.erp-inspection-form\[data-keyboard-open\] \.erp-inspection-submit/);
+  assert.match(styles, /\[data-phone-keyboard="open"\]/);
+  assert.doesNotMatch(source, /restingHeight - viewport.height/);
+});
+
+test("phone intake uses task hierarchy and a horizontal, reachable final action", () => {
+  assert.match(source, /erp-inspection-task-header/);
+  assert.match(source, /aria-label="返回入库待办"/);
+  assert.match(source, /aria-label="入库序列号"/);
+  assert.match(source, /aria-label="当前入库设置"/);
+  assert.match(source, /erp-inspection-phone-product/);
+  assert.match(source, /title=\{candidate.productName\}/);
+  assert.match(styles, /\[data-erp-component="mobile-workflow"\]\[data-mobile-final="true"\] \.erp-inspection-submit \{ flex-direction: row;/);
+  assert.match(styles, /\.erp-phone-warehouse-tasks > a \{[^}]*min-height: var\(--erp-mobile-touch-size\)/);
+  assert.match(styles, /\.erp-inspection-task-header \{[^}]*position: sticky; top: 0;/);
+  assert.match(styles, /:has\(\.erp-inspection-form\) \{ scroll-margin-top:/);
+  const workflow = readFileSync(new URL("../../components/common/ErpMobileWorkflow.tsx", import.meta.url), "utf8");
+  assert.match(workflow, /useEffect\(\(\) => setStep\(0\), \[resetKey, steps.length\]\)/);
 });

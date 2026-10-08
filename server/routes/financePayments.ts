@@ -2,16 +2,15 @@ import type {Express, Request, RequestHandler} from "express";
 import {accountTransferCreateDto, accountTransferUpdateDto, parseHttpDto, paymentInCreateDto, paymentInUpdateDto, paymentOutCreateDto, paymentOutUpdateDto} from "../httpDto.ts";
 import {ConflictError} from "../errors.ts";
 import {createAccountingReversalDocumentInTransaction, saveStateRecords} from "../db.ts";
-import {runStateCommand, type StateCommandTransactionHook} from "../stateCommand.ts";
+import type {StateCommandPrepare, StateCommandTransactionHook} from "../stateCommand.ts";
 import {compactStateMerge, stateDeleteRecords, stateMergeRecords, statePatchResponse, type StateDeletePatch, type StateMergePatch} from "../statePatch.ts";
-import type {AccountTransferRecord, PaymentInRecord, PaymentOutRecord} from "../../src/types.ts";
+import type {AccountTransferRecord, PaymentInRecord, PaymentOutRecord, SystemUserAccount} from "../../src/types.ts";
 import type {AppState, createStoreActions} from "../store.ts";
+import type {AuthenticatedRequest} from "../httpAuth.ts";
+import {captureFinanceFacts, completeFinancePatch, runFinanceStateCommand} from "../financeMutationPatch.ts";
+import {projectFinanceMutationResponse} from "../financeMutationResponse.ts";
 
-type FinancePaymentRequest = Request & {
-  authUser?: {displayName?: string; username?: string};
-  tenantId?: string;
-  storeId?: string;
-};
+type FinancePaymentRequest = AuthenticatedRequest<SystemUserAccount>;
 
 type IdempotencyContext = {
   request: {
@@ -67,6 +66,10 @@ function reversalReason(req: Request) {
  * extraction introduces dedicated finance services.
  */
 export function registerFinancePaymentRoutes(app: Express, dependencies: FinancePaymentDependencies) {
+  function runFinanceCommand<T>(command: () => T | Promise<T>, patchFor: (data: T) => StateMergePatch, prepare?: StateCommandPrepare<T>, hook?: StateCommandTransactionHook<T>) {
+    return runFinanceStateCommand(dependencies.getState(), command, patchFor, prepare, hook);
+  }
+
   app.post(
     "/api/gpu_erp/finance/payment-in/create",
     dependencies.requireMenu("payment_in"),
@@ -74,12 +77,12 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentInRecords"));
         return;
       }
       try {
         const command = parseHttpDto(paymentInCreateDto, withoutImagePayload(req.body));
-        const {data: created, stateMerge} = await runStateCommand(
+        const {data: created, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).createPaymentIn(command),
           dependencies.paymentInMerge,
           async (record) => {
@@ -88,7 +91,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           dependencies.transactionHookWithIdempotency(idempotency, 201),
         );
-        res.status(201).json(okMerge(created, stateMerge));
+        res.status(201).json(projectFinanceMutationResponse(dependencies.getState(), okMerge(created, stateMerge, stateDelete), authRequest.authUser, "paymentInRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -103,12 +106,12 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentInRecords"));
         return;
       }
       try {
         const command = parseHttpDto(paymentInUpdateDto, withoutImagePayload(req.body));
-        const {data: updated, stateMerge} = await runStateCommand(
+        const {data: updated, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).updatePaymentIn(req.params.id!, command),
           dependencies.paymentInMerge,
           async (record) => {
@@ -117,7 +120,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           dependencies.transactionHookWithIdempotency(idempotency, 200),
         );
-        res.json(okMerge(updated, stateMerge));
+        res.json(projectFinanceMutationResponse(dependencies.getState(), okMerge(updated, stateMerge, stateDelete), authRequest.authUser, "paymentInRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -133,33 +136,35 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentInRecords"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.paymentInRecords.find((item) => item.id === req.params.id!);
         const hasPostedFlow = Boolean(existing?.accountingStatus === "已入账" || existing?.settlementLedgerId || existing?.financeLedgerId || state.settlementLedger.some((item) => item.relatedDocNo === existing?.relatedDocNo || item.relatedDocNo === existing?.id) || state.financeLedger.some((item) => item.relatedId === existing?.relatedDocNo || item.relatedId === existing?.id));
         if (hasPostedFlow) throw new ConflictError("已入账收款单不能直接删除，请使用冲销收款单");
         const deleted = dependencies.actions(authRequest).deletePaymentIn(req.params.id!);
         const relatedDocNos = new Set([existing?.id, existing?.relatedDocNo, deleted?.id, deleted?.relatedDocNo].filter(Boolean));
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.accountId, deleted?.accountId]),
           salesInvoices: state.salesInvoices.filter((item) => relatedDocNos.has(item.id) || relatedDocNos.has(item.invoiceNo)),
           customers: state.customers.filter((item) => item.id === existing?.customerId || item.id === deleted?.customerId),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
+        const businessDelete = {
           paymentInRecords: deleted?.id ? [deleted.id] : [],
           settlementLedger: [existing?.settlementLedgerId, deleted?.settlementLedgerId].filter(Boolean) as string[],
           financeLedger: [existing?.financeLedgerId, deleted?.financeLedgerId].filter(Boolean) as string[],
         };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
           idempotency ? (client) => dependencies.transactionHookWithIdempotency(idempotency, 200)!(client, deleted, {stateMerge, stateDelete}) : undefined,
           authRequest.tenantId,
         );
-        res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+        res.status(deleted ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(deleted, stateMerge, stateDelete), authRequest.authUser, "paymentInRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -175,15 +180,16 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentInRecords"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.paymentInRecords.find((item) => item.id === req.params.id!);
         const reversed = dependencies.actions(authRequest).reversePaymentIn(req.params.id!);
         const relatedDocNos = new Set([existing?.id, existing?.relatedDocNo, reversed?.id, reversed?.relatedDocNo].filter(Boolean));
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           paymentInRecords: reversed?.id ? [reversed] : [],
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.accountId, reversed?.accountId]),
           salesInvoices: state.salesInvoices.filter((item) => relatedDocNos.has(item.id) || relatedDocNos.has(item.invoiceNo)),
@@ -191,10 +197,11 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           financeLedger: state.financeLedger.filter((item) => relatedDocNos.has(item.relatedId)),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
+        const businessDelete = {
           settlementLedger: [existing?.settlementLedgerId, reversed?.settlementLedgerId].filter(Boolean) as string[],
           financeLedger: [existing?.financeLedgerId, reversed?.financeLedgerId].filter(Boolean) as string[],
         };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
         const baseHook = idempotency ? dependencies.transactionHookWithIdempotency(idempotency, 200) : undefined;
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
@@ -215,7 +222,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           authRequest.tenantId,
         );
-        res.status(reversed ? 200 : 404).json(okMerge(reversed, stateMerge, stateDelete));
+        res.status(reversed ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(reversed, stateMerge, stateDelete), authRequest.authUser, "paymentInRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -230,12 +237,12 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentOutRecords"));
         return;
       }
       try {
         const command = parseHttpDto(paymentOutCreateDto, withoutImagePayload(req.body));
-        const {data: created, stateMerge} = await runStateCommand(
+        const {data: created, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).createPaymentOut(command),
           dependencies.paymentOutMerge,
           async (record) => {
@@ -244,7 +251,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           dependencies.transactionHookWithIdempotency(idempotency, 201),
         );
-        res.status(201).json(okMerge(created, stateMerge));
+        res.status(201).json(projectFinanceMutationResponse(dependencies.getState(), okMerge(created, stateMerge, stateDelete), authRequest.authUser, "paymentOutRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -259,12 +266,12 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentOutRecords"));
         return;
       }
       try {
         const command = parseHttpDto(paymentOutUpdateDto, withoutImagePayload(req.body));
-        const {data: updated, stateMerge} = await runStateCommand(
+        const {data: updated, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).updatePaymentOut(req.params.id!, command),
           dependencies.paymentOutMerge,
           async (record) => {
@@ -273,7 +280,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           dependencies.transactionHookWithIdempotency(idempotency, 200),
         );
-        res.json(okMerge(updated, stateMerge));
+        res.json(projectFinanceMutationResponse(dependencies.getState(), okMerge(updated, stateMerge, stateDelete), authRequest.authUser, "paymentOutRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -289,34 +296,36 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentOutRecords"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.paymentOutRecords.find((item) => item.id === req.params.id!);
         const hasPostedFlow = Boolean(existing?.accountingStatus === "已入账" || existing?.settlementLedgerId || existing?.financeLedgerId || state.settlementLedger.some((item) => item.relatedDocNo === existing?.relatedDocNo || item.relatedDocNo === existing?.id) || state.financeLedger.some((item) => item.relatedId === existing?.relatedDocNo || item.relatedId === existing?.id));
         if (hasPostedFlow) throw new ConflictError("已入账付款单不能直接删除，请使用冲销付款单");
         const deleted = dependencies.actions(authRequest).deletePaymentOut(req.params.id!);
         const relatedDocNos = new Set([existing?.id, existing?.relatedDocNo, deleted?.id, deleted?.relatedDocNo].filter(Boolean));
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.accountId, deleted?.accountId]),
           purchaseInvoices: state.purchaseInvoices.filter((item) => relatedDocNos.has(item.id) || relatedDocNos.has(item.invoiceNo)),
           vendors: state.vendors.filter((item) => item.id === existing?.supplierId || item.id === deleted?.supplierId),
           customers: state.customers.filter((item) => item.id === existing?.customerId || item.id === deleted?.customerId),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
+        const businessDelete = {
           paymentOutRecords: deleted?.id ? [deleted.id] : [],
           settlementLedger: [existing?.settlementLedgerId, deleted?.settlementLedgerId].filter(Boolean) as string[],
           financeLedger: [existing?.financeLedgerId, deleted?.financeLedgerId].filter(Boolean) as string[],
         };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
           idempotency ? (client) => dependencies.transactionHookWithIdempotency(idempotency, 200)!(client, deleted, {stateMerge, stateDelete}) : undefined,
           authRequest.tenantId,
         );
-        res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+        res.status(deleted ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(deleted, stateMerge, stateDelete), authRequest.authUser, "paymentOutRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -332,15 +341,16 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "paymentOutRecords"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.paymentOutRecords.find((item) => item.id === req.params.id!);
         const reversed = dependencies.actions(authRequest).reversePaymentOut(req.params.id!);
         const relatedDocNos = new Set([existing?.id, existing?.relatedDocNo, reversed?.id, reversed?.relatedDocNo].filter(Boolean));
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           paymentOutRecords: reversed?.id ? [reversed] : [],
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.accountId, reversed?.accountId]),
           purchaseInvoices: state.purchaseInvoices.filter((item) => relatedDocNos.has(item.id) || relatedDocNos.has(item.invoiceNo)),
@@ -349,10 +359,11 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           financeLedger: state.financeLedger.filter((item) => relatedDocNos.has(item.relatedId)),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
+        const businessDelete = {
           settlementLedger: [existing?.settlementLedgerId, reversed?.settlementLedgerId].filter(Boolean) as string[],
           financeLedger: [existing?.financeLedgerId, reversed?.financeLedgerId].filter(Boolean) as string[],
         };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
         const baseHook = idempotency ? dependencies.transactionHookWithIdempotency(idempotency, 200) : undefined;
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
@@ -373,7 +384,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           authRequest.tenantId,
         );
-        res.status(reversed ? 200 : 404).json(okMerge(reversed, stateMerge, stateDelete));
+        res.status(reversed ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(reversed, stateMerge, stateDelete), authRequest.authUser, "paymentOutRecords"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -388,18 +399,18 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "accountTransfers"));
         return;
       }
       try {
         const command = parseHttpDto(accountTransferCreateDto, req.body);
-        const {data: created, stateMerge} = await runStateCommand(
+        const {data: created, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).createAccountTransfer(command),
           dependencies.accountTransferMerge,
           undefined,
           dependencies.transactionHookWithIdempotency(idempotency, 201),
         );
-        res.status(201).json(okMerge(created, stateMerge));
+        res.status(201).json(projectFinanceMutationResponse(dependencies.getState(), okMerge(created, stateMerge, stateDelete), authRequest.authUser, "accountTransfers"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -414,18 +425,18 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "accountTransfers"));
         return;
       }
       try {
         const command = parseHttpDto(accountTransferUpdateDto, req.body);
-        const {data: updated, stateMerge} = await runStateCommand(
+        const {data: updated, stateMerge, stateDelete} = await runFinanceCommand(
           () => dependencies.actions(authRequest).updateAccountTransfer(req.params.id!, command),
           dependencies.accountTransferMerge,
           undefined,
           dependencies.transactionHookWithIdempotency(idempotency, 200),
         );
-        res.json(okMerge(updated, stateMerge));
+        res.json(projectFinanceMutationResponse(dependencies.getState(), okMerge(updated, stateMerge, stateDelete), authRequest.authUser, "accountTransfers"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -441,30 +452,32 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "accountTransfers"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.accountTransfers.find((item) => item.id === req.params.id!);
         const settlementLedgerIds = state.settlementLedger.filter((item) => item.relatedDocNo === req.params.id!).map((item) => item.id);
         const financeLedgerIds = state.financeLedger.filter((item) => item.relatedId === req.params.id!).map((item) => item.id);
         const deleted = dependencies.actions(authRequest).deleteAccountTransfer(req.params.id!);
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.fromAccountId, existing?.toAccountId, deleted?.fromAccountId, deleted?.toAccountId]),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
+        const businessDelete = {
           accountTransfers: deleted?.id ? [deleted.id] : [],
           settlementLedger: settlementLedgerIds,
           financeLedger: financeLedgerIds,
         };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge, stateDelete: businessDelete});
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
           idempotency ? (client) => dependencies.transactionHookWithIdempotency(idempotency, 200)!(client, deleted, {stateMerge, stateDelete}) : undefined,
           authRequest.tenantId,
         );
-        res.status(deleted ? 200 : 404).json(okMerge(deleted, stateMerge, stateDelete));
+        res.status(deleted ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(deleted, stateMerge, stateDelete), authRequest.authUser, "accountTransfers"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;
@@ -480,22 +493,20 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
       const authRequest = req as FinancePaymentRequest;
       const idempotency = await dependencies.claimMutationIdempotency(authRequest);
       if (idempotency?.replay) {
-        res.status(idempotency.replay.statusCode).json(idempotency.replay.response);
+        res.status(idempotency.replay.statusCode).json(projectFinanceMutationResponse(dependencies.getState(), idempotency.replay.response, authRequest.authUser, "accountTransfers"));
         return;
       }
       try {
         const state = dependencies.getState();
+        const before = captureFinanceFacts(state);
         const existing = state.accountTransfers.find((item) => item.id === req.params.id!);
         const reversed = dependencies.actions(authRequest).reverseAccountTransfer(req.params.id!);
-        const stateMerge = compactStateMerge({
+        const businessMerge = compactStateMerge({
           accountTransfers: reversed?.id ? [reversed] : [],
           settlementAccounts: recordsByIds(state.settlementAccounts, [existing?.fromAccountId, existing?.toAccountId, reversed?.fromAccountId, reversed?.toAccountId]),
           logs: state.logs.slice(0, 1),
         });
-        const stateDelete = {
-          settlementLedger: state.settlementLedger.filter((item) => item.relatedDocNo === req.params.id!).map((item) => item.id),
-          financeLedger: state.financeLedger.filter((item) => item.relatedId === req.params.id!).map((item) => item.id),
-        };
+        const {stateMerge, stateDelete = {}} = completeFinancePatch(state, before, {stateMerge: businessMerge});
         const baseHook = idempotency ? dependencies.transactionHookWithIdempotency(idempotency, 200) : undefined;
         await saveStateRecords(
           [...stateMergeRecords(stateMerge), ...stateDeleteRecords(stateDelete)],
@@ -516,7 +527,7 @@ export function registerFinancePaymentRoutes(app: Express, dependencies: Finance
           },
           authRequest.tenantId,
         );
-        res.status(reversed ? 200 : 404).json(okMerge(reversed, stateMerge, stateDelete));
+        res.status(reversed ? 200 : 404).json(projectFinanceMutationResponse(state, okMerge(reversed, stateMerge, stateDelete), authRequest.authUser, "accountTransfers"));
       } catch (error) {
         await dependencies.releaseMutationIdempotency(idempotency);
         throw error;

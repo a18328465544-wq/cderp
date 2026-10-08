@@ -40,7 +40,8 @@ export function AppHeader() {
     <>
       <header className="erp-tab-navigation relative flex h-[var(--erp-workspace-bar-height)] min-h-[var(--erp-workspace-bar-height)] shrink-0 items-center gap-1 border-b border-[var(--erp-color-border)] bg-white/95 px-2 backdrop-blur sm:gap-2 sm:px-3 lg:px-4">
         <Button
-          className="lg:hidden"
+          data-erp-header-action="tablet-menu"
+          className="hidden md:inline-flex lg:hidden"
           aria-label="打开菜单"
           size="icon"
           variant="ghost"
@@ -66,6 +67,8 @@ export function AppHeader() {
             size="icon"
             aria-label="AI 助手"
             title="AI 助手"
+            data-erp-header-action="desktop-ai"
+            className="hidden md:inline-flex"
             onClick={() => setAiDrawerOpen(true)}
           >
             <Sparkles className="h-4 w-4 text-[var(--erp-color-primary)]" />
@@ -93,6 +96,7 @@ export function AppHeader() {
                   </div>
                   <div className="my-1 h-px bg-[var(--erp-color-border)]" aria-hidden="true" />
                   {canManageUsers && <Link
+                    data-erp-header-action="desktop-management"
                     to="/settings/users"
                     onClick={() => setAccountOpen(false)}
                     className="erp-focus-ring flex min-h-9 w-full items-center gap-2 rounded-[var(--erp-radius-md)] px-3 text-sm font-medium text-[var(--erp-color-text-secondary)] hover:bg-[var(--erp-color-surface-muted)] hover:text-[var(--erp-color-text)]"

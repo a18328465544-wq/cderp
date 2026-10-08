@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {adaptSalesCustomer, adaptSalesCustomers, adaptSalesInventoryCandidate, adaptSalesProductCandidate, toCreateSalesRequest} from "./sales.adapter";
+import {adaptSalesCustomer, adaptSalesCustomers, adaptSalesInventoryCandidate, adaptSalesProductCandidate, toCreateSalesRequest, toSalesOutboundRequestDto} from "./sales.adapter";
 import {createSalesDefaults} from "@/src/features/sales/sales.defaults";
+
+test("manual outbound sends the real reason without inventing a scanner code", () => {
+  assert.deepEqual(toSalesOutboundRequestDto({handler: " 仓库员 ", codes: [], manual: true, remarks: " 设备故障，人工复核 "}), {
+    handler: "仓库员", codes: [], manual: true, remarks: "设备故障，人工复核",
+  });
+});
+
+test("scanner outbound preserves duplicates for authoritative physical verification", () => {
+  assert.deepEqual(toSalesOutboundRequestDto({handler: "仓库员", codes: [" SN-1 ", "", "SN-1", " SN-2 "], manual: false, remarks: ""}), {
+    handler: "仓库员", codes: ["SN-1", "SN-1", "SN-2"], manual: false, remarks: undefined,
+  });
+});
 
 test("sales customer adapter uses legacy archive id and blocks unmapped主体", () => {
   const mapped = adaptSalesCustomer({id: "CRM-1", displayName: "张三", primaryPhone: "13800000000", legacyCustomer: {id: "KH-1", name: "张三", phone: "13800000000", level: "A级"}});

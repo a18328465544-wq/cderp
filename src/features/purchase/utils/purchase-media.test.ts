@@ -18,5 +18,6 @@ test("purchase form only receives uploaded media URLs", () => {
     {status: "uploaded"},
   ]), ["/api/media/assets/IMG-1"]);
   assert.equal(hasBlockingPurchaseMedia([{status: "uploaded"}, {status: "failed"}]), true);
+  assert.equal(hasBlockingPurchaseMedia([{status: "local"}]), true);
   assert.equal(hasBlockingPurchaseMedia([{status: "uploaded"}]), false);
 });

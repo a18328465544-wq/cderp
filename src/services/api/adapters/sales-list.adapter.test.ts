@@ -2,6 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {adaptSalesInvoiceRecord, adaptSalesListState, adaptSalesOutboundState, toSalesOutboundRequestDto} from "./sales.adapter";
 
+test("sales detail and list projections carry the same revision without deriving it from masked money", () => {
+  for (const savedRevision of [undefined, 1, 7]) {
+    const invoice = {id: "SALE-VERSION", invoiceNo: "XS-VERSION", recordVersion: savedRevision, customerName: "版本客户", totalCost: 1000, items: []};
+    const expected = savedRevision || 1;
+    for (const showCost of [false, true]) {
+      const permissions = {showCost, showProfit: showCost};
+      assert.equal(adaptSalesListState({data: {salesInvoices: [invoice], inventory: []}}, permissions).items[0]!.recordVersion, expected);
+      assert.equal(adaptSalesInvoiceRecord(invoice, permissions).recordVersion, expected);
+    }
+  }
+});
+
 function response() {
   return {data: {
     salesInvoices: [{
@@ -74,10 +86,10 @@ test("sales outbound request adapter trims but preserves repeated scans for serv
   });
 });
 
-test("manual outbound request satisfies the existing DTO without inventing an inventory binding", () => {
+test("manual outbound request keeps an empty scan list and a real manual reason", () => {
   assert.deepEqual(toSalesOutboundRequestDto({handler: " 仓库小李 ", codes: [], manual: true, remarks: "扫码设备异常"}), {
     handler: "仓库小李",
-    codes: ["__manual_confirmation__"],
+    codes: [],
     manual: true,
     remarks: "扫码设备异常",
   });

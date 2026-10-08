@@ -4,6 +4,7 @@ import type {SalesReturnCompleteResponseDto, SalesReturnListResponseDto, SalesRe
 import type {PurchaseReturnFormValues, SalesReturnFormValues, SalesReturnListFilters, SalesReturnListItem} from "@/src/types/returns";
 import {adaptPublicState} from "../adapters/state.adapter";
 import type {PublicStateResponseDto} from "../dto/state.dto";
+import {resolveSubmissionKey, type SubmissionKey} from "../submissionIdentity";
 
 function completionIdempotencyKey(id: string) {
   // Return ids are stable for the lifetime of a return order. Keep the key
@@ -71,13 +72,17 @@ export const returnsApi = {
     return result.items.find((item) => item.id === keyword || item.returnNo === keyword || item.sourceInventoryId === keyword || item.sourceInventoryIds?.includes(keyword)) || null;
   },
 
-  async createSales(values: SalesReturnFormValues, signal?: AbortSignal) {
+  async createSales(values: SalesReturnFormValues, signal?: AbortSignal, identity?: SubmissionKey) {
     const {returnScope, returnItems, ...formValues} = values;
-    return apiRequest<{data?: unknown; state?: unknown}>("/api/returns", {method: "POST", body: JSON.stringify({type: "销售退货", relatedDocType: "销售单", settlementMode: "原路退款", ...formValues, sourceInventoryId: formValues.sourceInventoryId || undefined, partyId: formValues.partyId || undefined, ...(returnScope === "document" && returnItems?.length ? {batchMode: "整单退货", items: returnItems} : {})}), signal});
+    const payload = {type: "销售退货", relatedDocType: "销售单", settlementMode: "原路退款", ...formValues, sourceInventoryId: formValues.sourceInventoryId || undefined, partyId: formValues.partyId || undefined, ...(returnScope === "document" && returnItems?.length ? {batchMode: "整单退货", items: returnItems} : {})};
+    const idempotencyKey = resolveSubmissionKey(identity, payload);
+    return apiRequest<{data?: unknown; state?: unknown}>("/api/returns", {method: "POST", body: JSON.stringify(payload), signal, headers: idempotencyKey ? {"Idempotency-Key": idempotencyKey} : undefined});
   },
 
-  async createPurchase(values: PurchaseReturnFormValues, signal?: AbortSignal) {
-    return apiRequest<{data?: unknown; state?: unknown}>("/api/returns", {method: "POST", body: JSON.stringify(toPurchaseReturnRequestDto(values)), signal});
+  async createPurchase(values: PurchaseReturnFormValues, signal?: AbortSignal, identity?: SubmissionKey) {
+    const payload = toPurchaseReturnRequestDto(values);
+    const idempotencyKey = resolveSubmissionKey(identity, payload);
+    return apiRequest<{data?: unknown; state?: unknown}>("/api/returns", {method: "POST", body: JSON.stringify(payload), signal, headers: idempotencyKey ? {"Idempotency-Key": idempotencyKey} : undefined});
   },
 
   async complete(id: string, signal?: AbortSignal, idempotencyKey = completionIdempotencyKey(id)) {

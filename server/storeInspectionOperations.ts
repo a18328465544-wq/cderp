@@ -1,9 +1,11 @@
-import type {CardInventory, CardStatus, InspectionRecord} from "../src/types.ts";
+import type {CardInventory, CardStatus, InspectionRecord, PurchaseInvoice} from "../src/types.ts";
 import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
+import {advancePurchaseVersionsForInventory} from "./purchaseRecordVersion.ts";
 
 export type InspectionOperationsState = {
   inventory: CardInventory[];
   inspections: InspectionRecord[];
+  purchaseInvoices: PurchaseInvoice[];
 };
 
 export type InspectionOperationsDependencies = {
@@ -73,6 +75,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
         remarks: `${card.remarks || ""} (${isBrandNewInspection ? "全新商品快速核验完成，SN 已确认。" : isGpuInspection ? `质检结果: ${normalizedReport.resultStatus}. 烤机高热: ${normalizedReport.temperature}℃.` : "其他配件简易检测完成."} ${normalizedReport.remarks || ""})`,
       };
     });
+    advancePurchaseVersionsForInventory(state, [targetCard]);
     addLog(
       systemActor(),
       "测试质检",
@@ -156,6 +159,7 @@ export function createInspectionOperationHelpers(dependencies: InspectionOperati
         remarks: `${card.remarks || ""} (检测单${id}已编辑: ${isBrandNewInspection ? "全新快速入库" : isGpuInspection ? updated.resultStatus : "配件简易检测"}. ${updated.remarks || ""})`,
       };
     });
+    advancePurchaseVersionsForInventory(state, [targetCard]);
     addLog(systemActor(), "测试质检", "编辑入库检测单", id, existing.sn, sn);
     return updated;
   };

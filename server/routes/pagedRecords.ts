@@ -4,6 +4,7 @@ import {
   queryPaymentOutPage,
   queryCommissionPage,
   queryFinanceProfitOtherFlows,
+  queryFinanceProfitReport,
   queryPurchaseInvoicePage,
   querySalesInvoicePage,
   querySettlementLedgerPage,
@@ -11,7 +12,7 @@ import {
 import {AppError} from "../errors.ts";
 import type {CommissionMode, PurchaseCommissionRecord, PurchaseInvoice, SalesInvoice} from "../../src/types.ts";
 import {canAccessCommissionMode, projectCommissionRecord} from "../commissionRecords.ts";
-import {commissionListQueryDto, financeProfitFlowQueryDto, financeRecordListQueryDto, invoiceListQueryDto, parseHttpDto} from "../httpDto.ts";
+import {commissionListQueryDto, financeProfitReportQueryDto, financeProfitFlowQueryDto, financeRecordListQueryDto, invoiceListQueryDto, parseHttpDto} from "../httpDto.ts";
 import type {AuthenticatedRequest} from "../httpAuth.ts";
 
 type VisibilityPermissions = {showCost?: boolean; showProfit?: boolean; allowedMenus: string[]};
@@ -63,6 +64,14 @@ function paymentPageFilters(req: Request) {
 
 /** PostgreSQL-backed read models for high-growth financial and invoice collections. */
 export function registerPagedRecordRoutes(app: Express, dependencies: PagedRecordDependencies) {
+  app.get("/api/finance/profit-report", dependencies.requireMenu("finance_reports"), async (req, res, next) => {
+    try {
+      const filters = parseHttpDto(financeProfitReportQueryDto, req.query);
+      assertDateRange(filters.dateStart, filters.dateEnd, "利润");
+      const request = req as AuthenticatedRequest<unknown>;
+      res.json({data: await queryFinanceProfitReport({...filters, tenantId: request.tenantId!, storeId: request.storeId!}, dependencies.permissionsForRequest(req))});
+    } catch (error) {next(error);}
+  });
   app.get("/api/purchase-invoices", dependencies.requireMenu("purchase_list"), async (req, res, next) => {
     try {
       const filters = invoicePageFilters(req);

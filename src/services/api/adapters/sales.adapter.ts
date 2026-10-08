@@ -1,6 +1,7 @@
 import {adaptInventoryItem} from "./inventory.adapter";
 import type {InventoryItemDto} from "../dto/inventory.dto";
-import type {SalesCreateRequestDto, SalesCustomerDto, SalesOutboundRequestDto, SalesProductCandidateDto, SalesSettlementAccountDto} from "../dto/sales.dto";
+import type {SalesCreateRequestDto, SalesCustomerDto, SalesOutboundRequestDto, SalesProductCandidateDto, SalesSettlementAccountDto, SalesUpdateRequestDto} from "../dto/sales.dto";
+import {getRecordVersion} from "@/src/utils/recordVersion";
 import type {SalesChannel, SalesCustomerOption, SalesFormValues, SalesInventoryCandidate, SalesInvoice, SalesInvoiceResult, SalesListDataset, SalesListItem, SalesListLine, SalesMutationResult, SalesOutboundDataset, SalesOutboundInventoryItem, SalesOutboundPreflightResult, SalesOutboundRequest, SalesOutboundResult, SalesOutboundStatus, SalesPartnerType, SalesPaymentStatus, SalesProductCandidate, SalesSettlementAccountOption} from "@/src/types/sales";
 import {isInventoryLinkedToSales} from "@/src/utils/inventoryRelations";
 import {isInventorySellableStatus} from "@/src/utils/inventoryFilters";
@@ -106,6 +107,7 @@ export function adaptSalesListState(response: {data?: unknown; meta?: unknown}, 
       return {
         id,
         invoiceNo,
+        recordVersion: getRecordVersion(dto),
         date: text(dto.date),
         customerId: text(dto.customerId) || undefined,
         customerPartnerType,
@@ -282,11 +284,9 @@ export function toSalesOutboundRequestDto(values: SalesOutboundRequest): SalesOu
     handler: values.handler.trim(),
     // Preserve repeats so the server can reject duplicate physical scans instead of
     // silently normalizing an operator mistake before the authoritative preflight.
-    // The existing outbound DTO requires a non-empty codes array even for the
-    // explicitly supported manual mode. Manual matching ignores codes on the
-    // server, so use a deterministic protocol marker only when no scan was
-    // supplied; it is never treated as an inventory ID or persisted as data.
-    codes: values.manual && codes.length === 0 ? ["__manual_confirmation__"] : codes,
+    // Manual requests use the server's explicit empty-code + required-reason
+    // contract; no synthetic inventory ID/SN belongs in the request.
+    codes,
     manual: values.manual,
     remarks: values.remarks.trim() || undefined,
   };
@@ -484,6 +484,7 @@ export function adaptSalesInvoiceRecord(value: unknown, permissions: SalesApiPer
   return {
     id: text(dto.id || dto.invoiceNo),
     invoiceNo: text(dto.invoiceNo || dto.id),
+    recordVersion: getRecordVersion(dto),
     date: text(dto.date),
     customerId: text(dto.customerId) || undefined,
     customerPartnerType,
@@ -575,9 +576,9 @@ export function toCreateSalesRequest(values: SalesFormValues, account?: SalesSet
  * is expanded exactly once and physical SN/inventory binding remains owned by
  * the outbound flow.
  */
-export function toSalesUpdateRequestDto(values: SalesFormValues, account?: SalesSettlementAccountOption, mode: "full" | "metadata" = "full") {
+export function toSalesUpdateRequestDto(values: SalesFormValues, account: SalesSettlementAccountOption | undefined, expectedRecordVersion: number, mode: "full" | "metadata" = "full"): SalesUpdateRequestDto {
   if (mode === "metadata") {
-    return {expressNo: values.expressNo.trim(), remarks: values.remarks.trim()};
+    return {expectedRecordVersion, expressNo: values.expressNo.trim(), remarks: values.remarks.trim()};
   }
-  return toCreateSalesRequest(values, account);
+  return {...toCreateSalesRequest(values, account), expectedRecordVersion};
 }

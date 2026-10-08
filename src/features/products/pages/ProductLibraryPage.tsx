@@ -1,7 +1,8 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {OnChangeFn, SortingState} from "@tanstack/react-table";
 import {Boxes, Download, Filter, Layers3, PackageCheck, Plus, RefreshCw, ShieldAlert, Upload} from "lucide-react";
-import {ErpSearchInput} from "@/src/components/common";
+import {ErpMobileSummary, ErpSearchInput} from "@/src/components/common";
 import {useEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, Select} from "@/src/components/ui";
@@ -29,6 +30,7 @@ function toProductLedgerSubject(product: ProductLibraryItem): ProductLedgerSubje
 }
 
 export function ProductLibraryPage() {
+  const {active} = useWorkspaceTabActivity();
   const {session, logout} = useAuth();
   const {value: filters, commit} = useProductUrlState();
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -37,7 +39,7 @@ export function ProductLibraryPage() {
   const allowed = createCapabilities(session).menu("products");
   const canViewLedger = createCapabilities(session).menu("inventory");
   const permissions = session?.permissions;
-  const listQuery = useQuery({queryKey: queryKeys.products.list({showCost: Boolean(permissions?.showCost), showProfit: Boolean(permissions?.showProfit)}, serverFilters, sorting), queryFn: ({signal}) => productsApi.list(serverFilters, sorting, {showCost: Boolean(permissions?.showCost), showProfit: Boolean(permissions?.showProfit)}, signal), enabled: Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
+  const listQuery = useQuery({queryKey: queryKeys.products.list({showCost: Boolean(permissions?.showCost), showProfit: Boolean(permissions?.showProfit)}, serverFilters, sorting), queryFn: ({signal}) => productsApi.list(serverFilters, sorting, {showCost: Boolean(permissions?.showCost), showProfit: Boolean(permissions?.showProfit)}, signal), enabled: active && Boolean(session && allowed), placeholderData: keepPreviousData, retry: false});
   if (!session) return <Card><ErpLoadingState title="正在验证商品库权限" /></Card>;
   if (!session || !allowed) return <ErpPageError title="当前账号没有商品库权限" description="服务器已拒绝 products 菜单访问，请联系管理员授权。" />;
   return <ProductLibraryContent session={session} query={listQuery} filters={filters} sorting={sorting} onSortingChange={(next) => {setSorting(next); commit({...filters, page: 1});}} onFiltersChange={commit} onAuthExpired={logout} canViewLedger={canViewLedger} />;
@@ -115,12 +117,12 @@ function ProductLibraryContent({session, query, filters, sorting, onSortingChang
 
   return <ErpListPageFrame>
     <ErpPageHeader title="商品库" subtitle="统一维护采购、检测、库存和行情共用的商品规格模板；商品身份和历史关联仍由服务端负责。" quickStatus={quickStatus} actions={<><input ref={importRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => {const file = event.target.files?.[0]; if (file) void onImportFile(file); event.target.value = "";}} /><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="primary" onClick={openCreate}><Plus className="h-4 w-4" />新建模板</Button></>} />
-    <MetricsRegion>
+    <ErpMobileSummary><MetricsRegion>
       <MetricCard label="商品模板" value={`${total} 款`} detail="当前筛选的服务端汇总" icon={<Boxes className="h-4 w-4" />} />
       <MetricCard label="有库存规格" value={`${stockedTemplates} 款`} detail={`${stockUnits} 件物理库存`} icon={<PackageCheck className="h-4 w-4" />} tone="success" />
       <MetricCard label="品类覆盖" value={`${query.data?.categories.length || 0} 类`} detail={`${query.data?.brands.length || 0} 个品牌`} icon={<Layers3 className="h-4 w-4" />} />
       <MetricCard label="当前筛选" value={`${total} 款`} detail={activeFilters ? `${activeFilters} 项筛选生效` : "全部商品模板"} icon={<Filter className="h-4 w-4" />} tone={activeFilters ? "warning" : "neutral"} />
-    </MetricsRegion>
+    </MetricsRegion></ErpMobileSummary>
     <ErpPageToolbar><ErpFilterBar actions={<><Button type="button" size="sm" variant="ghost" onClick={() => onFiltersChange(defaultProductFilters)}>重置</Button><Button type="button" size="sm" variant="secondary" onClick={downloadTemplate}><Download className="h-4 w-4" />导入模板</Button><Button type="button" size="sm" variant="secondary" onClick={() => importRef.current?.click()} disabled={importMutation.isPending}><Upload className="h-4 w-4" />CSV 导入</Button><Button type="button" size="sm" variant="secondary" onClick={exportProducts}><Download className="h-4 w-4" />导出</Button></>}>
       <ErpSearchInput className="min-w-64 flex-1" value={filters.keyword} onChange={(event) => onFiltersChange({...filters, keyword: event.target.value, page: 1})} placeholder="商品名称、型号、品牌、版本、规格或配件 ID" aria-label="搜索商品模板" />
       <Select value={filters.category} onValueChange={(category) => onFiltersChange({...filters, category, page: 1})} options={[{value: "all", label: "全部品类"}, ...(query.data?.categories || []).map((value) => ({value, label: value}))]} className="w-40" aria-label="筛选商品品类" />

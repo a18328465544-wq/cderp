@@ -1,9 +1,11 @@
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 import type {
   CardInventory,
   PaymentInRecord,
   PaymentOutRecord,
   PurchaseItem,
   ReturnOrder,
+  ReturnOrderItem,
   ReturnInventoryStateSnapshot,
   SalesItem,
 } from "../src/types.ts";
@@ -16,11 +18,13 @@ import {
 } from "./storeReturnPlanning.ts";
 import {hasUniqueLegacyName} from "./storePartnerIdentity.ts";
 import {isPersonalPurchaseSource} from "../src/utils/purchaseSources.ts";
+import {isValidReturnAmount, resolveReturnSourceAmount} from "../src/utils/returnAmounts.ts";
 import type {ReturnOperationsDependencies} from "./storeReturnTypes.ts";
 
 export type ReturnDeletionDependencies = Pick<
   ReturnOperationsDependencies,
   | "state"
+  | "replaceState"
   | "systemActor"
   | "deletePaymentIn"
   | "deletePaymentOut"
@@ -60,6 +64,7 @@ function restoreInventoryCard(
 export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependencies) {
   const {
     state,
+    replaceState,
     systemActor,
     deletePaymentIn,
     deletePaymentOut,
@@ -78,18 +83,16 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     if (batchItems.length < 1) throw new ConflictError("整单销售退货缺少有效商品明细，不能冲销");
     const payments = returnRefundPayments(order) as PaymentOutRecord[];
     const cashRefundAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    payments.forEach((payment) => deletePaymentOut(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments}));
+    payments.forEach((payment) => deletePaymentOut(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments, owningReturnId: order.id}));
 
     const restoredLines = batchItems.map((batchItem) => {
       const returnedCard = findReturnInventory(batchItem);
       if (!returnedCard) throw new NotFoundError(`销售退货库存档案不存在，不能删除已完成退货单: ${batchItem.sourceInventoryId}`);
-      const restoredSellPrice = Number(batchItem.sourceSalesItemSnapshot?.sellPrice || batchItem.amount || returnedCard.salesPrice || 0);
-      const restoredCost = Number(batchItem.sourceSalesItemSnapshot?.costPrice || returnedCard.costPrice || 0);
-      const restoredProfit = batchItem.sourceSalesItemSnapshot?.profit !== undefined
-        ? Number(batchItem.sourceSalesItemSnapshot.profit)
-        : restoredSellPrice - restoredCost;
+      const restoredSellPrice = resolveReturnSourceAmount(batchItem.sourceSalesItemSnapshot?.sellPrice, batchItem.amount ?? returnedCard.salesPrice);
+      const restoredCost = resolveReturnSourceAmount(batchItem.sourceSalesItemSnapshot?.costPrice, returnedCard.costPrice);
+      const restoredProfit = Number(batchItem.sourceSalesItemSnapshot?.profit ?? (restoredSellPrice - restoredCost));
       const restoredSourceItem: SalesItem = batchItem.sourceSalesItemSnapshot
-        ? {...batchItem.sourceSalesItemSnapshot}
+        ? {...batchItem.sourceSalesItemSnapshot, sellPrice: restoredSellPrice, costPrice: restoredCost, profit: restoredProfit}
         : {
             inventoryId: returnedCard.id,
             productId: returnedCard.productId,
@@ -122,7 +125,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const unpaidAmount = Math.max(0, totalAmount - paidAmount);
     const restoredDebt = Math.max(0, unpaidAmount - Number(invoice.unpaidAmount || 0));
     state.salesInvoices = state.salesInvoices.map((item) => item.id === invoice.id
-      ? {...item, items: restoredItems, totalCount, totalCost, totalAmount, totalProfit, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已收款" : paidAmount > 0 ? "部分收款" : "未收款", remarks: removeReturnRemark(item.remarks, order.returnNo)}
+      ? {...item, recordVersion: getRecordVersion(item) + 1, items: restoredItems, totalCount, totalCost, totalAmount, totalProfit, paidAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已收款" : paidAmount > 0 ? "部分收款" : "未收款", remarks: removeReturnRemark(item.remarks, order.returnNo)}
       : item);
 
     const restoredSellPrice = restoredLines.reduce((sum, line) => sum + line.restoredSellPrice, 0);
@@ -159,7 +162,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const payments = returnRefundPayments(order) as PaymentInRecord[];
     const refundedCash = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const cashRefundAmount = Number(order.cashReleasedAmount ?? refundedCash ?? (order.settlementMode === "直接冲销" ? order.reversedPaymentSnapshot?.amount : 0) ?? 0);
-    payments.forEach((payment) => deletePaymentIn(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments}));
+    payments.forEach((payment) => deletePaymentIn(payment.id, {skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments, owningReturnId: order.id}));
     if (order.settlementMode === "直接冲销" && order.reversedPaymentSnapshot) {
       const snapshot = order.reversedPaymentSnapshot;
       createPaymentOut({supplierId: snapshot.supplierId, supplierName: snapshot.supplierName, customerId: snapshot.customerId, customerName: snapshot.customerName, accountId: snapshot.accountId, amount: snapshot.amount, handler: snapshot.handler, paymentMethod: snapshot.paymentMethod, businessType: snapshot.businessType, relatedDocType: snapshot.relatedDocType, relatedDocNo: snapshot.relatedDocNo, time: snapshot.time, remarks: snapshot.remarks}, {skipInvoiceUpdate: true});
@@ -167,9 +170,9 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const restoredLines = batchItems.map((batchItem) => {
       const returnedCard = findReturnInventory(batchItem);
       if (!returnedCard) throw new NotFoundError(`进货退货库存档案不存在，不能删除已完成退货单: ${batchItem.sourceInventoryId}`);
-      const amount = Number(batchItem.sourcePurchaseItemSnapshot?.buyPrice || batchItem.amount || returnedCard.costPrice || 0);
+      const amount = resolveReturnSourceAmount(batchItem.sourcePurchaseItemSnapshot?.buyPrice, batchItem.amount ?? returnedCard.costPrice);
       const restoredSourceItem: PurchaseItem = batchItem.sourcePurchaseItemSnapshot
-        ? {...batchItem.sourcePurchaseItemSnapshot}
+        ? {...batchItem.sourcePurchaseItemSnapshot, buyPrice: amount}
         : {
             tempId: returnedCard.id,
             productId: returnedCard.productId,
@@ -214,7 +217,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const restoredPayable = Math.max(0, unpaidAmount - Number(invoice.unpaidAmount || 0));
     const creditAdded = Number(order.vendorCreditAmount ?? (order.settlementMode === "抵扣账款" ? Math.max(0, Number(order.amount || 0) - Number(order.creditAmount || 0)) : 0));
     state.purchaseInvoices = state.purchaseInvoices.map((item) => item.id === invoice.id
-      ? {...item, items: restoredItems, totalCount, totalCost, estTotalSell, estTotalProfit, paidAmount, vendorCreditAppliedAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 || vendorCreditAppliedAmount > 0 ? "部分付款" : "未付款", remarks: removeReturnRemark(item.remarks, order.returnNo)}
+      ? {...item, recordVersion: getRecordVersion(item) + 1, items: restoredItems, totalCount, totalCost, estTotalSell, estTotalProfit, paidAmount, vendorCreditAppliedAmount, unpaidAmount, isPaid: unpaidAmount === 0, paymentStatus: unpaidAmount === 0 ? "已付款" : paidAmount > 0 || vendorCreditAppliedAmount > 0 ? "部分付款" : "未付款", remarks: removeReturnRemark(item.remarks, order.returnNo)}
       : item);
 
     const restoredCost = restoredLines.reduce((sum, line) => sum + line.amount, 0);
@@ -260,15 +263,13 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
 
     const payments = returnRefundPayments(order) as PaymentOutRecord[];
     const cashRefundAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    payments.forEach((payment) => deletePaymentOut(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments }));
+    payments.forEach((payment) => deletePaymentOut(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments, owningReturnId: order.id }));
 
-    const restoredSellPrice = Number(order.sourceSalesItemSnapshot?.sellPrice || order.amount || returnedCard.salesPrice || 0);
-    const restoredCost = Number(order.sourceSalesItemSnapshot?.costPrice || returnedCard.costPrice || 0);
-    const restoredProfit = order.sourceSalesItemSnapshot?.profit !== undefined
-      ? Number(order.sourceSalesItemSnapshot.profit)
-      : restoredSellPrice - restoredCost;
+    const restoredSellPrice = resolveReturnSourceAmount(order.sourceSalesItemSnapshot?.sellPrice, order.amount ?? returnedCard.salesPrice);
+    const restoredCost = resolveReturnSourceAmount(order.sourceSalesItemSnapshot?.costPrice, returnedCard.costPrice);
+    const restoredProfit = Number(order.sourceSalesItemSnapshot?.profit ?? (restoredSellPrice - restoredCost));
     const restoredSourceItem: SalesItem = order.sourceSalesItemSnapshot
-      ? { ...order.sourceSalesItemSnapshot }
+      ? {...order.sourceSalesItemSnapshot, sellPrice: restoredSellPrice, costPrice: restoredCost, profit: restoredProfit}
       : {
           inventoryId: returnedCard.id,
           productId: returnedCard.productId,
@@ -301,6 +302,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     state.salesInvoices = state.salesInvoices.map((item) => item.id === invoice.id
       ? {
           ...item,
+          recordVersion: getRecordVersion(item) + 1,
           items: restoredItems,
           totalCount,
           totalCost,
@@ -360,7 +362,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     const payments = returnRefundPayments(order) as PaymentInRecord[];
     const refundedCash = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const cashRefundAmount = Number(order.cashReleasedAmount ?? refundedCash ?? (order.settlementMode === "直接冲销" ? order.reversedPaymentSnapshot?.amount : 0) ?? 0);
-    payments.forEach((payment) => deletePaymentIn(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments }));
+    payments.forEach((payment) => deletePaymentIn(payment.id, { skipInvoiceUpdate: true, preserveVoided: options?.preserveVoidedPayments, owningReturnId: order.id }));
     if (order.settlementMode === "直接冲销" && order.reversedPaymentSnapshot) {
       const snapshot = order.reversedPaymentSnapshot;
       createPaymentOut({
@@ -380,9 +382,9 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
       }, { skipInvoiceUpdate: true });
     }
 
-    const amount = Number(order.sourcePurchaseItemSnapshot?.buyPrice || order.amount || returnedCard.costPrice || 0);
+    const amount = resolveReturnSourceAmount(order.sourcePurchaseItemSnapshot?.buyPrice, order.amount ?? returnedCard.costPrice);
     const restoredSourceItem: PurchaseItem = order.sourcePurchaseItemSnapshot
-      ? { ...order.sourcePurchaseItemSnapshot }
+      ? {...order.sourcePurchaseItemSnapshot, buyPrice: amount}
       : {
           tempId: returnedCard.id,
           productId: returnedCard.productId,
@@ -429,6 +431,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     state.purchaseInvoices = state.purchaseInvoices.map((item) => item.id === invoice.id
       ? {
           ...item,
+          recordVersion: getRecordVersion(item) + 1,
           items: restoredItems,
           totalCount,
           totalCost,
@@ -483,7 +486,56 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
       : card);
   };
 
-  const deleteReturnOrder = (id: string, options?: ReturnDeletionOptions) => {
+  const validateRestorationInventory = (order: ReturnOrder, line: ReturnOrder | ReturnOrderItem, card: CardInventory) => {
+    // A return snapshot describes the earlier sale/purchase, not ownership of
+    // the physical card after a later inspection, sale or stock transformation.
+    if (line.sourceInventoryId && line.sourceInventoryId !== card.id) {
+      throw new ConflictError("退货库存档案与原库存编号不一致，不能自动冲销");
+    }
+    if (line.sn && line.sn !== card.sn) {
+      throw new ConflictError("退货后库存序列号已变更，不能自动冲销；请先核对后续质检记录");
+    }
+    const expectedStatus = order.inventoryAction === "直接报废"
+      ? "已报废"
+      : order.type === "销售退货" ? "待检测" : "已退货";
+    if (card.status !== expectedStatus) {
+      throw new ConflictError(`退货后库存状态已变为${card.status}，不能自动冲销；请先处理后续业务`);
+    }
+    const linkedSales = state.salesInvoices.find((invoice) => invoice.accountingStatus !== "作废" && invoice.items.some((item) =>
+      item.inventoryId === card.id || (!!card.sn && item.sn === card.sn),
+    ));
+    if (card.salesInvoiceId || linkedSales) {
+      throw new ConflictError("退货库存存在后续销售关联，不能自动冲销；请先处理后续销售单");
+    }
+  };
+
+  const validateRestorationAmounts = (order: ReturnOrder) => {
+    const lines = order.items?.length ? order.items : [order];
+    const total = lines.reduce((sum, line) => {
+      const card = findReturnInventory(line);
+      if (!card) throw new NotFoundError(line.sourceInventoryId ? "退货原库存编号不一致或档案已不存在，不能自动冲销" : "退货库存档案不存在，不能自动冲销");
+      validateRestorationInventory(order, line, card);
+      const price = order.type === "销售退货"
+        ? resolveReturnSourceAmount(line.sourceSalesItemSnapshot?.sellPrice, line.amount ?? card.salesPrice)
+        : resolveReturnSourceAmount(line.sourcePurchaseItemSnapshot?.buyPrice, line.amount ?? card.costPrice);
+      const savedAmount = resolveReturnSourceAmount(line.amount, price);
+      if (!isValidReturnAmount(price) || !isValidReturnAmount(savedAmount) || Math.abs(savedAmount - price) > 0.009) {
+        throw new ConflictError("退货金额与原单快照不一致，不能自动冲销；请先核对历史单据");
+      }
+      if (order.type === "销售退货") {
+        const cost = resolveReturnSourceAmount(line.sourceSalesItemSnapshot?.costPrice, card.costPrice);
+        const profit = Number(line.sourceSalesItemSnapshot?.profit ?? (price - cost));
+        if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(profit)) throw new ConflictError("销售退货成本或利润快照无效，不能自动冲销");
+      }
+      return sum + price;
+    }, 0);
+    const savedTotal = resolveReturnSourceAmount(order.amount, total);
+    if (!isValidReturnAmount(savedTotal) || Math.abs(savedTotal - total) > 0.009) {
+      throw new ConflictError("退货金额与明细合计不一致，不能自动冲销；请先核对历史单据");
+    }
+  };
+
+  const performDeleteReturnOrder = (id: string, options?: ReturnDeletionOptions) => {
     const existing = state.returnOrders.find((item) => item.id === id || item.returnNo === id);
     if (!existing) throw new NotFoundError(`退货单不存在: ${id}`);
     if (existing.status === "已作废") throw new ConflictError("已作废退货单不能删除，请保留原单作为审计凭证");
@@ -491,6 +543,7 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
       throw new ConflictError("该历史直接冲销记录缺少原付款快照，不能自动还原；请先在付款流水中人工核对后处理");
     }
     if (existing.status === "已完成") {
+      validateRestorationAmounts(existing);
       if (existing.type === "销售退货") {
         restoreDeletedSalesReturn(existing, options);
       } else {
@@ -500,6 +553,16 @@ export function createReturnDeletionHelpers(dependencies: ReturnDeletionDependen
     state.returnOrders = state.returnOrders.filter((item) => item.id !== existing.id);
     addLog(systemActor(), "退货管理", existing.status === "已完成" ? "删除并冲销退货单" : "删除退货单", existing.returnNo);
     return existing;
+  };
+
+  const deleteReturnOrder = (id: string, options?: ReturnDeletionOptions) => {
+    const before = structuredClone({...state});
+    try {
+      return performDeleteReturnOrder(id, options);
+    } catch (error) {
+      replaceState(state, before);
+      throw error;
+    }
   };
 
   return {deleteReturnOrder};

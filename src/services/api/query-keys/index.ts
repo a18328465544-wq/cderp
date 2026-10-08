@@ -107,6 +107,7 @@ export const queryKeys = {
     income: (filters: unknown) => ["finance", "income", filters] as const,
     expense: (filters: unknown) => ["finance", "expense", filters] as const,
     profitSales: (access: {userId: string; showCost: boolean; showProfit: boolean}) => ["finance", "profit", "sales", access] as const,
+    profitReport: (access: {userId: string; showCost: boolean; showProfit: boolean}, filters: unknown) => ["finance", "profit", "report", access, filters] as const,
     profitFlows: (access: {userId: string}, range: {startDate: string; endDate: string}) => ["finance", "profit", "other-flows", access, range] as const,
     transfers: (filters: unknown) => ["finance", "transfers", filters] as const,
     customerFunds: (filters: unknown) => ["finance", "customer-funds", filters] as const,

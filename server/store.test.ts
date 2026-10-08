@@ -821,10 +821,17 @@ test("sales invoice rejects unavailable product quantities after pending sales r
 test("after-sales completion returns a repaired card to sold status and reconciliation updates ledger status", () => {
   const state = createInitialState();
   const actions = createStoreActions(state);
-  const soldCard = state.inventory.find((item) => item.status === "已售出") ?? state.inventory[0];
+  const soldCard = state.inventory.find((item) => item.status === "已入库")!;
+  const sale = actions.createSalesInvoice({date: "2026-05-30", customerName: "售后客户", contact: "13700000000",
+    channel: "到店", paymentMethod: "账期欠款", isPaid: false, paidAmount: 0, unpaidAmount: soldCard.estSellPrice,
+    needInvoice: false, freeShipping: true, aftersalesTerms: "店保", handleBy: "本地销售",
+    items: [{inventoryId: soldCard.id, productId: soldCard.productId, productName: soldCard.productName,
+      sn: soldCard.sn, condition: soldCard.condition, costPrice: soldCard.costPrice, sellPrice: soldCard.estSellPrice,
+      profit: soldCard.estSellPrice - soldCard.costPrice, aftersalesTerms: "店保"}]});
+  actions.confirmSalesOutbound(sale.id, {handler: "本地仓库", codes: [soldCard.id]});
 
   const claim = actions.addAftersalesClaim({
-    salesInvoiceNo: "XS-TEST",
+    salesInvoiceNo: sale.invoiceNo,
     customerName: "售后客户",
     contact: "13700000000",
     inventoryNo: soldCard.id,
@@ -1029,10 +1036,19 @@ test("sales deletion and after-sales claims do not update duplicate-name custome
     paymentHandler: "销售",
   });
 
+  actions.deleteSalesInvoice(invoice.id);
+  assert.equal(state.customers.find((item) => item.id === targetCustomer.id)?.totalAmount, 0);
+  assert.equal(state.customers.find((item) => item.id === targetCustomer.id)?.debtBalance, 0);
+  assert.equal(state.customers.find((item) => item.id === duplicateCustomer.id)?.totalAmount, 0);
+  assert.equal(state.customers.find((item) => item.id === duplicateCustomer.id)?.debtBalance, 0);
+  // The independent aftersales assertion uses a real, outbound-complete sale;
+  // a deleted/pending invoice is not a valid source of a new claim.
+  const source = actions.createSalesInvoice({...invoice});
+  actions.confirmSalesOutbound(source.id, {handler: "本地仓库", codes: [firstCard.id]});
   const claim = actions.addAftersalesClaim({
-    salesInvoiceNo: invoice.invoiceNo,
-    customerName: invoice.customerName,
-    contact: invoice.contact,
+    salesInvoiceNo: source.invoiceNo,
+    customerName: source.customerName,
+    contact: source.contact,
     inventoryNo: firstCard.id,
     productName: firstCard.productName,
     sn: firstCard.sn,
@@ -1048,11 +1064,6 @@ test("sales deletion and after-sales claims do not update duplicate-name custome
   assert.equal(state.customers.find((item) => item.id === targetCustomer.id)?.aftersalesCount, 1);
   assert.equal(state.customers.find((item) => item.id === duplicateCustomer.id)?.aftersalesCount, 0);
 
-  actions.deleteSalesInvoice(invoice.id);
-  assert.equal(state.customers.find((item) => item.id === targetCustomer.id)?.totalAmount, 0);
-  assert.equal(state.customers.find((item) => item.id === targetCustomer.id)?.debtBalance, 0);
-  assert.equal(state.customers.find((item) => item.id === duplicateCustomer.id)?.totalAmount, 0);
-  assert.equal(state.customers.find((item) => item.id === duplicateCustomer.id)?.debtBalance, 0);
 });
 
 test("completed non-return after-sales records repair cost without reversing the original sale", () => {
@@ -4267,7 +4278,10 @@ test("customer rename persists financial and after-sales references, and linked 
     paymentMethod: "微信",
     time: "2026-06-15 13:00",
   });
-  actions.addAftersalesClaim({
+  // Imported history may contain unlinked claims. Renaming must preserve and
+  // update those references even though new writes now require a valid source.
+  state.aftersales.unshift({
+    id: "SH-LEGACY-UNLINKED", status: "待处理", createTime: "2026-06-15",
     customerId: customer.id,
     customerName: customer.name,
     contact: customer.phone,

@@ -1,7 +1,10 @@
-import type {CardInventory, InspectionRecord, ProductTemplate} from "../src/types.ts";
+import type {AftersalesRecord, CardInventory, InspectionRecord, ProductTemplate, PurchaseInvoice, SalesInvoice, ReturnOrder} from "../src/types.ts";
 import type {AssemblyOperation} from "../src/types/assembly.ts";
 import {inventoryAftersalesCandidateStatusValues, inventoryInspectionPendingStatusValues, inventoryReturnBlockedStatusValues, inventorySellableStatusValues} from "../src/types/inventory.ts";
 import {withDatabaseTransaction} from "./db.ts";
+import {ForbiddenError} from "./errors.ts";
+import {canViewReturnType, projectReturnOrderForPermissions, projectPurchaseInvoiceForPermissions, projectSalesInvoiceForPermissions, type ReturnVisibility} from "./returnPermissionProjection.ts";
+import {projectAftersalesWorkspaceForPermissions} from "./aftersalesPermissionProjection.ts";
 
 type Scope = {tenantId?: string; storeId?: string};
 type FinancialVisibility = {showCost: boolean; showProfit: boolean};
@@ -62,6 +65,7 @@ function redactInventory(card: CardInventory, visibility: FinancialVisibility) {
     Reflect.deleteProperty(result, "actualSellPrice");
     Reflect.deleteProperty(result, "actualProfit");
   }
+  if (!(visibility.showCost && visibility.showProfit)) Reflect.deleteProperty(result, "actualProfit");
   return result;
 }
 
@@ -135,7 +139,7 @@ export async function getAssemblyReference(scope: Scope, visibility: FinancialVi
   });
 }
 
-export async function listReturnOrders(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; type?: string; status?: string; allowedTypes: string[]; sortKey?: string; sortDirection?: "asc" | "desc"}) {
+export async function listReturnOrders(scope: Scope, filters: {page?: number; pageSize?: number; keyword?: string; type?: string; status?: string; allowedTypes: string[]; sortKey?: string; sortDirection?: "asc" | "desc"}, visibility: ReturnVisibility) {
   return withDatabaseTransaction(async (client) => {
     const query = scoped(scope);
     query.values.push(filters.allowedTypes);
@@ -169,29 +173,34 @@ export async function listReturnOrders(scope: Scope, filters: {page?: number; pa
     const where = `WHERE ${query.clauses.join(" AND ")}`;
     const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_return_orders ${where} ORDER BY ${sortExpression} ${sortDirection} NULLS LAST, COALESCE(data->>'returnNo', id) DESC, id DESC LIMIT $${query.values.length + 1} OFFSET $${query.values.length + 2}`, [...query.values, pageSize, (page - 1) * pageSize]);
     const total = await client.query<{count: string}>(`SELECT COUNT(*)::text count FROM gpu_return_orders ${where}`, query.values);
-    return {data: {data: rows.rows.map((row) => ({...row.data, id: row.id})), meta: {page, pageSize, total: Number(total.rows[0]?.count || 0)}}, meta: {source: "database-page"}};
+    return {data: {data: rows.rows.map((row) => projectReturnOrderForPermissions({...row.data, id: row.id} as unknown as ReturnOrder, visibility)), meta: {page, pageSize, total: Number(total.rows[0]?.count || 0)}}, meta: {source: "database-page"}};
   });
 }
 
-export async function getAftersalesWorkspace(scope: Scope) {
+export async function getAftersalesWorkspace(scope: Scope, visibility: ReturnVisibility) {
   return withDatabaseTransaction(async (client) => {
     const claimScope = scoped(scope);
-    const claims = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_aftersales ${claimScope.clauses.length ? `WHERE ${claimScope.clauses.join(" AND ")}` : ""} ORDER BY COALESCE(data->>'createTime','') DESC, id DESC LIMIT 500`, claimScope.values);
+    const claims = await client.query<{id: string; data: AftersalesRecord}>(`SELECT id, data FROM gpu_aftersales ${claimScope.clauses.length ? `WHERE ${claimScope.clauses.join(" AND ")}` : ""} ORDER BY COALESCE(data->>'createTime','') DESC, id DESC LIMIT 500`, claimScope.values);
     const inventoryScope = scoped(scope, "i");
-    const inventory = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT i.id, i.data FROM gpu_inventory i WHERE ${inventoryScope.clauses.length ? `${inventoryScope.clauses.join(" AND ")} AND` : ""} COALESCE(i.data->>'status','') IN (${inventoryAftersalesCandidateStatusSql}) ORDER BY COALESCE(i.data->>'soldAt','') DESC, i.id DESC LIMIT 500`, inventoryScope.values);
+    const inventory = await client.query<{id: string; data: CardInventory}>(`SELECT i.id, i.data FROM gpu_inventory i WHERE ${inventoryScope.clauses.length ? `${inventoryScope.clauses.join(" AND ")} AND` : ""} COALESCE(i.data->>'status','') IN (${inventoryAftersalesCandidateStatusSql}) ORDER BY COALESCE(i.data->>'soldAt','') DESC, i.id DESC LIMIT 500`, inventoryScope.values);
     const saleIds = Array.from(new Set(inventory.rows.map((row) => String(row.data.salesInvoiceId || "")).filter(Boolean)));
-    const invoices: Array<{id: string; data: Record<string, unknown>}> = [];
+    const invoices: Array<{id: string; data: SalesInvoice}> = [];
     if (saleIds.length) {
       const invoiceScope = scoped(scope);
       invoiceScope.values.push(saleIds);
-      const rows = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_sales_invoices WHERE ${invoiceScope.clauses.length ? `${invoiceScope.clauses.join(" AND ")} AND` : ""} (id = ANY($${invoiceScope.values.length}::text[]) OR data->>'invoiceNo' = ANY($${invoiceScope.values.length}::text[]))`, invoiceScope.values);
+      const rows = await client.query<{id: string; data: SalesInvoice}>(`SELECT id, data FROM gpu_sales_invoices WHERE ${invoiceScope.clauses.length ? `${invoiceScope.clauses.join(" AND ")} AND` : ""} (id = ANY($${invoiceScope.values.length}::text[]) OR data->>'invoiceNo' = ANY($${invoiceScope.values.length}::text[]))`, invoiceScope.values);
       invoices.push(...rows.rows);
     }
-    return {data: {aftersales: claims.rows.map((row) => ({...row.data, id: row.id})), inventory: inventory.rows.map((row) => ({...row.data, id: row.id})), salesInvoices: invoices.map((row) => ({...row.data, id: row.id}))}, meta: {source: "database-workspace", claimLimit: 500, candidateLimit: 500}};
+    return {data: projectAftersalesWorkspaceForPermissions({aftersales: claims.rows.map((row) => ({...row.data, id: row.id})), inventory: inventory.rows.map((row) => ({...row.data, id: row.id})), salesInvoices: invoices.map((row) => ({...row.data, id: row.id}))}, visibility), meta: {source: "database-workspace", claimLimit: 500, candidateLimit: 500}};
   });
 }
 
-export async function getReturnReference(scope: Scope, visibility: FinancialVisibility, filters: {type?: "sales" | "purchase"; keyword?: string; selectedDocNo?: string} = {}) {
+export async function getReturnReference(scope: Scope, visibility: FinancialVisibility & ReturnVisibility, filters: {type?: "sales" | "purchase"; keyword?: string; selectedDocNo?: string} = {}) {
+  const purchaseAllowed = canViewReturnType(visibility, "进货退货");
+  const salesAllowed = canViewReturnType(visibility, "销售退货");
+  if ((!purchaseAllowed && !salesAllowed) || (filters.type === "purchase" && !purchaseAllowed) || (filters.type === "sales" && !salesAllowed)) {
+    throw new ForbiddenError("当前账号没有该退货类型的参考数据权限");
+  }
   return withDatabaseTransaction(async (client) => {
     const queryInvoices = async (table: "gpu_purchase_invoices" | "gpu_sales_invoices", partnerField: "supplierName" | "customerName") => {
       const invoiceScope = scoped(scope);
@@ -207,8 +216,8 @@ export async function getReturnReference(scope: Scope, visibility: FinancialVisi
       if (candidateClauses.length) invoiceScope.clauses.push(`(${candidateClauses.join(" OR ")})`);
       return client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM ${table} ${invoiceScope.clauses.length ? `WHERE ${invoiceScope.clauses.join(" AND ")}` : ""} ORDER BY COALESCE(data->>'date','') DESC, id DESC LIMIT 80`, invoiceScope.values);
     };
-    const purchases = filters.type === "sales" ? {rows: [] as Array<{id: string; data: Record<string, unknown>}>} : await queryInvoices("gpu_purchase_invoices", "supplierName");
-    const sales = filters.type === "purchase" ? {rows: [] as Array<{id: string; data: Record<string, unknown>}>} : await queryInvoices("gpu_sales_invoices", "customerName");
+    const purchases = filters.type === "sales" || !purchaseAllowed ? {rows: [] as Array<{id: string; data: Record<string, unknown>}>} : await queryInvoices("gpu_purchase_invoices", "supplierName");
+    const sales = filters.type === "purchase" || !salesAllowed ? {rows: [] as Array<{id: string; data: Record<string, unknown>}>} : await queryInvoices("gpu_sales_invoices", "customerName");
     const documentIds = Array.from(new Set([...purchases.rows, ...sales.rows].flatMap((row) => [row.id, String(row.data.invoiceNo || "")]).filter(Boolean)));
     const inventory: Array<{id: string; data: CardInventory}> = [];
     if (documentIds.length) {
@@ -237,15 +246,6 @@ export async function getReturnReference(scope: Scope, visibility: FinancialVisi
     const returns = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_return_orders WHERE ${returnScope.clauses.join(" AND ")} ORDER BY COALESCE(data->>'date','') DESC, id DESC LIMIT 1000`, returnScope.values);
     const accountScope = scoped(scope);
     const accounts = await client.query<{id: string; data: Record<string, unknown>}>(`SELECT id, data FROM gpu_settlement_accounts ${accountScope.clauses.length ? `WHERE ${accountScope.clauses.join(" AND ")}` : ""} ORDER BY id LIMIT 100`, accountScope.values);
-    const redactInvoice = (row: {id: string; data: Record<string, unknown>}) => {
-      const data = structuredClone(row.data);
-      if (!visibility.showCost) {
-        for (const key of ["totalCost", "paidAmount", "unpaidAmount", "vendorCreditAppliedAmount"]) Reflect.deleteProperty(data, key);
-        if (Array.isArray(data.items)) data.items = data.items.map((item) => item && typeof item === "object" ? {...item as Record<string, unknown>, buyPrice: visibility.showCost ? (item as Record<string, unknown>).buyPrice : undefined} : item);
-      }
-      if (!visibility.showProfit) for (const key of ["estTotalSell", "estTotalProfit", "totalProfit"]) Reflect.deleteProperty(data, key);
-      return {...data, id: row.id};
-    };
     const returnReservations = returns.rows.map((row) => {
       const nestedInventoryIds = Array.isArray(row.data.items)
         ? row.data.items.flatMap((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).sourceInventoryId === "string" ? [(item as Record<string, unknown>).sourceInventoryId as string] : [])
@@ -262,6 +262,15 @@ export async function getReturnReference(scope: Scope, visibility: FinancialVisi
         sourceInventoryIds: inventoryIds,
       };
     });
-    return {data: {products: products.rows.map((row) => redactProduct({...row.data, id: row.id}, visibility)), purchaseInvoices: purchases.rows.map(redactInvoice), salesInvoices: sales.rows.map(redactInvoice), inventory: inventory.map((row) => redactInventory({...row.data, id: row.id}, visibility)), paymentOutRecords: visibility.showCost ? payments.rows.map((row) => ({...row.data, id: row.id})) : [], settlementAccounts: visibility.showCost ? accounts.rows.map((row) => ({...row.data, id: row.id})) : [], returnReservations}, meta: {source: "database-reference", purchaseLimit: 80, salesLimit: 80, inventoryLimit: 1200, returnReservationLimit: 1000, filtered: Boolean(filters.keyword || filters.selectedDocNo)}};
+    const hasMenu = (menu: string) => visibility.allowedMenus.includes("all") || visibility.allowedMenus.includes(menu);
+    return {data: {
+      products: products.rows.map((row) => redactProduct({...row.data, id: row.id}, visibility)),
+      purchaseInvoices: purchases.rows.map((row) => projectPurchaseInvoiceForPermissions({...row.data, id: row.id} as unknown as PurchaseInvoice, visibility)),
+      salesInvoices: sales.rows.map((row) => projectSalesInvoiceForPermissions({...row.data, id: row.id} as unknown as SalesInvoice, visibility)),
+      inventory: inventory.map((row) => redactInventory({...row.data, id: row.id}, visibility)),
+      paymentOutRecords: visibility.showCost && hasMenu("payment_out") ? payments.rows.map((row) => ({...row.data, id: row.id})) : [],
+      settlementAccounts: visibility.showCost ? accounts.rows.map((row) => hasMenu("settlement_accounts") ? {...row.data, id: row.id} : {id: row.id, name: row.data.name, type: row.data.type, enabled: row.data.enabled}) : [],
+      returnReservations,
+    }, meta: {source: "database-reference", purchaseLimit: 80, salesLimit: 80, inventoryLimit: 1200, returnReservationLimit: 1000, filtered: Boolean(filters.keyword || filters.selectedDocNo)}};
   });
 }

@@ -33,9 +33,12 @@ export function Button({variant = "secondary", size = "md", className, children,
     <BaseButton
       {...props}
       type={props.type ?? "button"}
+      data-erp-button-size={size}
+      data-erp-button-variant={variant}
       className={cn("erp-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--erp-radius-control)] font-medium transition-[background-color,border-color,color,box-shadow] disabled:pointer-events-none disabled:opacity-50", variants[variant], sizes[size], className)}
     >
       {children}
+      {(size === "icon" || size === "iconTouch") && props.title ? <span className="erp-icon-action-label hidden" aria-hidden="true">{props.title}</span> : null}
     </BaseButton>
   );
 }

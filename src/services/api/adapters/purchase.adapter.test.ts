@@ -50,6 +50,37 @@ test("purchase request adapter expands quantity 1, 2 and 5 without inventing SN"
   }
 });
 
+test("purchase create and full-edit adapters omit empty spare rows with cleared quantities", () => {
+  const values = createPurchaseDefaults("测试员");
+  values.sourcePartnerId = "V-1";
+  values.sourcePartnerType = "vendor";
+  values.supplierName = "同行供应商";
+  values.items[0] = {...values.items[0]!, productId: "P-1", productName: "RTX", buyPrice: 100, quantity: 2};
+  values.items.slice(1).forEach((item) => { item.quantity = 0; });
+  const create = toPurchaseRequestDto(values);
+  const edit = toPurchaseUpdateRequestDto(values, undefined, 1, "full");
+  assert.equal(create.items.length, 2);
+  assert.equal(create.items.reduce((total, item) => total + item.buyPrice * (item.quantity ?? 1), 0), 200);
+  assert.equal(create.unpaidAmount, 200);
+  assert.equal(edit.items?.length, 2);
+  assert.ok(create.items.every((item) => item.productId === "P-1" && item.quantity === 1));
+});
+
+test("purchase create and full-edit adapters reject incomplete or oversized quantities before expansion", () => {
+  const values = createPurchaseDefaults("测试员");
+  values.items[0] = {...values.items[0]!, productId: "P-1", productName: "RTX", buyPrice: 100};
+  for (const quantity of [0, -1, 1.5]) {
+    values.items[0]!.quantity = quantity;
+    assert.throws(() => toPurchaseRequestDto(values), /数量必须为正整数/);
+    assert.throws(() => toPurchaseUpdateRequestDto(values, undefined, 1, "full"), /数量必须为正整数/);
+  }
+  values.items[0]!.quantity = 500;
+  values.items[1] = {...values.items[0]!, tempId: "second", quantity: 1};
+  assert.throws(() => toPurchaseRequestDto(values), /不能超过 500 件/);
+  assert.throws(() => toPurchaseUpdateRequestDto(values, undefined, 1, "full"), /不能超过 500 件/);
+  assert.equal(toPurchaseUpdateRequestDto(values, undefined, 1, "metadata").expectedRecordVersion, 1);
+});
+
 test("purchase request adapter keeps physical inspection fields pending regardless of hidden form state", () => {
   const values = createPurchaseDefaults("测试员");
   values.sourcePartnerId = "V-1";

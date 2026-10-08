@@ -63,11 +63,14 @@ const RETURN_KEYS: StateCollectionKey[] = [
 const AFTERSALES_KEYS: StateCollectionKey[] = [
   "aftersales",
   "inventory",
+  "products",
   "salesInvoices",
   "customers",
+  "vendors",
   "settlementAccounts",
   "settlementLedger",
   "financeLedger",
+  "paymentInRecords",
   "paymentOutRecords",
   "logs",
 ];
@@ -107,6 +110,19 @@ function startsWithAny(path: string, prefixes: string[]) {
   return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
+// POST is also used for previews with a request body. Unlike commands, these
+// routes do not enter the write lock/reload path, so authentication must load
+// their explicit read dependencies. Keep this shared with persistence/response
+// policy: a preview must never be mistaken for a persisted sales mutation.
+function getPostReadReloadKeys(method: string, path: string): StateCollectionKey[] | null {
+  if (method.toUpperCase() !== "POST") return null;
+  const pathname = path.replace(/\/$/, "");
+  if (/^\/api\/sales-invoices\/[^/]+\/outbound\/preflight$/.test(pathname)) return ["salesInvoices", "inventory", "products"];
+  if (pathname === "/api/gpu_erp/crm/quick-capture/parse") return ["customers", "products"];
+  if (pathname === "/api/gpu_erp/crm/customer/lead-preview") return [];
+  return null;
+}
+
 export function shouldReloadStateFromDatabase(method: string, _path: string) {
   const normalizedMethod = method.toUpperCase();
   return normalizedMethod !== "HEAD" && normalizedMethod !== "OPTIONS";
@@ -115,17 +131,18 @@ export function shouldReloadStateFromDatabase(method: string, _path: string) {
 export function getPersistenceKeysForRequest(method: string, path: string): StateCollectionKey[] | null {
   const normalizedMethod = method.toUpperCase();
   if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") return null;
+  if (getPostReadReloadKeys(method, path) !== null) return null;
 
   if (startsWithAny(path, ["/api/products"])) return PRODUCT_LIBRARY_KEYS;
   if (startsWithAny(path, ["/api/purchase-invoices"])) return PURCHASE_KEYS;
   if (startsWithAny(path, ["/api/sales-invoices"])) return SALES_KEYS;
-  if (startsWithAny(path, ["/api/inspections"])) return ["inspections", "inventory", "products", "logs"];
+  if (startsWithAny(path, ["/api/inspections"])) return ["inspections", "inventory", "purchaseInvoices", "products", "logs"];
   if (startsWithAny(path, ["/api/assembly-operations"])) return ["assemblyOperations", "inventory", "products", "logs"];
   if (startsWithAny(path, ["/api/returns"])) return RETURN_KEYS;
   if (startsWithAny(path, ["/api/aftersales"])) return AFTERSALES_KEYS;
   if (startsWithAny(path, ["/api/order-pool"])) return ["customerOrders", "logs"];
   if (startsWithAny(path, ["/api/market-quotes"])) return ["marketQuotes", "inventory", "logs"];
-  if (startsWithAny(path, ["/api/inventory"])) return ["inventory", "products", "salesInvoices", "purchaseCommissions", "logs"];
+  if (startsWithAny(path, ["/api/inventory"])) return ["inventory", "products", "purchaseInvoices", "salesInvoices", "purchaseCommissions", "logs"];
   if (startsWithAny(path, ["/api/customers"])) return ["customers", "logs"];
   if (startsWithAny(path, ["/api/vendors"])) return ["vendors", "logs"];
   if (startsWithAny(path, ["/api/users"])) return ["systemUsers", "logs"];
@@ -160,12 +177,15 @@ export function getStatePatchKeysForRequest(method: string, path: string): State
 }
 
 export function getReloadKeysForRequest(method: string, path: string): StateCollectionKey[] | null {
+  const postReadKeys = getPostReadReloadKeys(method, path);
+  if (postReadKeys !== null) return postReadKeys;
+  if (method.toUpperCase() === "GET" && ["/api/global-search", "/api/state/revision", "/api/finance/profit-report"].includes(path)) return [];
   if (method.toUpperCase() === "GET" && path === "/api/products") return [];
   // The daily sales summary loads its tenant/store snapshot explicitly in the
   // route. Keep the authentication middleware's request-scoped context intact
   // so permissions are evaluated against the same tenant, not the fallback
   // single-store state.
-  if (method.toUpperCase() === "GET" && path === "/api/ai/daily-sales-summary") return [];
+  if (method.toUpperCase() === "GET" && ["/api/ai/daily-sales-summary", "/api/ai/insights", "/api/ai/insight-actions"].includes(path)) return [];
   if (method.toUpperCase() === "GET" && path === "/api/market-quotes") return ["marketQuotes", "inventory"];
   if (method.toUpperCase() === "GET" && path === "/api/vendors") return [];
   if (method.toUpperCase() === "GET" && path === "/api/customers/page") return [];
@@ -196,7 +216,6 @@ export function getReloadKeysForRequest(method: string, path: string): StateColl
   if (method.toUpperCase() === "GET" && (path === "/api/returns" || path === "/api/returns/reference")) return [];
   // These list routes query PostgreSQL directly and must not deserialize the same collection
   // into the process cache before executing their indexed, server-side paginated query.
-  if (method.toUpperCase() === "POST" && path === "/api/gpu_erp/crm/quick-capture/parse") return ["customers", "products"];
   if (method.toUpperCase() === "GET" && path === "/api/gpu_erp/crm/quick-capture/leads") return [];
   if (method.toUpperCase() === "GET" && path === "/api/inventory/items") return [];
   if (method.toUpperCase() === "GET" && /^\/api\/inventory\/items\/[^/]+\/journey$/.test(path)) {
@@ -210,10 +229,32 @@ export function getReloadKeysForRequest(method: string, path: string): StateColl
   const keys = getPersistenceKeysForRequest(method, path);
   if (!keys?.length) return keys;
 
+  // Referenced return/aftersales facts are validation dependencies, not writes.
+  // Keep them out of the persistence policy while loading them under the lock.
+  if (/^\/api\/gpu_erp\/finance\/payment-(in|out)(\/|$)/.test(path)) {
+    return uniqueKeys([...keys.filter((key) => key !== "logs"), "returnOrders", "aftersales"]);
+  }
+
   // Audit logs are append-only and are never used to validate a business mutation. Re-reading
   // thousands of logs before every create/update/delete only delays the request; the mutation
   // itself appends its new log record atomically with the affected business rows.
   return keys.filter((key) => key !== "logs");
+}
+
+// The AI endpoints assemble their own business snapshots after permission checks.
+// They do not need audit histories, payment ledgers, CRM records or attachments.
+export const AI_INSIGHT_STATE_KEYS: StateCollectionKey[] = ["inventory", "salesInvoices", "purchaseInvoices", "marketQuotes"];
+export const AI_DAILY_SALES_STATE_KEYS: StateCollectionKey[] = ["inventory", "salesInvoices", "returnOrders"];
+
+/** Read-model requests need role settings, not a copy of every business collection.
+ * Commands load their business dependencies again inside the write lock. Unknown
+ * legacy reads retain their full snapshot until they have an explicit policy. */
+export function getAuthenticationReloadKeys(method: string, path: string, initial = false): StateCollectionKey[] | null {
+  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+    return uniqueKeys(["systemUsers", ...(getPostReadReloadKeys(method, path) ?? [])]);
+  }
+  const keys = initial ? INITIAL_STATE_RELOAD_KEYS : getReloadKeysForRequest("GET", path.replace(/\/$/, ""));
+  return keys === null ? null : uniqueKeys(["systemUsers", ...keys]);
 }
 
 export function shouldAttachFreshStateToResponse(method: string, path: string, payload: unknown) {

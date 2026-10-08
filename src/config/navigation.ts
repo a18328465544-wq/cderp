@@ -19,6 +19,8 @@ import {
 export interface NavigationItem {
   id: string;
   label: string;
+  /** 手机任务语言；权限、路由和桌面名称仍沿用 canonical 菜单。 */
+  mobileLabel?: string;
   icon: LucideIcon;
   path: string;
   group: AppMenuGroup;
@@ -88,10 +90,12 @@ const activePathsById: Partial<Record<string, string[]>> = {
 };
 
 const exactMatchIds = new Set(["finance", "purchase_list", "sales_list", "crm"]);
+const mobileLabelsById: Partial<Record<string, string>> = {inspections: "质检入库", sales_outbound: "扫码出库"};
 
 const toNavigationItem = (item: AppMenuItem): NavigationItem => ({
   id: item.id,
   label: item.name,
+  mobileLabel: mobileLabelsById[item.id],
   icon: groupIcons[item.group],
   path: pathById[item.id] || `/${item.id}`,
   group: item.group,

@@ -35,6 +35,7 @@ export function Badge({
   const current = toneClasses[tone];
   return (
     <span
+      data-erp-region="badge"
       {...props}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums",

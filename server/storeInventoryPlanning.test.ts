@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {createInitialState} from "./store.ts";
+import type {PurchaseItem} from "../src/types.ts";
 import {
   buildPendingSalesNeedByProduct,
   buildSellableInventoryStats,
@@ -35,6 +36,17 @@ test("expandSalesItems clears ambiguous stock bindings when quantity is expanded
     () => expandSalesItems([{productName: "RTX 4090", quantity: 2, inventoryId: "inventory-1"} as never]),
     /库存卡.*数量必须为 1/,
   );
+});
+
+test("purchase expansion rejects invalid quantities and bounds the complete physical-unit batch", () => {
+  const line = {productName: "RTX 4090", quantity: 1, sn: "", tempId: "line-1"} as PurchaseItem;
+  for (const quantity of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, null]) {
+    assert.throws(() => expandPurchaseItems([{...line, quantity} as never]), /数量必须为正整数/);
+  }
+  assert.equal(expandPurchaseItems([{...line, quantity: 500}]).length, 500);
+  assert.throws(() => expandPurchaseItems([{...line, quantity: 500}, line]), /不能超过 500 件/);
+  assert.throws(() => expandPurchaseItems([{...line, quantity: 501}]), /不能超过 500 件/);
+  assert.equal(expandPurchaseItems([{...line, quantity: undefined}]).length, 1);
 });
 
 test("pending reservations exclude non-sellable cards and stats aggregate sellable cost", () => {

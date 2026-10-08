@@ -15,7 +15,9 @@ export function normalizeSalesPaidAmount(paidAmount: number, totalAmount: number
 }
 
 function normalizeSalesQuantity(quantity: number): number {
-  return Math.max(1, Math.floor(quantity || 1));
+  // An empty quantity editor is represented by 0 and blocked by the schema.
+  // Its preview must not silently charge for one item while it is incomplete.
+  return Math.max(0, Math.floor(quantity || 0));
 }
 
 export function calculateSalesLineTotal(quantity: number, sellPrice: number): number {
@@ -23,7 +25,7 @@ export function calculateSalesLineTotal(quantity: number, sellPrice: number): nu
 }
 
 export function calculateSalesUnitPrice(lineTotal: number, quantity: number): number {
-  return Math.max(0, Math.round(Math.max(0, Math.round(lineTotal || 0)) / normalizeSalesQuantity(quantity)));
+  return Math.max(0, Math.round(Math.max(0, Math.round(lineTotal || 0)) / Math.max(1, normalizeSalesQuantity(quantity))));
 }
 
 export function calculateSalesAmounts(values: Pick<SalesFormValues, "items" | "paidAmount">, includeCost: boolean): SalesOrderAmounts {

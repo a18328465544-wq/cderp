@@ -1,13 +1,23 @@
 import { defaultPermissions } from "../src/data/systemDefaults.ts";
 import { normalizeAllowedMenus } from "../src/utils/menu.ts";
-import type { MarketQuote, SystemUserAccount } from "../src/types.ts";
+import type { MarketQuote, ProductTemplate, SystemUserAccount } from "../src/types.ts";
 import type { StateCollectionKey } from "./db.ts";
 import { sanitizeAppStateForClient, sanitizeUserAccount, stripLazyStateCollections } from "./security.ts";
 import type { AppState } from "./store.ts";
 import { storeDateDiffDays } from "../src/utils/storeTime.ts";
 import { sanitizeCommissionRecord } from "./commissionRecords.ts";
+import {canViewReturnType, projectReturnOrderForPermissions, projectPurchaseInvoiceForPermissions, projectSalesInvoiceForPermissions, projectCustomerForPermissions, projectVendorForPermissions, projectInventoryForPermissions} from "./returnPermissionProjection.ts";
+import {projectAftersalesRecordForPermissions} from "./aftersalesPermissionProjection.ts";
+import type {StateMergePatch} from "./statePatch.ts";
 
 export type PublicStateMode = "full" | "initial";
+
+function projectProductForUser(product: ProductTemplate, permissions: {showCost?: boolean; showProfit?: boolean}): ProductTemplate {
+  return {...product,
+    ...(!permissions.showCost ? {refBuyPrice: 0, ...(product.lastBuyPrice !== undefined ? {lastBuyPrice: 0} : {})} : {}),
+    ...(!permissions.showProfit ? {refSellPrice: 0, ...(product.lastSellPrice !== undefined ? {lastSellPrice: 0} : {})} : {}),
+  };
+}
 
 export function canAccessMenu(permissions: { allowedMenus: string[] }, menuId: string) {
   return permissions.allowedMenus.includes("all") || permissions.allowedMenus.includes(menuId);
@@ -99,13 +109,6 @@ function inventoryWithCurrentAge(inventory: AppState["inventory"]) {
   }));
 }
 
-function canAccessReturnType(permissions: { allowedMenus: string[] }, type: string) {
-  if (canAccessMenu(permissions, "return_orders")) return true;
-  return type === "销售退货"
-    ? canAccessMenu(permissions, "return_sales")
-    : canAccessMenu(permissions, "return_purchase");
-}
-
 export function getPermissionsForUser(state: AppState, user?: SystemUserAccount) {
   const role = user?.role || state.currentRole;
   const customPermissions = Array.isArray(state.customPermissions) ? state.customPermissions : [];
@@ -146,21 +149,13 @@ export function publicStateForUser(state: AppState, user?: SystemUserAccount, mo
   const canAccessCommissions =
     canAccessMenu(permissions, "purchase_commission") || canAccessMenu(permissions, "sales_commission");
 
-  if (!permissions.showCost) {
-    scopedState.inventory = scopedState.inventory.map((item) => ({ ...item, costPrice: 0 }));
-    scopedState.purchaseInvoices = scopedState.purchaseInvoices.map((invoice) => ({
-      ...invoice,
-      totalCost: 0,
-      estTotalProfit: 0,
-      items: invoice.items.map((item) => ({ ...item, buyPrice: 0 })),
-    }));
-    scopedState.salesInvoices = scopedState.salesInvoices.map((invoice) => ({
-      ...invoice,
-      totalCost: 0,
-      totalProfit: 0,
-      items: invoice.items.map((item) => ({ ...item, costPrice: 0, profit: 0 })),
-    }));
-  }
+  scopedState.inventory = scopedState.inventory.map((card) => projectInventoryForPermissions(card, permissions));
+  scopedState.products = scopedState.products.map((product) => projectProductForUser(product, permissions));
+  scopedState.purchaseInvoices = scopedState.purchaseInvoices.map((invoice) => projectPurchaseInvoiceForPermissions(invoice, permissions));
+  scopedState.salesInvoices = scopedState.salesInvoices.map((invoice) => projectSalesInvoiceForPermissions(invoice, permissions));
+  scopedState.customers = scopedState.customers.map((customer) => projectCustomerForPermissions(customer, permissions));
+  scopedState.vendors = scopedState.vendors.map((vendor) => projectVendorForPermissions(vendor, permissions));
+  scopedState.aftersales = scopedState.aftersales.map((record) => projectAftersalesRecordForPermissions(record, permissions));
 
   if (!canAccessMenu(permissions, "finance")) scopedState.financeLedger = [];
   if (!canAccessCommissions) scopedState.purchaseCommissions = [];
@@ -169,7 +164,7 @@ export function publicStateForUser(state: AppState, user?: SystemUserAccount, mo
   if (!canAccessMenu(permissions, "payment_in")) scopedState.paymentInRecords = [];
   if (!canAccessMenu(permissions, "payment_out")) scopedState.paymentOutRecords = [];
   if (!canAccessMenu(permissions, "account_transfer")) scopedState.accountTransfers = [];
-  scopedState.returnOrders = scopedState.returnOrders.filter((item) => canAccessReturnType(permissions, item.type));
+  scopedState.returnOrders = scopedState.returnOrders.filter((item) => canViewReturnType(permissions, item.type)).map((item) => projectReturnOrderForPermissions(item, permissions));
   if (!canAccessMenu(permissions, "settlement_accounts")) {
     scopedState.settlementAccounts = scopedState.settlementAccounts.map((account) => ({
       ...account,
@@ -213,27 +208,22 @@ export function publicCollectionForUser(
 
   if (!canAccessCollection(permissions, key)) return [];
 
+  if (key === "products") return state.products.map((product) => projectProductForUser(product, permissions));
+
   if (key === "inventory") {
     const inventory = inventoryWithCurrentAge(state.inventory);
-    return permissions.showCost ? inventory : inventory.map((item) => ({ ...item, costPrice: 0 }));
+    return inventory.map((card) => projectInventoryForPermissions(card, permissions));
   }
   if (key === "marketQuotes") return state.marketQuotes.map((quote) => projectMarketQuoteForUser(quote, permissions));
   if (key === "purchaseInvoices") {
-    return permissions.showCost ? state.purchaseInvoices : state.purchaseInvoices.map((invoice) => ({
-      ...invoice,
-      totalCost: 0,
-      estTotalProfit: 0,
-      items: invoice.items.map((item) => ({ ...item, buyPrice: 0 })),
-    }));
+    return state.purchaseInvoices.map((invoice) => projectPurchaseInvoiceForPermissions(invoice, permissions));
   }
   if (key === "salesInvoices") {
-    return permissions.showCost ? state.salesInvoices : state.salesInvoices.map((invoice) => ({
-      ...invoice,
-      totalCost: 0,
-      totalProfit: 0,
-      items: invoice.items.map((item) => ({ ...item, costPrice: 0, profit: 0 })),
-    }));
+    return state.salesInvoices.map((invoice) => projectSalesInvoiceForPermissions(invoice, permissions));
   }
+  if (key === "customers") return state.customers.map((customer) => projectCustomerForPermissions(customer, permissions));
+  if (key === "vendors") return state.vendors.map((vendor) => projectVendorForPermissions(vendor, permissions));
+  if (key === "aftersales") return state.aftersales.map((record) => projectAftersalesRecordForPermissions(record, permissions));
   if (key === "purchaseCommissions") {
     if (!canAccessCommissions) return [];
     return state.purchaseCommissions.map((record) => sanitizeCommissionRecord(record, permissions));
@@ -243,7 +233,7 @@ export function publicCollectionForUser(
   if (key === "paymentInRecords" && !canAccessMenu(permissions, "payment_in")) return [];
   if (key === "paymentOutRecords" && !canAccessMenu(permissions, "payment_out")) return [];
   if (key === "accountTransfers" && !canAccessMenu(permissions, "account_transfer")) return [];
-  if (key === "returnOrders") return state.returnOrders.filter((item) => canAccessReturnType(permissions, item.type));
+  if (key === "returnOrders") return state.returnOrders.filter((item) => canViewReturnType(permissions, item.type)).map((item) => projectReturnOrderForPermissions(item, permissions));
   if (key === "logs" && !canAccessMenu(permissions, "logs")) return [];
   if (key === "settlementAccounts" && !canAccessMenu(permissions, "settlement_accounts")) {
     return state.settlementAccounts.map((account) => ({
@@ -258,6 +248,19 @@ export function publicCollectionForUser(
     return canAccessMenu(permissions, "permissions") ? safeUsers : safeUsers.filter((item) => item.id === user.id);
   }
   return value;
+}
+
+/** Persist/cache full facts internally; only expose authorized patch rows. */
+export function publicStateMergeForUser(state: AppState, patch: StateMergePatch, user?: SystemUserAccount): StateMergePatch {
+  if (!user) throw new Error("增量响应缺少已认证账号");
+  const projected: StateMergePatch = {};
+  for (const key of Object.keys(patch) as StateCollectionKey[]) {
+    const rows = patch[key];
+    if (!Array.isArray(rows) || !rows.length) continue;
+    const visible = publicCollectionForUser({...state, [key]: rows}, key, user);
+    if (Array.isArray(visible) && visible.length) projected[key] = visible;
+  }
+  return projected;
 }
 
 /**

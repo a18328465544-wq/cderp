@@ -8,16 +8,21 @@ import type {
   ReturnRefundAllocation,
   SalesItem,
 } from "../src/types.ts";
-import {inventoryInactiveStatuses} from "../src/utils/inventoryFilters.ts";
 import {ConflictError, NotFoundError, ValidationError} from "./errors.ts";
 import {
   findSalesReturnLine,
+  assertPurchaseReturnInventoryAvailable,
+  assertSalesReturnInventoryAvailable,
+  assertReturnInventoryReference,
+  purchaseReturnLineMatchesCard,
+  salesReturnLineMatchesCard,
   makePurchaseReturnLineId,
   makeSalesReturnLineId,
   type ReturnLineMatch,
 } from "./storeReturnPlanning.ts";
 import type {ReturnOperationsDependencies, ReturnOrderCreateInput} from "./storeReturnTypes.ts";
 import {isPersonalPurchaseSource} from "../src/utils/purchaseSources.ts";
+import {isValidReturnAmount, resolveReturnSourceAmount} from "../src/utils/returnAmounts.ts";
 
 export type ReturnCreationDependencies = Pick<
   ReturnOperationsDependencies,
@@ -99,14 +104,14 @@ export function createReturnCreationHelpers(dependencies: ReturnCreationDependen
         const invoice = salesInvoice!;
         const line = typeof batchItem.sourceSalesItemIndex === "number"
           ? invoice.items.map((item, index) => ({id: makeSalesReturnLineId(item, index), index, item}))[batchItem.sourceSalesItemIndex]
-          : findSalesReturnLine(invoice, {sourceInventoryId: sourceCard.id, sourceSalesItemIndex: undefined, sourceSalesItemId: undefined, sn: sourceCard.sn, amount: 0}, sourceCard);
-        if (!line || (line.item.inventoryId && line.item.inventoryId !== sourceCard.id && line.item.sn !== sourceCard.sn)) {
+          : findSalesReturnLine(invoice, {sourceInventoryId: sourceCard.id, sourceSalesItemIndex: undefined, sourceSalesItemId: undefined, sn: sourceCard.sn, amount: 0}, sourceCard, state.products);
+        if (!line || !salesReturnLineMatchesCard(line.item, sourceCard, state.products)) {
           throw new ConflictError(`库存 ${sourceCard.id} 与销售单明细不匹配`);
         }
-        if (sourceCard.salesInvoiceId !== invoice.invoiceNo) throw new ConflictError("所选库存不属于关联销售单");
+        assertSalesReturnInventoryAvailable(sourceCard, invoice);
         if (salesLines.some((item) => item.index === line.index)) throw new ConflictError(`${batchLabel}不能重复选择同一销售明细`);
-        const amount = Number(line.item.sellPrice || 0);
-        if (amount <= 0) throw new ValidationError("销售退货明细金额必须大于 0");
+        const amount = resolveReturnSourceAmount(line.item.sellPrice);
+        if (!isValidReturnAmount(amount)) throw new ValidationError("销售退货明细金额必须为大于 0 的有效数字");
         salesLines.push(line);
         resolvedItems.push({
           sourceInventoryId: sourceCard.id,
@@ -121,18 +126,16 @@ export function createReturnCreationHelpers(dependencies: ReturnCreationDependen
       } else {
         const invoice = purchaseInvoice!;
         if (findPurchaseInvoiceForCard(sourceCard)?.id !== invoice.id) throw new ConflictError(`库存 ${sourceCard.id} 与采购单不匹配`);
-        if (inventoryInactiveStatuses.has(sourceCard.status)) {
-          throw new ConflictError(`库存状态为${sourceCard.status}，不能办理${batchLabel}`);
-        }
+        assertPurchaseReturnInventoryAvailable(sourceCard, invoice, state.salesInvoices);
         const line = typeof batchItem.sourcePurchaseItemIndex === "number"
           ? invoice.items.map((item, index) => ({id: makePurchaseReturnLineId(item, index), index, item}))[batchItem.sourcePurchaseItemIndex]
           : findPurchaseReturnLine(invoice, {sourceInventoryId: sourceCard.id, sourcePurchaseItemIndex: undefined, sourcePurchaseItemId: undefined, sn: sourceCard.sn, amount: 0}, sourceCard);
-        if (!line || (line.item.sn && sourceCard.sn && line.item.sn !== sourceCard.sn && line.item.tempId !== sourceCard.id)) {
+        if (!line || !purchaseReturnLineMatchesCard(line.item, sourceCard, state.products)) {
           throw new ConflictError(`库存 ${sourceCard.id} 与采购单明细不匹配`);
         }
         if (purchaseLines.some((item) => item.index === line.index)) throw new ConflictError(`${batchLabel}不能重复选择同一采购明细`);
-        const amount = Number(line.item.buyPrice || sourceCard.costPrice || 0);
-        if (amount <= 0) throw new ValidationError("进货退货明细金额必须大于 0");
+        const amount = resolveReturnSourceAmount(line.item.buyPrice, sourceCard.costPrice);
+        if (!isValidReturnAmount(amount)) throw new ValidationError("进货退货明细金额必须为大于 0 的有效数字");
         purchaseLines.push(line);
         resolvedItems.push({
           sourceInventoryId: sourceCard.id,
@@ -231,35 +234,40 @@ export function createReturnCreationHelpers(dependencies: ReturnCreationDependen
     if (batchInputs.length) return createBatchReturnOrder(input, batchInputs);
 
     const sourceCard = input.sourceInventoryId || input.sn ? findReturnInventory(input) : undefined;
+    if (sourceCard) assertReturnInventoryReference(input, sourceCard);
     const salesInvoice = input.type === "销售退货"
       ? state.salesInvoices.find((invoice) => invoice.invoiceNo === input.relatedDocNo || invoice.id === input.relatedDocNo)
       : undefined;
     const purchaseInvoice = input.type === "进货退货"
       ? state.purchaseInvoices.find((invoice) => invoice.invoiceNo === input.relatedDocNo || invoice.id === input.relatedDocNo)
       : undefined;
-    const salesLine = findSalesReturnLine(salesInvoice, input, sourceCard);
+    const salesLine = findSalesReturnLine(salesInvoice, input, sourceCard, state.products);
     const purchaseLine = findPurchaseReturnLine(purchaseInvoice, input, sourceCard);
     const salesItem = salesLine?.item;
     const purchaseItem = purchaseLine?.item;
-    const amount = Number(input.amount || salesItem?.sellPrice || purchaseItem?.buyPrice || sourceCard?.costPrice || 0);
+    let amount = Number(input.amount);
 
     if (input.type === "销售退货") {
       if (!salesInvoice) throw new NotFoundError(`销售退货关联销售单不存在: ${input.relatedDocNo}`);
-      if (!sourceCard || !salesItem || sourceCard.salesInvoiceId !== salesInvoice.invoiceNo) {
+      if (!sourceCard || !salesItem) {
         throw new ConflictError("所选库存不属于关联销售单");
       }
-      if (salesInvoice.outboundStatus !== "已出库") throw new ConflictError("销售单尚未完成出库，不能办理退货");
-      if (Math.abs(amount - Number(salesItem.sellPrice || 0)) > 0.009) throw new ValidationError("销售退货金额必须与原商品成交价一致");
+      assertSalesReturnInventoryAvailable(sourceCard, salesInvoice);
+      const sourceAmount = resolveReturnSourceAmount(salesItem.sellPrice);
+      if (!isValidReturnAmount(sourceAmount)) throw new ValidationError("销售退货明细金额必须为大于 0 的有效数字");
+      if (Math.abs(amount - sourceAmount) > 0.009) throw new ValidationError("销售退货金额必须与原商品成交价一致");
+      amount = sourceAmount;
     }
     if (input.type === "进货退货") {
       if (!purchaseInvoice) throw new NotFoundError(`进货退货关联采购单不存在: ${input.relatedDocNo}`);
       if (!sourceCard || findPurchaseInvoiceForCard(sourceCard)?.id !== purchaseInvoice.id || !purchaseItem) {
         throw new ConflictError("所选库存不属于关联采购单");
       }
-      if (inventoryInactiveStatuses.has(sourceCard.status)) {
-        throw new ConflictError(`库存状态为${sourceCard.status}，不能办理进货退货`);
-      }
-      if (Math.abs(amount - Number(purchaseItem.buyPrice || sourceCard.costPrice || 0)) > 0.009) throw new ValidationError("进货退货金额必须与原商品进货价一致");
+      assertPurchaseReturnInventoryAvailable(sourceCard, purchaseInvoice, state.salesInvoices);
+      const sourceAmount = resolveReturnSourceAmount(purchaseItem.buyPrice, sourceCard.costPrice);
+      if (!isValidReturnAmount(sourceAmount)) throw new ValidationError("进货退货明细金额必须为大于 0 的有效数字");
+      if (Math.abs(amount - sourceAmount) > 0.009) throw new ValidationError("进货退货金额必须与原商品进货价一致");
+      amount = sourceAmount;
     }
 
     const duplicateReturn = state.returnOrders.find((order) =>

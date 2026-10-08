@@ -1,4 +1,5 @@
-import type {SalesOutboundInventoryItem, SalesOutboundInvoice, SalesOutboundVerification} from "@/src/types/sales";
+import type {SalesOutboundInventoryItem, SalesOutboundInvoice, SalesOutboundLine, SalesOutboundVerification} from "@/src/types/sales";
+import {inventorySellableStatusValues} from "@/src/types/inventory";
 
 /**
  * Resolve the invoice selected by the URL without silently substituting a
@@ -38,10 +39,22 @@ export function parseOutboundCodes(value: string) {
   return {codes, duplicateCodes};
 }
 
+/** Match the server preflight blockers before enabling the scanner confirmation. */
+export function canConfirmScannedOutbound(verification: Pick<SalesOutboundVerification, "ready" | "unknownCodes" | "duplicateCodes">) {
+  return verification.ready && verification.unknownCodes.length === 0 && verification.duplicateCodes.length === 0;
+}
+
 function matchesCode(item: SalesOutboundInventoryItem, codeSet: ReadonlySet<string>) {
   return [item.id, item.serialNumber]
     .filter(Boolean)
     .some((code) => codeSet.has(code.toLocaleLowerCase("zh-CN")));
+}
+
+function isAvailableForLine(line: SalesOutboundLine, item: SalesOutboundInventoryItem, usedIds: ReadonlySet<string>) {
+  return !usedIds.has(item.id)
+    && inventorySellableStatusValues.some((status) => status === item.status)
+    && Boolean(line.productIdentityKey)
+    && item.productIdentityKey === line.productIdentityKey;
 }
 
 export function verifySalesOutbound(
@@ -60,12 +73,10 @@ export function verifySalesOutbound(
     let matchedInventory: SalesOutboundInventoryItem | undefined;
     if (line.inventoryId) {
       const candidate = inventoryById.get(line.inventoryId);
-      if (candidate && matchesCode(candidate, codeSet)) matchedInventory = candidate;
-      if (!matchedInventory && candidate && line.serialNumber && codeSet.has(line.serialNumber.toLocaleLowerCase("zh-CN"))) matchedInventory = candidate;
+      if (candidate && isAvailableForLine(line, candidate, usedInventoryIds) && matchesCode(candidate, codeSet)) matchedInventory = candidate;
     } else {
       matchedInventory = inventory.find((candidate) =>
-        !usedInventoryIds.has(candidate.id)
-        && candidate.productIdentityKey === line.productIdentityKey
+        isAvailableForLine(line, candidate, usedInventoryIds)
         && matchesCode(candidate, codeSet));
     }
     if (matchedInventory) {
@@ -93,8 +104,8 @@ export function countManualOutboundAvailability(invoice: SalesOutboundInvoice | 
   let available = 0;
   for (const line of invoice.lines) {
     const candidate = line.inventoryId
-      ? inventory.find((item) => item.id === line.inventoryId && !used.has(item.id))
-      : inventory.find((item) => item.productIdentityKey === line.productIdentityKey && !used.has(item.id));
+      ? inventory.find((item) => item.id === line.inventoryId && isAvailableForLine(line, item, used))
+      : inventory.find((item) => isAvailableForLine(line, item, used));
     if (!candidate) continue;
     used.add(candidate.id);
     available += 1;

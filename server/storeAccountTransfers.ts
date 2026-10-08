@@ -109,6 +109,7 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
   const updateAccountTransfer = (id: string, transfer: Partial<AccountTransferRecord>) => {
     const existing = state.accountTransfers.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`资金调拨单不存在: ${id}`);
+    if (existing.accountingStatus === "作废") throw new ConflictError("资金调拨已作废，不能继续编辑");
     const from = findSettlementAccount(transfer.fromAccountId || existing.fromAccountId);
     const to = findSettlementAccount(transfer.toAccountId || existing.toAccountId);
     if (from.id === to.id) throw new ValidationError("转出账户和转入账户不能相同");
@@ -169,7 +170,7 @@ export function createAccountTransferHelpers(dependencies: AccountTransferDepend
     return updated;
   };
 
-  const deleteAccountTransfer = (id: string, options?: {allowPostedReverse?: boolean}) => {
+  const deleteAccountTransfer = (id: string, options?: {allowPostedReverse?: boolean}): AccountTransferRecord => {
     const existing = state.accountTransfers.find((item) => item.id === id);
     if (!existing) throw new NotFoundError(`资金调拨单不存在: ${id}`);
     if (existing.accountingStatus === "作废") throw new ConflictError("资金调拨已作废，不能重复处理");

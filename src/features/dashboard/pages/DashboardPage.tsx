@@ -8,6 +8,7 @@ import {ChartMeta} from "@/src/components/ui/chart";
 import {BottomRegion, DashboardSection, ErpDashboardPageFrame, ErpEmptyState, ErpMetricCard, ErpPageContent, ErpPageHeader, ErpStatusBadge, MainRegion, MetricsRegion, type QuickStatusItemData} from "@/src/components/common";
 import {aiApi, queryKeys, stateApi} from "@/src/services/api";
 import {createCapabilities, useAuth} from "@/src/app/auth";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import type {AuthSession} from "@/src/services/api";
 import type {CardInventory} from "@/src/types/core";
 import type {MarketQuote} from "@/src/types/quote";
@@ -19,12 +20,17 @@ import {inventoryInactiveStatuses} from "@/src/utils/inventoryFilters";
 import {isPersonalPurchaseSource} from "@/src/utils/purchaseSources";
 import type {AiInsightItem} from "@/src/services/api/endpoints/ai";
 
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {DashboardMobileWorkbench} from "../components/DashboardMobileWorkbench";
+
 const DashboardTrendChart = lazy(() => import("../components/DashboardTrendChart"));
 
 const dateKey = (value?: string) => String(value || "").slice(0, 10);
 const percent = (current: number, previous: number) => previous === 0 ? null : ((current - previous) / Math.abs(previous)) * 100;
 const toneForSeverity: Record<string, "danger" | "warning" | "success" | "info"> = {high: "danger", medium: "warning", low: "success"};
 export function DashboardPage() {
+  const {active} = useWorkspaceTabActivity();
+  const phone = useErpPhone();
   const {session, status, error: authError, refresh} = useAuth();
   const capabilities = createCapabilities(session);
   const accessGranted = capabilities.menu("dashboard");
@@ -32,7 +38,7 @@ export function DashboardPage() {
   const stateQuery = useQuery({
     queryKey: queryKeys.state.initial(),
     queryFn: ({signal}) => stateApi.initial(signal),
-    enabled: Boolean(session && accessGranted),
+    enabled: active && Boolean(session && accessGranted),
     placeholderData: keepPreviousData,
     // Auth bootstrap seeds this query with the same initial snapshot. Keep it
     // fresh briefly so the dashboard does not immediately issue a duplicate
@@ -47,12 +53,12 @@ export function DashboardPage() {
   // state aggregation, so starting it alongside the landing-state request
   // doubles database work and delays the first meaningful paint.
   useEffect(() => {
-    if (!stateQuery.data || !session || !aiAllowed) return;
+    if (!active || phone || !stateQuery.data || !session || !aiAllowed) return;
     const timer = window.setTimeout(() => setAiEnabled(true), 250);
     return () => window.clearTimeout(timer);
-  }, [aiAllowed, session, stateQuery.data]);
+  }, [active, aiAllowed, phone, session, stateQuery.data]);
 
-  const aiQuery = useQuery({queryKey: queryKeys.ai.insights(), queryFn: ({signal}) => aiApi.insights(signal), enabled: Boolean(session && aiAllowed && aiEnabled), retry: false, staleTime: 5 * 60_000, refetchOnWindowFocus: false});
+  const aiQuery = useQuery({queryKey: queryKeys.ai.insights(), queryFn: ({signal}) => aiApi.insights(signal), enabled: active && !phone && Boolean(session && aiAllowed && aiEnabled), retry: false, staleTime: 5 * 60_000, refetchOnWindowFocus: false});
 
   if (status === "loading") return <DashboardState title="正在验证经营看板权限" icon={<Sparkles className="h-5 w-5" />} />;
   if (status === "error") return <DashboardState title="无法读取登录状态" description={authError?.message || "请重新登录后继续。"} icon={<AlertCircle className="h-5 w-5" />} action={<Button onClick={() => void refresh()}><RefreshCw className="h-4 w-4" />重试</Button>} />;
@@ -61,11 +67,13 @@ export function DashboardPage() {
   if (stateQuery.error) return <DashboardState title="经营数据加载失败" description={stateQuery.error.message} icon={<AlertCircle className="h-5 w-5" />} action={<Button onClick={() => void stateQuery.refetch()}><RefreshCw className="h-4 w-4" />重试</Button>} />;
   if (stateQuery.isPending || !stateQuery.data) return <DashboardState title="正在加载经营数据" icon={<RefreshCw className="h-5 w-5 animate-spin" />} />;
 
-  return <DashboardContent session={session} state={stateQuery.data} ai={aiQuery.data?.insights || []} aiLoading={aiEnabled && aiQuery.isPending} aiError={aiQuery.error as Error | null} onAiRetry={() => { setAiEnabled(true); void aiQuery.refetch(); }} onRefresh={() => { void stateQuery.refetch(); setAiEnabled(true); void aiQuery.refetch(); notify.success("经营数据已刷新"); }} />;
+  return <DashboardContent session={session} state={stateQuery.data} ai={aiQuery.data?.insights || []} aiLoading={aiEnabled && aiQuery.isPending} aiError={aiQuery.error as Error | null} onAiRetry={() => { setAiEnabled(true); void aiQuery.refetch(); }} onRefresh={() => { void stateQuery.refetch(); if (!phone) {setAiEnabled(true); void aiQuery.refetch();} notify.success("经营数据已刷新"); }} />;
 }
 
 function DashboardContent({session, state, ai, aiLoading, aiError, onAiRetry, onRefresh}: {session: AuthSession; state: Awaited<ReturnType<typeof stateApi.initial>>; ai: AiInsightItem[]; aiLoading: boolean; aiError: Error | null; onAiRetry: () => void; onRefresh: () => void}) {
   const navigate = useNavigate();
+  const phone = useErpPhone();
+  const {active} = useWorkspaceTabActivity();
   const today = storeDate();
   const yesterday = storeDateAfterDays(-1);
   const {inventory, salesInvoices, marketQuotes, returnOrders} = state;
@@ -79,10 +87,11 @@ function DashboardContent({session, state, ai, aiLoading, aiError, onAiRetry, on
   }, [canSeeProfit, trendRows]);
   const [trendChartReady, setTrendChartReady] = useState(false);
   useEffect(() => {
+    if (phone || !active) return;
     // Let text, metrics and navigation paint before requesting Recharts.
     const timer = window.setTimeout(() => setTrendChartReady(true), 300);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [active, phone]);
   const risks = useMemo(() => inventory.filter((item) => !inventoryInactiveStatuses.has(item.status) && (item.gpuRisk || storeDateDiffDays(item.entryTime, today) >= 30 || item.marketPrice > 0 && item.marketPrice < item.costPrice)).sort((left, right) => riskScore(right, today) - riskScore(left, today)).slice(0, 5), [inventory, today]);
   const marketRows = useMemo(() => [...marketQuotes].sort((left, right) => Math.abs(right.changeRatio) - Math.abs(left.changeRatio)).slice(0, 5), [marketQuotes]);
   const profitChange = percent(stats.todayProfit, stats.yesterdayProfit);
@@ -95,6 +104,7 @@ function DashboardContent({session, state, ai, aiLoading, aiError, onAiRetry, on
     {icon: <Warehouse className="h-4 w-4" />, label: "待扫码出库", value: `${stats.pendingOutbound} 张`, description: "销售单待出库", tone: stats.pendingOutbound ? "warning" : "success", action: () => navigate({to: "/sales/outbound"})},
     {icon: <XCircle className="h-4 w-4" />, label: "异常订单", value: `${stats.unpaidOrders + stats.pendingReturns} 项`, description: "欠款或退货待跟进", tone: stats.unpaidOrders + stats.pendingReturns ? "danger" : "success", action: () => navigate({to: "/sales"})},
   ];
+  if (phone) return <ErpDashboardPageFrame><DashboardMobileWorkbench session={session} stats={stats} invoices={salesInvoices} onRefresh={onRefresh} /></ErpDashboardPageFrame>;
   return <ErpDashboardPageFrame>
     <ErpPageHeader title={`${greeting}，${session.user.displayName || "老板"}`} subtitle="专注经营每一天，让数据驱动增长" quickStatus={quickStatus} dateContent={<span className="inline-flex h-9 items-center gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-white px-3 text-xs text-[var(--erp-color-text-secondary)]"><CalendarDays className="h-4 w-4" />{today}</span>} actions={<Button variant="secondary" size="sm" onClick={onRefresh}><RefreshCw className="h-4 w-4" />刷新</Button>} />
     <ErpPageContent className="space-y-[var(--erp-page-gap-comfortable)]">

@@ -1,4 +1,8 @@
-import type {ReactNode} from "react";
+import {Children, Fragment, isValidElement, useState, type ReactNode} from "react";
+import {MoreHorizontal} from "lucide-react";
+import {Button} from "@/src/components/ui";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {ErpDialogShell} from "./ErpDialogShell";
 import {cn} from "@/src/lib/cn";
 import {QuickStatusGroup, type QuickStatusItemData, type QuickStatusVariant} from "./ErpQuickStatus";
 import {ErpPageActions, ErpPageContext, ErpPageIdentity, ErpPageTopbar} from "./ErpPageFrame";
@@ -16,13 +20,25 @@ export interface ErpPageHeaderProps {
   quickStatusVariant?: QuickStatusVariant;
   dateContent?: ReactNode;
   actions?: ReactNode;
+  /** Caller-owned back action; used by native phone task headers. */
+  leading?: ReactNode;
 }
 
-export function ErpPageHeader({title, subtitle, density = "compact", quickStatus, quickStatusVariant = "compact", dateContent, actions}: ErpPageHeaderProps) {
+export function resolvePhonePageActions(actions: ReactNode): ReactNode[] {
+  return Children.toArray(actions).flatMap((child) => isValidElement<{children?: ReactNode}>(child) && (child.type === Fragment || child.type === "div") ? resolvePhonePageActions(child.props.children) : [child]);
+}
+
+export function ErpPageHeader({title, subtitle, density = "compact", quickStatus, quickStatusVariant = "compact", dateContent, actions, leading}: ErpPageHeaderProps) {
+  const phone = useErpPhone();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const actionItems = resolvePhonePageActions(actions);
+  const primaryIndex = actionItems.findIndex((item) => isValidElement<{variant?: string}>(item) && item.props.variant === "primary");
+  const primary = actionItems[primaryIndex < 0 ? 0 : primaryIndex];
+  const secondary = actionItems.filter((_, index) => index !== (primaryIndex < 0 ? 0 : primaryIndex));
   const hasQuickStatus = Boolean(quickStatus?.length);
   const showSubtitle = density === "default";
-  const rightArea = dateContent || actions ? <ErpPageActions className={hasQuickStatus ? "lg:w-full xl:w-auto" : undefined}>{dateContent}{actions}</ErpPageActions> : null;
-  return <ErpPageTopbar
+  const rightArea = dateContent || actions ? <ErpPageActions className={hasQuickStatus ? "lg:w-full xl:w-auto" : undefined}>{dateContent}{phone && secondary.length ? <>{primary}<Button type="button" variant="ghost" size="icon" aria-label="更多页面操作" onClick={() => setMoreOpen(true)}><MoreHorizontal className="h-5 w-5" /></Button></> : actions}</ErpPageActions> : null;
+  return <><ErpPageTopbar
     data-erp-component="page-header"
     data-density={density}
     // The persistent sidebar leaves a narrow canvas at tablet widths. Keep
@@ -31,8 +47,9 @@ export function ErpPageHeader({title, subtitle, density = "compact", quickStatus
     // two lines beside a partially wrapped status strip.
     className={cn(density === "default" && "gap-4", hasQuickStatus && "xl:grid xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_auto] xl:items-center xl:gap-4")}
   >
+    {leading && <div className="shrink-0">{leading}</div>}
     <ErpPageIdentity title={title} subtitle={showSubtitle ? subtitle : undefined} reserveSubtitle={showSubtitle && Boolean(subtitle)} />
     {hasQuickStatus ? <ErpPageContext><QuickStatusGroup items={quickStatus!} variant={quickStatusVariant} className="min-w-0" /></ErpPageContext> : null}
     {rightArea}
-  </ErpPageTopbar>;
+  </ErpPageTopbar>{phone && secondary.length > 0 && <ErpDialogShell open={moreOpen} onOpenChange={setMoreOpen} title="页面操作" mobilePresentation="sheet"><div className="erp-phone-action-menu">{secondary}</div></ErpDialogShell>}</>;
 }

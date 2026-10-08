@@ -3,7 +3,7 @@ import test from "node:test";
 import {createStateProxy, runTenantContext} from "./requestTenantContext.ts";
 import {createInitialState, createStoreActions, type AppState} from "./store.ts";
 
-test("return completion works when a legacy action caller supplies the request state proxy", () => {
+test("return completion and reversal work when a legacy action caller supplies the request state proxy", () => {
   const concrete = createInitialState();
   const proxy = createStateProxy<AppState>();
 
@@ -61,5 +61,10 @@ test("return completion works when a legacy action caller supplies the request s
     assert.equal(completed.status, "已完成");
     assert.equal(concrete.inventory.find((item) => item.id === card.id)?.status, "已退货");
     assert.equal(concrete.purchaseInvoices.find((item) => item.id === invoice.id)?.items.length, 0);
+
+    const reversed = actions.reverseReturnOrder(order.id);
+    assert.equal(reversed.status, "已作废");
+    assert.deepEqual(concrete.purchaseInvoices.find((item) => item.id === invoice.id)?.items, invoice.items);
+    assert.equal(concrete.inventory.find((item) => item.id === card.id)?.status, card.status);
   });
 });

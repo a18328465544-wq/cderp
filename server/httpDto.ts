@@ -6,8 +6,8 @@ import {storeRoleValues} from "../src/types/auth.ts";
 import {inspectionExteriorCheckValues, inspectionFanCheckValues, inspectionGpuZCheckValues, inspectionNoiseValues, inspectionPortsCheckValues, inspectionResultStatusValues, inspectionVramResultValues} from "../src/types/inspection.ts";
 import {financeLedgerBusinessTypes, financeLedgerDirections} from "../src/types/finance-ledger.ts";
 import {commissionPayoutCycleValues, commissionPayoutMethodValues, commissionRuleBaseValues, commissionRuleCalculationValues} from "../src/types/legacy-commission.ts";
-import {purchasePaymentStatusValues} from "../src/types/purchase.ts";
-import {purchasePaymentMethodValues} from "../src/types/purchase.ts";
+import {purchasePaymentStatusValues, purchasePaymentMethodValues, PURCHASE_MAX_PHYSICAL_ITEMS, PURCHASE_PHYSICAL_LIMIT_MESSAGE} from "../src/types/purchase.ts";
+import {purchaseQuantityError} from "../src/utils/purchaseQuantity.ts";
 import {returnInventoryActionValues, returnOrderStatusValues, returnOrderTypeValues, returnResponsibilityValues, returnSettlementModeValues, salesReturnInventoryActionValues, purchaseReturnInventoryActionValues} from "../src/types/returns.ts";
 import {salesChannelValues, salesOutboundStatusValues, salesPaymentStatusValues} from "../src/types/sales.ts";
 import {salesPaymentMethodValues} from "../src/types/sales.ts";
@@ -187,7 +187,7 @@ const purchaseItemDto = z.object({
   repaired: z.boolean(),
   gpuRisk: z.boolean(),
   fullBox: z.boolean(),
-  quantity: z.number().int().min(1).max(10_000).optional(),
+  quantity: z.number().int().min(1).max(PURCHASE_MAX_PHYSICAL_ITEMS, PURCHASE_PHYSICAL_LIMIT_MESSAGE).optional(),
   buyPrice: nonNegativeMoney,
   estSellPrice: nonNegativeMoney,
   warehouseLocation: z.string().trim().max(120),
@@ -213,12 +213,15 @@ const purchaseFields = {
   paymentStatus: z.enum(purchasePaymentStatusValues).optional(),
   handleBy: requiredText("开单人", 80),
   remarks: optionalText(500),
-  items: z.array(purchaseItemDto).min(1, "进货单至少需要一条商品明细").max(500, "单张进货单商品不能超过 500 件"),
+  items: z.array(purchaseItemDto).min(1, "进货单至少需要一条商品明细").max(PURCHASE_MAX_PHYSICAL_ITEMS, PURCHASE_PHYSICAL_LIMIT_MESSAGE).superRefine((items, context) => {
+    const error = purchaseQuantityError(items);
+    if (error) context.addIssue({code: "custom", message: error});
+  }),
 };
 
 export const purchaseInvoiceCreateDto = z.object(purchaseFields).strict();
 export const purchaseInvoiceUpdateDto = z.object(purchaseFields).partial().extend({
-  expectedRecordVersion: z.number().int().positive("采购单版本号无效"),
+  expectedRecordVersion: z.number().int().positive("采购单版本号无效").max(Number.MAX_SAFE_INTEGER - 1),
 }).strict();
 
 const inspectionFields = {
@@ -476,6 +479,18 @@ export const financeIntegrityAlertQueryDto = z.object({
   limit: queryNumber(100, 500),
   status: z.enum(["open", "resolved"]).optional(),
 }).strict();
+
+export const financeProfitReportQueryDto = z.object({
+  keyword: z.string().trim().max(200).default(""),
+  dateStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")).default(""),
+  dateEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")).default(""),
+  dimension: z.enum(["product", "customer", "channel", "handler"]).default("product"),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  sortKey: z.enum(["label", "orderCount", "quantity", "revenue", "cost", "profit", "margin"]).optional(),
+  sortDirection: z.enum(["asc", "desc"]).optional(),
+  exportAll: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+});
 
 export const financeProfitFlowQueryDto = z.object({
   dateStart: queryDate,
@@ -1102,14 +1117,23 @@ export const salesInvoiceCreateDto = z.object(salesInvoiceMutationFields).strict
   if (value.paidAmount > 0 && !value.settlementAccountId) context.addIssue({code: "custom", path: ["settlementAccountId"], message: "已收金额大于 0 时必须选择收款账户"});
   if (value.paymentMethod === "账期欠款" && value.paidAmount > 0) context.addIssue({code: "custom", path: ["paymentMethod"], message: "账期欠款不能同时填写已收金额"});
 });
-export const salesInvoiceUpdateDto = z.object(salesInvoiceMutationFields).partial().strict();
+export const salesInvoiceUpdateDto = z.object(salesInvoiceMutationFields).partial().extend({
+  expectedRecordVersion: z.number().int().positive("销售单版本号无效").max(Number.MAX_SAFE_INTEGER - 1),
+}).strict();
 
 export const salesOutboundDto = z.object({
   handler: requiredText("出库经办人", 80),
-  codes: z.array(z.string().trim().min(1, "SN 不能为空").max(160)).min(1, "至少扫描一条 SN").max(500, "单次最多扫描 500 个 SN"),
+  codes: z.array(z.string().trim().min(1, "SN 不能为空").max(160)).max(500, "单次最多扫描 500 个 SN"),
   manual: z.boolean(),
   remarks: optionalText(500),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (!value.manual && value.codes.length === 0) {
+    context.addIssue({code: "custom", path: ["codes"], message: "至少扫描一条 SN"});
+  }
+  if (value.manual && !value.remarks?.trim()) {
+    context.addIssue({code: "custom", path: ["remarks"], message: "手动确认出库必须填写原因"});
+  }
+});
 
 const returnBatchItemDto = z.object({
   sourceInventoryId: requiredText("退货库存", 120),

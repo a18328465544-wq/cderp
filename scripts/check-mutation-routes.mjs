@@ -41,6 +41,7 @@ const protectedPatterns = [
 
 const snapshotPatterns = [/^\/api\/backup$/];
 const exemptions = new Map([
+  ["/api/ops/client-events", "bounded redacted diagnostics; no business or database write"],
   ["/api/auth/login", "authMutationRoute + dedicated PostgreSQL auth lock"],
   ["/api/auth/logout", "authMutationRoute + dedicated PostgreSQL auth lock"],
   ["/api/ai/copilot", "stateless AI/SSE request; no ERP state write"],

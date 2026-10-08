@@ -1,5 +1,7 @@
 import {readFile} from "node:fs/promises";
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient} from "./dbTransactionCleanup.ts";
+import {readCollectionBatch} from "./dbCollectionReads.ts";
 import {
   createInitialState,
   normalizeStateConditions,
@@ -142,13 +144,8 @@ export function createStatePersistence({
     const storeScope = scopedStoreId(storeId);
     const state = createInitialState({includeCrmDemoData: false});
 
-    for (const {key, table} of getCollectionTablesForKeys(collectionKeys)) {
-      const result = await client.query<{data: unknown}>(
-        `SELECT data FROM ${table} WHERE tenant_id = $1 AND store_id = $2 ORDER BY id ASC`,
-        [scope, storeScope],
-      );
-      (state[key] as unknown[]) = result.rows.map((row) => row.data);
-    }
+    const collections = await readCollectionBatch(client, getCollectionTablesForKeys(collectionKeys), scope, storeScope);
+    for (const [key, items] of collections) (state[key] as unknown[]) = items;
     state.systemUsers = state.systemUsers.map((user) => ({
       ...user,
       tenantId: user.tenantId || scope,
@@ -196,13 +193,8 @@ export function createStatePersistence({
     const storeScope = scopedStoreId(storeId);
     const state = {...currentState, currentUserId: undefined};
 
-    for (const {key, table} of getCollectionTablesForKeys(keys)) {
-      const result = await client.query<{data: unknown}>(
-        `SELECT data FROM ${table} WHERE tenant_id = $1 AND store_id = $2 ORDER BY id ASC`,
-        [scope, storeScope],
-      );
-      (state[key] as unknown[]) = result.rows.map((row) => row.data);
-    }
+    const collections = await readCollectionBatch(client, getCollectionTablesForKeys(keys), scope, storeScope);
+    for (const [key, items] of collections) (state[key] as unknown[]) = items;
     state.systemUsers = state.systemUsers.map((user) => ({
       ...user,
       tenantId: user.tenantId || scope,
@@ -346,7 +338,7 @@ export function createStatePersistence({
       await rollbackQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 
@@ -367,7 +359,7 @@ export function createStatePersistence({
       await rollbackQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 
@@ -387,7 +379,7 @@ export function createStatePersistence({
         await rollbackQuietly(client);
         throw error;
       } finally {
-        client.release();
+        releaseTransactionClient(client);
       }
     });
   }
@@ -408,7 +400,7 @@ export function createStatePersistence({
         await rollbackQuietly(client);
         throw error;
       } finally {
-        client.release();
+        releaseTransactionClient(client);
       }
     });
   }
@@ -430,7 +422,7 @@ export function createStatePersistence({
         await rollbackQuietly(client);
         throw error;
       } finally {
-        client.release();
+        releaseTransactionClient(client);
       }
     });
   }

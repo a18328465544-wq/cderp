@@ -1,5 +1,6 @@
 import {createHash} from "node:crypto";
 import type {Pool, PoolClient} from "pg";
+import {releaseTransactionClient, rollbackTransactionQuietly} from "./dbTransactionCleanup.ts";
 import type {FinanceIntegrityAlert} from "../src/types/accounting.ts";
 import type {FinanceReconciliationIssue} from "./financeReconciliation.ts";
 
@@ -102,10 +103,10 @@ export function createFinanceControlsOperations({
       await client.query("COMMIT");
       return saved;
     } catch (error) {
-      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      await rollbackTransactionQuietly(client);
       throw error;
     } finally {
-      client.release();
+      releaseTransactionClient(client);
     }
   }
 

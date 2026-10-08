@@ -7,6 +7,7 @@ import type {
   ProductTemplate,
 } from "../src/types.ts";
 import {ConflictError, NotFoundError} from "./errors.ts";
+import {normalizeAccountingDocumentStatus} from "../src/types/accounting.ts";
 import {
   findPurchaseReturnLine as findPurchaseReturnLineByInvoice,
   type ReturnLineMatch,
@@ -19,8 +20,12 @@ export type ReturnFinancialDependencies = {
 };
 
 export function createReturnFinancialHelpers({state, findSettlementAccount}: ReturnFinancialDependencies) {
-  const findReturnInventory = (order: Pick<ReturnOrder, "sourceInventoryId" | "sn">) =>
-    state.inventory.find((card) => card.id === order.sourceInventoryId || (!!order.sn && card.sn === order.sn));
+  const findReturnInventory = (order: Pick<ReturnOrder, "sourceInventoryId" | "sn">) => {
+    if (order.sourceInventoryId) return state.inventory.find((card) => card.id === order.sourceInventoryId);
+    if (!order.sn) return undefined;
+    const matches = state.inventory.filter((card) => card.sn === order.sn);
+    return matches.length === 1 ? matches[0] : undefined;
+  };
 
   const findPurchaseReturnLine = (
     invoice: PurchaseInvoice | undefined,
@@ -57,17 +62,21 @@ export function createReturnFinancialHelpers({state, findSettlementAccount}: Ret
     legacyFallbackAccountId?: string,
   ): ReturnRefundAllocation[] => {
     if (cashAmount <= 0) return [];
-    const sourcePayments = (type === "销售退货" ? state.paymentInRecords : state.paymentOutRecords)
+    const historicalPayments = (type === "销售退货" ? state.paymentInRecords : state.paymentOutRecords)
       .filter((payment) =>
         payment.relatedDocNo === relatedDocNo &&
-        (type === "销售退货" ? payment.businessType === "销售收款" : payment.businessType === "采购付款"),
-      )
+        (type === "销售退货"
+          ? payment.businessType === "销售收款" || (payment.businessType == null && payment.relatedDocType === "销售单")
+          : payment.businessType === "采购付款"),
+      );
+    const sourcePayments = historicalPayments.filter((payment) => normalizeAccountingDocumentStatus(payment.accountingStatus) === "已入账")
       .sort((left, right) => String(left.time).localeCompare(String(right.time)) || left.id.localeCompare(right.id));
     const availableById = new Map(sourcePayments.map((payment) => [payment.id, Number(payment.amount || 0)]));
 
     // Historical documents can have a paid amount without a linked payment record.
     // Only an explicitly selected account may be used for this labelled fallback.
     if (!sourcePayments.length) {
+      if (historicalPayments.length) throw new ConflictError("原收付款流水已作废或尚未入账，不能作为原路退款来源");
       if (!legacyFallbackAccountId) {
         throw new ConflictError("原单缺少收付款流水，无法自动原路退款；请先补齐历史付款流水或选择人工退款账户");
       }

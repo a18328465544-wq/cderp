@@ -1,3 +1,4 @@
+import {getRecordVersion} from "../src/utils/recordVersion.ts";
 import type {
   AftersalesRecord,
   CardInventory,
@@ -10,8 +11,12 @@ import type {
   Vendor,
 } from "../src/types.ts";
 import {ConflictError, ValidationError} from "./errors.ts";
-import {createProductIdentityIndex, sameProductIdentity} from "../src/utils/productIdentity.ts";
+import {createProductIdentityIndex} from "../src/utils/productIdentity.ts";
 import {hasUniqueLegacyName, matchesCustomerByIdOrLegacyName} from "./storePartnerIdentity.ts";
+import type {AppState} from "./store.ts";
+import {assertAftersalesIdentityUnchanged, isAftersalesClosed, resolveAftersalesSource} from "./aftersalesBinding.ts";
+import {salesReturnLineMatchesCard} from "./storeReturnPlanning.ts";
+import {matchesAftersalesSource} from "../src/utils/aftersalesSource.ts";
 
 export type AftersalesOperationsState = {
   aftersales: AftersalesRecord[];
@@ -23,6 +28,9 @@ export type AftersalesOperationsState = {
   paymentInRecords: PaymentInRecord[];
   paymentOutRecords: PaymentOutRecord[];
   settlementAccounts: SettlementAccount[];
+  settlementLedger: AppState["settlementLedger"];
+  financeLedger: AppState["financeLedger"];
+  logs: AppState["logs"];
 };
 
 export type AftersalesOperationsDependencies = {
@@ -32,7 +40,6 @@ export type AftersalesOperationsDependencies = {
   genId: (prefix: string) => string;
   getActiveRole: () => string;
   systemActor: () => string;
-  findSalesInvoiceByDocNo: (docNo?: string) => SalesInvoice | undefined;
   salesInvoiceCustomerId: (invoice?: SalesInvoice) => string | undefined;
   findSettlementAccount: (accountId: string) => SettlementAccount;
   createPaymentOut: (payment: Omit<PaymentOutRecord, "id" | "accountName">, options?: {skipInvoiceUpdate?: boolean; internalReturnPayment?: boolean}) => PaymentOutRecord;
@@ -52,7 +59,6 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     genId,
     getActiveRole,
     systemActor,
-    findSalesInvoiceByDocNo,
     salesInvoiceCustomerId,
     findSettlementAccount,
     createPaymentOut,
@@ -60,16 +66,17 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     addLog,
   } = dependencies;
 
-  const findAftersalesInvoice = (claim: AftersalesRecord) =>
+  const findAftersalesInvoice = (claim: Pick<AftersalesRecord, "salesInvoiceNo">) =>
     state.salesInvoices.find((invoice) => invoice.invoiceNo === claim.salesInvoiceNo || invoice.id === claim.salesInvoiceNo);
 
   const findAftersalesSalesItem = (claim: AftersalesRecord, invoice?: SalesInvoice) => {
     const productIdentityIndex = createProductIdentityIndex(state.products);
-    return invoice?.items.find((item) =>
-      item.inventoryId === claim.inventoryNo ||
-      item.sn === claim.sn ||
-      sameProductIdentity(item, {name: claim.productName, productName: claim.productName}, productIdentityIndex),
-    );
+    const cards = claim.inventoryNo ? state.inventory.filter((card) => card.id === claim.inventoryNo)
+      : state.inventory.filter((card) => Boolean(claim.sn) && card.sn === claim.sn);
+    const card = cards[0];
+    if (cards.length !== 1 || !card || (claim.sn && card.sn !== claim.sn)) return undefined;
+    const items = invoice?.items.filter((item) => salesReturnLineMatchesCard(item, card, state.products, productIdentityIndex));
+    return items?.length === 1 ? items[0] : undefined;
   };
 
   const findAftersalesRefundAccountId = (claim: AftersalesRecord, invoice?: SalesInvoice) => {
@@ -88,7 +95,11 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     const invoice = findAftersalesInvoice(claim);
     const returnedItem = findAftersalesSalesItem(claim, invoice);
     const effectiveCustomerId = claim.customerId || salesInvoiceCustomerId(invoice);
-    const refundAmount = Number(claim.refundAmount || returnedItem?.sellPrice || 0);
+    // Repair/inspection completion is not a return. Explicit zero is a
+    // business fact, and missing legacy refunds must not imply a full refund.
+    const refundAmount = Number(claim.refundAmount ?? (options.reverseSale ? returnedItem?.sellPrice : 0) ?? 0);
+    const repairCost = Number(claim.repairCost ?? claim.loss ?? 0);
+    if (![refundAmount, repairCost].every((amount) => Number.isFinite(amount) && amount >= 0)) throw new ValidationError("售后退款和维修费用必须是有限非负金额");
     const handler = claim.handler || getActiveRole();
     const accountingEventId = claim.accountingEventId || genId("AE");
     let nextClaim = {...claim, accountingEventId};
@@ -113,7 +124,6 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
       nextClaim = {...nextClaim, refundPaymentOutId: refundPayment.id};
     }
 
-    const repairCost = Number(claim.repairCost || claim.loss || 0);
     if (repairCost > 0 && !claim.repairPaymentOutId && !state.paymentOutRecords.some((payment) => payment.relatedDocNo === claim.id && payment.businessType === "维修费")) {
       const accountId = findAftersalesRefundAccountId(claim, invoice);
       if (!accountId) throw new ValidationError("售后维修费需要至少一个启用的结算账户");
@@ -137,8 +147,8 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
     state.aftersales = state.aftersales.map((item) => item.id === claim.id ? nextClaim : item);
     if (!options.reverseSale) return nextClaim;
 
-    const returnedSellPrice = Number(returnedItem?.sellPrice || refundAmount || 0);
-    const returnedCost = Number(returnedItem?.costPrice || 0);
+    const returnedSellPrice = Number(returnedItem?.sellPrice ?? refundAmount ?? 0);
+    const returnedCost = Number(returnedItem?.costPrice ?? 0);
     const returnedProfit = Number(returnedItem?.profit ?? (returnedSellPrice - returnedCost));
     const returnedCount = returnedItem ? 1 : 0;
     if (invoice) {
@@ -151,6 +161,7 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
       const unpaidAmount = Math.max(0, totalAmount - paidAmount);
       state.salesInvoices = state.salesInvoices.map((item) => item.id === invoice.id ? {
         ...item,
+        recordVersion: getRecordVersion(item) + 1,
         items: remainingItems,
         totalCount,
         totalCost,
@@ -203,26 +214,46 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
 
   const addAftersalesClaim = (claim: Omit<AftersalesRecord, "id" | "status" | "createTime">) => {
     if (claim.type === "退货") throw new ValidationError("售后退货退款请在【销售退货】中办理，系统会按原收款记录分摊退款并同步冲销库存和单据");
-    const invoice = findSalesInvoiceByDocNo(claim.salesInvoiceNo);
-    const effectiveCustomerId = claim.customerId || salesInvoiceCustomerId(invoice);
-    const newClaim: AftersalesRecord = {...claim, customerId: effectiveCustomerId, id: genId("SH"), accountingStatus: "已提交", accountingEventId: genId("AE"), status: "待处理", createTime: storeDate()};
+    const candidateInvoice = findAftersalesInvoice(claim);
+    const candidateCard = state.inventory.find((card) => card.id === claim.inventoryNo);
+    const duplicate = candidateInvoice && candidateCard && state.aftersales.some((item) => !isAftersalesClosed(item)
+      && matchesAftersalesSource(item, candidateInvoice, candidateCard));
+    if (duplicate) throw new ConflictError("该实物已有处理中售后工单，请处理原工单，不要重复登记");
+    const {invoice, card, partnerId: effectiveCustomerId} = resolveAftersalesSource(state, claim, "create");
+    const newClaim: AftersalesRecord = {...claim, customerId: effectiveCustomerId, customerName: invoice.customerName,
+      contact: invoice.contact, productName: card.productName, inventoryNo: card.id, sn: card.sn,
+      salesInvoiceNo: invoice.invoiceNo || invoice.id, id: genId("SH"), accountingStatus: "已提交",
+      accountingEventId: genId("AE"), status: "待处理", createTime: storeDate()};
     state.aftersales = [newClaim, ...state.aftersales];
-    state.inventory = state.inventory.map((card) => card.sn === claim.sn ? {...card, status: "售后中"} : card);
-    state.customers = state.customers.map((customer) => matchesCustomerByIdOrLegacyName(customer, newClaim.customerId, newClaim.customerName) ? {...customer, aftersalesCount: customer.aftersalesCount + 1, tags: Array.from(new Set([...customer.tags, "售后记录"]))} : customer);
+    state.inventory = state.inventory.map((item) => item.id === card.id ? {...item, status: "售后中"} : item);
+    if (invoice.customerPartnerType !== "vendor" && effectiveCustomerId) state.customers = state.customers.map((customer) => matchesCustomerByIdOrLegacyName(customer, effectiveCustomerId, newClaim.customerName) ? {...customer, aftersalesCount: customer.aftersalesCount + 1, tags: Array.from(new Set([...customer.tags, "售后记录"]))} : customer);
     addLog(systemActor(), "售后保障", "新建售后申诉", `SN: ${claim.sn}`, "销售已售", `分类: ${claim.type}, 问题: ${claim.desc.substring(0, 15)}...`);
     return newClaim;
   };
 
-  const updateAftersalesStatus = (id: string, updatedFields: Partial<AftersalesRecord>) => {
+  const updateAftersalesStatusCommand = (id: string, updatedFields: Partial<AftersalesRecord>) => {
     const existingClaim = state.aftersales.find((claim) => claim.id === id);
     if (!existingClaim) return null;
+    assertAftersalesIdentityUnchanged(existingClaim, updatedFields);
+    const terminal = isAftersalesClosed(existingClaim);
+    if (terminal && ((updatedFields.status !== undefined && updatedFields.status !== existingClaim.status)
+      || (updatedFields.repairCost !== undefined && updatedFields.repairCost !== existingClaim.repairCost)
+      || (updatedFields.refundAmount !== undefined && updatedFields.refundAmount !== existingClaim.refundAmount))) {
+      throw new ConflictError("已结案售后不能直接改变状态或金额，请通过正式退货或财务更正处理");
+    }
     if (existingClaim.type === "退货" && updatedFields.status === "已完成") throw new ConflictError("历史售后退货不能直接结案，请在【销售退货】中按原单重新办理，避免绕过退款分摊和资金预览");
+    const resolving = !terminal && (updatedFields.status === "已完成" || updatedFields.status === "已拒绝");
+    const source = resolving ? resolveAftersalesSource(state, existingClaim, "resolve") : undefined;
+    if (source && state.aftersales.some((claim) => claim.id !== id && !isAftersalesClosed(claim)
+      && matchesAftersalesSource(claim, source.invoice, source.card))) {
+      throw new ConflictError("该库存存在多个处理中售后工单，请先核对，不能重复结案");
+    }
     let affectedClaim: AftersalesRecord | undefined;
     let previousClaim: AftersalesRecord | undefined;
     state.aftersales = state.aftersales.map((claim) => {
       if (claim.id !== id) return claim;
       previousClaim = claim;
-      affectedClaim = {...claim, ...updatedFields};
+      affectedClaim = {...claim, ...updatedFields, ...(source ? {inventoryNo: source.card.id, sn: source.card.sn} : {})};
       return affectedClaim;
     });
     const completingNow = affectedClaim && updatedFields.status === "已完成" && previousClaim?.status !== "已完成";
@@ -230,15 +261,24 @@ export function createAftersalesOperationHelpers(dependencies: AftersalesOperati
       const completedClaim = applyAftersalesReturnSettlement(affectedClaim, {reverseSale: false});
       affectedClaim = {...completedClaim, accountingStatus: "已入账"};
       state.aftersales = state.aftersales.map((claim) => claim.id === affectedClaim?.id ? affectedClaim! : claim);
-      state.inventory = state.inventory.map((card) => card.sn === affectedClaim?.sn ? {...card, status: "已售出"} : card);
+      state.inventory = state.inventory.map((card) => card.id === source?.card.id ? {...card, status: "已售出"} : card);
     }
-    if (affectedClaim && updatedFields.status === "已拒绝") {
+    if (affectedClaim && resolving && updatedFields.status === "已拒绝") {
       affectedClaim = {...affectedClaim, accountingStatus: "作废"};
       state.aftersales = state.aftersales.map((claim) => claim.id === affectedClaim?.id ? affectedClaim! : claim);
-      state.inventory = state.inventory.map((card) => card.sn === affectedClaim?.sn ? {...card, status: "已售出"} : card);
+      state.inventory = state.inventory.map((card) => card.id === source?.card.id ? {...card, status: "已售出"} : card);
     }
     addLog(systemActor(), "售后保障", "更新处理状态", `售后单: ${id}`, undefined, `状态变为: ${updatedFields.status || "未更改"}`);
     return affectedClaim ?? null;
+  };
+
+  const updateAftersalesStatus = (id: string, updatedFields: Partial<AftersalesRecord>) => {
+    // A repair can touch the claim, account and both ledgers. Restore exact
+    // facts if any domain step fails, including direct in-memory callers.
+    const keys = ["aftersales", "inventory", "salesInvoices", "customers", "vendors", "paymentInRecords", "paymentOutRecords", "settlementAccounts", "settlementLedger", "financeLedger", "logs"] as const;
+    const before = structuredClone(Object.fromEntries(keys.map((key) => [key, state[key]])));
+    try {return updateAftersalesStatusCommand(id, updatedFields);}
+    catch (error) {for (const key of keys) Reflect.set(state, key, before[key]); throw error;}
   };
 
   return {findAftersalesInvoice, findAftersalesSalesItem, findAftersalesRefundAccountId, applyAftersalesReturnSettlement, addAftersalesClaim, updateAftersalesStatus};

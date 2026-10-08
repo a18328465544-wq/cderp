@@ -65,7 +65,7 @@ function RouteErrorState({error}: {error: unknown}) {
 }
 
 function RouteNotFoundState() {
-  return <ErpPageError title="页面不存在" description="请从左侧导航重新选择一个工作区。" />;
+  return <ErpPageError title="页面不存在" description="请从主导航重新选择一个工作区。" />;
 }
 
 const rootRoute = createRootRoute({component: RootLayout});

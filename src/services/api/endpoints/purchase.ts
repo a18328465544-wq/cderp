@@ -4,6 +4,7 @@ import type {PurchaseCreateResponseDto, PurchaseDetailStateResponseDto, Purchase
 import type {PurchaseDetail, PurchaseFormValues, PurchaseListDataset, PurchaseListFilters, PurchaseReferenceData, PurchaseSettlementAccountOption, PurchaseCreateResult} from "@/src/types/purchase";
 import type {PurchaseDetailPermissions, PurchaseListPermissions, PurchaseReferencePermissions} from "../adapters/purchase.adapter";
 import {ApiError} from "../errors";
+import {resolveSubmissionKey, type SubmissionKey} from "../submissionIdentity";
 
 export const purchaseApi = {
   async list(filters: PurchaseListFilters, permissions: PurchaseListPermissions, signal?: AbortSignal): Promise<PurchaseListDataset> {
@@ -27,8 +28,9 @@ export const purchaseApi = {
     return adaptPurchaseReferenceData(response, permissions).sources;
   },
 
-  async create(values: PurchaseFormValues, account?: PurchaseSettlementAccountOption, signal?: AbortSignal, idempotencyKey?: string): Promise<PurchaseCreateResult> {
+  async create(values: PurchaseFormValues, account?: PurchaseSettlementAccountOption, signal?: AbortSignal, identity?: SubmissionKey): Promise<PurchaseCreateResult> {
     const request = toPurchaseRequestDto(values, account);
+    const idempotencyKey = resolveSubmissionKey(identity, request);
     const response = await apiRequest<PurchaseCreateResponseDto>("/api/purchase-invoices", {method: "POST", body: JSON.stringify(request), signal, headers: idempotencyKey ? {"Idempotency-Key": idempotencyKey} : undefined});
     return adaptPurchaseCreateResponse(response);
   },

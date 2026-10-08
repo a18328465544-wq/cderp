@@ -1,6 +1,22 @@
 import {Dialog as DialogPrimitive} from "@base-ui/react/dialog";
-import type {ComponentProps} from "react";
+import {createContext, useContext, useRef, useState, type ComponentProps} from "react";
 import {cn} from "@/src/lib/cn";
+import {usePhoneBackLayer} from "@/src/hooks/usePhoneBack";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
+
+const DialogDepth = createContext(0);
+function ErpDialogRoot(props: ComponentProps<typeof DialogPrimitive.Root>) {
+  const depth = useContext(DialogDepth);
+  const {active} = useWorkspaceTabActivity();
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(Boolean(props.defaultOpen));
+  const ownActions = useRef<DialogPrimitive.Root.Actions | null>(null);
+  const actions = props.actionsRef || ownActions;
+  usePhoneBackLayer(active && Boolean(props.open ?? uncontrolledOpen), () => actions.current?.close(), 300 + depth * 10);
+  return <DialogDepth.Provider value={depth + 1}><DialogPrimitive.Root {...props} actionsRef={actions} onOpenChange={(open, details) => {
+    props.onOpenChange?.(open, details);
+    if (!details.isCanceled) setUncontrolledOpen(open);
+  }} /></DialogDepth.Provider>;
+}
 
 type DialogBackdropProps = ComponentProps<typeof DialogPrimitive.Backdrop>;
 type DialogViewportProps = ComponentProps<typeof DialogPrimitive.Viewport>;
@@ -26,6 +42,7 @@ function ErpDialogPopup({className, ...props}: DialogPopupProps) {
    contract for every feature dialog that imports this shared primitive. */
 export const Dialog = {
   ...DialogPrimitive,
+  Root: ErpDialogRoot,
   Backdrop: ErpDialogBackdrop,
   Viewport: ErpDialogViewport,
   Popup: ErpDialogPopup,

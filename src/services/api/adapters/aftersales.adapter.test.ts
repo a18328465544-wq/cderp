@@ -19,6 +19,19 @@ test("aftersales candidates are linked by sold inventory and sales invoice witho
   assert.equal("costPrice" in (result.candidates[0] || {}), false);
 });
 
+test("stale claims on an older sale or another physical ID do not block the current owner's candidate", () => {
+  const invoice = {id: "CURRENT-SALE-ID", invoiceNo: "CURRENT-SALE-NO", customerName: "新客户", contact: "LOCAL"};
+  const card = {id: "CURRENT-KC", productName: "RTX4090", sn: "SAME-SN", status: "已售出", salesInvoiceId: invoice.invoiceNo};
+  const stale = {id: "OLD-SH", inventoryNo: card.id, sn: card.sn, salesInvoiceNo: "OLDER-SALE", status: "处理中"};
+  const other = {...stale, id: "OTHER-SH", inventoryNo: "OTHER-PHYSICAL-ID", salesInvoiceNo: invoice.invoiceNo};
+  const current = {...stale, id: "CURRENT-SH", salesInvoiceNo: invoice.id};
+  const snapshot = {data: {aftersales: [stale, other], inventory: [card], salesInvoices: [invoice]}};
+  const before = structuredClone(snapshot);
+  assert.equal(adaptAftersalesWorkspace(snapshot).candidates[0]!.activeClaimId, undefined);
+  assert.equal(adaptAftersalesWorkspace({data: {...snapshot.data, aftersales: [...snapshot.data.aftersales, current]}}).candidates[0]!.activeClaimId, current.id);
+  assert.deepEqual(snapshot, before);
+});
+
 test("aftersales request adapters preserve server field names and finance semantics", () => {
   const candidate = {inventoryId: "KC-1", productName: "RTX 4090", serialNumber: "SN-1", saleInvoiceNo: "XS-1", customerName: "张三", contact: "138"};
   const create = toAftersalesCreateRequest({candidateId: "KC-1", type: "维修", description: " 显卡花屏 "}, candidate, "郭鑫");

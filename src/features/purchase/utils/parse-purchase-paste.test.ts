@@ -5,6 +5,7 @@ import {expandPurchaseLines} from "@/src/features/purchase/purchase.calculations
 import type {PurchaseProductOption} from "@/src/types/purchase";
 import {
   parsePurchasePaste,
+  planPurchasePasteSelection,
   PURCHASE_PASTE_MAX_ROWS,
   PURCHASE_PASTE_MAX_TEXT_LENGTH,
   revalidatePurchasePasteRows,
@@ -91,6 +92,47 @@ test("invalid quantities and amounts are visible while 1, 2 and 5 remain line qu
   assert.equal(invalidQuantity.invalidRows.length, 1);
   const invalidMoney = parsePurchasePaste("华硕 RTX 4090 ROG\tabc\t19500", options());
   assert.equal(invalidMoney.invalidRows.length, 1);
+});
+
+test("paste preview rejects a single row exceeding the shared physical unit limit", () => {
+  const result = parsePurchasePaste("商品名称\t采购价\t预计售价\t数量\n华硕 RTX 4090 ROG\t18000\t19500\t501", options());
+  assert.equal(result.invalidRows.length, 1);
+  assert.ok(result.invalidRows[0]?.errors.some((message) => /不能超过 500 件/.test(message)));
+});
+
+test("paste selection limits physical units across existing and selected rows and permits a subset", () => {
+  const existing = {...createPurchaseLineDefaults(), productId: product.id, productName: product.name, buyPrice: 1000, quantity: 2};
+  const spare = {...createPurchaseLineDefaults(), quantity: 0};
+  const configuration = options({existingItems: [existing, spare]});
+  const result = parsePurchasePaste("商品名称\t采购价\t预计售价\t数量\n华硕 RTX 4090 ROG\t18000\t19500\t300\n华硕 RTX 4090 ROG\t18000\t19500\t200", configuration);
+  assert.equal(result.invalidRows.length, 0, "each row may be selected independently");
+  const before = JSON.stringify(result);
+  const all = new Set(result.parsedRows.map((row) => row.id));
+  const over = planPurchasePasteSelection(result.parsedRows, all, configuration);
+  assert.equal(over.selectedQuantity, 500);
+  assert.equal(over.totalQuantity, 502);
+  assert.match(over.error!, /不能超过 500 件/);
+  assert.equal(over.selectedRows.length, 2, "keep the full blocked selection, do not silently truncate");
+
+  const subset = planPurchasePasteSelection(result.parsedRows, new Set([result.parsedRows[0]!.id]), configuration);
+  assert.equal(subset.error, undefined);
+  assert.equal(subset.totalQuantity, 302);
+  const fittingRows = result.parsedRows.map((row, index) => index === 1 ? updatePurchasePasteRow(row, "quantity", 198, configuration) : row);
+  assert.equal(planPurchasePasteSelection(fittingRows, all, configuration).totalQuantity, 500);
+  assert.equal(planPurchasePasteSelection(fittingRows, all, configuration).error, undefined);
+  assert.equal(JSON.stringify(result), before, "planning never mutates the preview or existing form");
+  assert.ok(planPurchasePasteSelection(result.parsedRows, new Set(), configuration).error);
+});
+
+test("paste selection revalidates selected rows and never imports only the remaining valid part", () => {
+  const result = parsePurchasePaste("华硕 RTX 4090 ROG,18000,19500\n华硕 RTX 4090 ROG,18000,19500", options());
+  const all = new Set(result.parsedRows.map((row) => row.id));
+  const rows = result.parsedRows.map((row, index) => index === 1 ? {...row, line: {...row.line, quantity: 0}} : row);
+  const blocked = planPurchasePasteSelection(rows, all, options());
+  assert.equal(blocked.selectedRows.length, 2);
+  assert.match(blocked.error!, /所选明细仍有错误/);
+  assert.equal(planPurchasePasteSelection(rows, new Set([rows[0]!.id]), options()).error, undefined);
+  assert.ok(planPurchasePasteSelection(result.parsedRows, all, options({canEnterCost: false})).error, "current capabilities are rechecked at confirmation");
 });
 
 test("defaults come from createPurchaseLineDefaults and are not parser literals", () => {

@@ -7,7 +7,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { acquireAuthWriteLock, acquireStateWriteLock, createDatabaseSessionStore, dataFilePath, findActiveTenantMembership, findSystemUserById, findSystemUserByUsername, getAccountingEvent, getStateRevision, isAccountingPeriodClosed, listAccountingEvents, listAccountingReversalDocuments, listFinanceIntegrityAlerts, loadState, loadStateCollections, saveState, saveStateCollections, saveStateRecords, syncFinanceIntegrityAlertsInTransaction } from "./db.ts";
 import type { StateCollectionKey } from "./db.ts";
-import { createStoreActions, type AppState, type StoreActionContext } from "./store.ts";
+import { createInitialState, createStoreActions, type AppState, type StoreActionContext } from "./store.ts";
 import { notifyFeishuMarketQuotePriceChanged, notifyFeishuSalesInvoiceCreated } from "./feishu.ts";
 import { createSessionManager } from "./security.ts";
 import { createRequireAuth, createRequireCsrf, createRequireOpenApiToken } from "./httpAuth.ts";
@@ -20,11 +20,14 @@ import {
 } from "./publicState.ts";
 import {
   getPersistenceKeysForRequest,
+  getAuthenticationReloadKeys,
   getReloadKeysForRequest,
   getStatePatchKeysForRequest,
   INITIAL_STATE_RELOAD_KEYS,
   shouldAttachFreshStateToResponse,
   shouldReloadStateFromDatabase,
+  AI_INSIGHT_STATE_KEYS,
+  AI_DAILY_SALES_STATE_KEYS,
 } from "./requestStatePolicy.ts";
 import { statePatchResponse, type StateDeletePatch, type StateMergePatch } from "./statePatch.ts";
 import type {StateCommandTransactionHook} from "./stateCommand.ts";
@@ -227,6 +230,9 @@ async function withStateMutation<T>(req: AuthRequest | undefined, res: express.R
     return await runSerializedStateMutation(async () => {
       // The request-level reload middleware deliberately runs outside this lock. Reload again
       // here so every mutation calculates from the committed snapshot it actually owns.
+      // Legacy commands cross several aggregates (including returns/inspection
+      // guards). Keep their complete snapshot inside the lock, loaded once;
+      // authentication no longer preloads it outside the consistency boundary.
       await reloadStateFromDatabase();
       if (req?.authUser) {
         const freshUser = await applyAuthenticatedUser(req.authUser.id, { tenantId: req.tenantId });
@@ -425,8 +431,11 @@ function requireApiAuthentication(req: express.Request, res: express.Response, n
     // undefined would make an otherwise valid authenticated search return no data.
     authRequest.tenantId = tenantId;
     authRequest.storeId = storeId;
+    const keys = getAuthenticationReloadKeys(req.method, req.path, req.path === "/api/state" && req.query.mode === "initial");
     void assertCommercialTenantActive(tenantId)
-      .then(() => loadState(tenantId, storeId))
+      .then(() => keys === null
+        ? loadState(tenantId, storeId)
+        : loadStateCollections(createInitialState({includeDemoData: false}), keys, tenantId, storeId))
       .then((tenantState) => runTenantContext({ tenantId, storeId, state: tenantState }, next))
       .catch(next);
   });
@@ -903,8 +912,10 @@ app.use((req: AuthRequest, res, next) => {
       next();
       return;
     }
-    const databaseRevision = await getStateRevision();
-    if (databaseRevision !== stateRevision || req.method.toUpperCase() !== "GET") {
+    // Authenticated reads already own a fresh, policy-sized tenant snapshot.
+    // Only non-session callers need this compatibility reload path.
+    const databaseRevision = req.authUser ? stateRevision : await getStateRevision();
+    if (!req.authUser && (databaseRevision !== stateRevision || req.method.toUpperCase() !== "GET")) {
       await reloadRequestStateFromDatabase(req);
     }
     if (req.authUser) {
@@ -970,7 +981,7 @@ registerMarketQuoteRoutes(app, {
 });
 registerAiDailySalesRoutes(app, {
   requireAnyMenu,
-  loadState,
+  loadState: (tenantId, storeId) => loadStateCollections(state, AI_DAILY_SALES_STATE_KEYS, tenantId, storeId),
   getStoreDate: storeDate,
   getCutoff: () => process.env.FEISHU_DAILY_REPORT_CUTOFF || "20:00",
   permissionsForRequest: (req) => getPermissionsForUser((req as AuthRequest).authUser),
@@ -981,7 +992,7 @@ registerAiRoutes(app, {
   requireBoss,
   requireMenu,
   asyncRoute,
-  loadState,
+  loadState: (tenantId, storeId) => loadStateCollections(state, AI_INSIGHT_STATE_KEYS, tenantId, storeId),
   replaceState: replaceCurrentState,
   reloadState: reloadStateFromDatabase,
   getState: () => state,

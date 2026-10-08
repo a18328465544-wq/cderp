@@ -7,12 +7,14 @@ import {Controller, useFieldArray, useForm, useWatch, type FieldPath} from "reac
 import {notify} from "@/src/utils/notification";
 import {useAuth} from "@/src/app/auth";
 import {Button, Card, CardContent, Input, Textarea} from "@/src/components/ui";
-import {ErpDatePicker, ErpFormSection, ErpLoadingState, ErpPageContent, ErpPageError, ErpPageHeader, ErpSubmitBar, ErpTransactionColumns, ErpTransactionPageFrame, ErpTransactionPrimary, ErpTransactionSecondary, ErpUnsavedChangesDialog} from "@/src/components/common";
+import {ErpMobileWorkflow, ErpMobileWorkflowSection, ErpDatePicker, ErpFormSection, ErpLoadingState, ErpPageContent, ErpPageError, ErpPageHeader, ErpSubmitBar, ErpTransactionColumns, ErpTransactionPageFrame, ErpTransactionPrimary, ErpTransactionSecondary, ErpUnsavedChangesDialog} from "@/src/components/common";
 import {ApiError, purchaseApi, queryKeys} from "@/src/services/api";
 import type {AuthSession} from "@/src/services/api";
 import type {PurchaseDetail, PurchaseFormValues, PurchaseProductOption, PurchaseReferenceData, PurchaseSourceOption} from "@/src/types/purchase";
-import {calculatePurchaseSettlement, calculatePurchaseSummary} from "@/src/lib/purchase";
+import {calculatePurchaseSettlement, calculatePurchaseSummary, filledPurchaseLines} from "@/src/lib/purchase";
+import {purchaseQuantityError} from "@/src/utils/purchaseQuantity";
 import {formatCurrency} from "@/src/lib/format";
+import type {PaymentEntryFeedback} from "@/src/lib/paymentEntry";
 import {PurchaseAmountSummary, PurchaseLineItemsTable, PurchasePaymentSection, PurchaseSourcePicker} from "../components";
 import {createPurchaseEditValues, createPurchaseLineDefaults} from "../purchase.defaults";
 import {purchaseFieldErrors, purchaseSubmitErrorMessage} from "../purchase.errors";
@@ -41,6 +43,7 @@ function fullRecordAccess(session: AuthSession) {
 }
 
 export function PurchaseEditPage({purchaseId}: {purchaseId: string}) {
+  const {active} = useWorkspaceTabActivity();
   const {session, status, error: authError, refresh, logout} = useAuth();
   const allowed = Boolean(session && hasMenu(session, "purchase_list") && session.permissions.canEditHistory);
   const detailPermissions = useMemo(() => ({
@@ -52,7 +55,7 @@ export function PurchaseEditPage({purchaseId}: {purchaseId: string}) {
   const detailQuery = useQuery({
     queryKey: queryKeys.purchase.detail(purchaseId),
     queryFn: ({signal}) => purchaseApi.detail(purchaseId, detailPermissions, signal),
-    enabled: allowed,
+    enabled: active && (allowed),
     retry: false,
   });
   useEffect(() => {
@@ -68,10 +71,11 @@ export function PurchaseEditPage({purchaseId}: {purchaseId: string}) {
   if (!detailQuery.data) return <ErpPageError title="采购单不存在" description="该采购单可能已删除或当前账号无权访问。" />;
 
   const policy = derivePurchaseEditPolicy(detailQuery.data, {canEditHistory: true, hasFullRecordAccess: fullRecordAccess(session)});
-  return <PurchaseEditDataLoader detail={detailQuery.data} policy={policy} session={session} onAuthExpired={logout} />;
+  return <PurchaseEditDataLoader key={detailQuery.data.invoice.id} detail={detailQuery.data} policy={policy} session={session} onAuthExpired={logout} />;
 }
 
 function PurchaseEditDataLoader({detail, policy, session, onAuthExpired}: {detail: PurchaseDetail; policy: PurchaseEditPolicy; session: AuthSession; onAuthExpired: () => void}) {
+  const {active} = useWorkspaceTabActivity();
   const referencePermissions = useMemo(() => ({
     showCost: session.permissions.showCost,
     showProfit: session.permissions.showProfit,
@@ -83,7 +87,7 @@ function PurchaseEditDataLoader({detail, policy, session, onAuthExpired}: {detai
   const referenceQuery = useQuery({
     queryKey: queryKeys.purchase.referenceData(),
     queryFn: ({signal}) => purchaseApi.referenceData(referencePermissions, signal),
-    enabled: policy.mode === "full",
+    enabled: active && (policy.mode === "full"),
     retry: false,
     staleTime: 30_000,
   });
@@ -112,16 +116,19 @@ function sourceFromInvoice(detail: PurchaseDetail, referenceData?: PurchaseRefer
 }
 
 function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, referencePermissions, onAuthExpired}: {detail: PurchaseDetail; policy: PurchaseEditPolicy; referenceData?: PurchaseReferenceData; referencePermissions: PurchaseReferencePermissions; onAuthExpired: () => void}) {
+  const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const invoice = detail.invoice;
+  // A background detail refresh cannot rebase existing unsaved form values.
+  const [editVersion, setEditVersion] = useState(() => invoice.recordVersion || 1);
   const fullMode = policy.mode === "full";
   const [sourceKeyword, setSourceKeyword] = useState("");
   const [productKeyword, setProductKeyword] = useState("");
   const debouncedSourceKeyword = useDebouncedValue(sourceKeyword.trim(), 250);
   const debouncedProductKeyword = useDebouncedValue(productKeyword.trim(), 250);
-  const sourceSearchQuery = useQuery({queryKey: queryKeys.purchase.sourceSearch(debouncedSourceKeyword), queryFn: ({signal}) => purchaseApi.searchSources(debouncedSourceKeyword, referencePermissions, signal), enabled: fullMode && debouncedSourceKeyword.length > 0, retry: false, staleTime: 30_000});
-  const productSearchQuery = useQuery({queryKey: queryKeys.purchase.productSearch(debouncedProductKeyword), queryFn: ({signal}) => purchaseApi.searchProducts(debouncedProductKeyword, referencePermissions, signal), enabled: fullMode && debouncedProductKeyword.length > 0, retry: false, staleTime: 30_000});
+  const sourceSearchQuery = useQuery({queryKey: queryKeys.purchase.sourceSearch(debouncedSourceKeyword), queryFn: ({signal}) => purchaseApi.searchSources(debouncedSourceKeyword, referencePermissions, signal), enabled: active && (fullMode && debouncedSourceKeyword.length > 0), retry: false, staleTime: 30_000});
+  const productSearchQuery = useQuery({queryKey: queryKeys.purchase.productSearch(debouncedProductKeyword), queryFn: ({signal}) => purchaseApi.searchProducts(debouncedProductKeyword, referencePermissions, signal), enabled: active && (fullMode && debouncedProductKeyword.length > 0), retry: false, staleTime: 30_000});
   const referenceData = useMemo(() => initialReferenceData ? {
     ...initialReferenceData,
     sources: mergeByIdentity(sourceSearchQuery.data || [], initialReferenceData.sources),
@@ -133,13 +140,15 @@ function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, 
   const values = useWatch({control}) as PurchaseFormValues;
   const [selectedSource, setSelectedSource] = useState<PurchaseSourceOption | null>(() => sourceFromInvoice(detail, referenceData));
   const [serverError, setServerError] = useState<string>();
+  const [settlementEntry, setSettlementEntry] = useState<PaymentEntryFeedback>({ready: true});
   const summary = useMemo(() => calculatePurchaseSummary(values.items || []), [values.items]);
   const settlement = useMemo(() => calculatePurchaseSettlement(summary.totalCost, values.paidAmount || 0, values.vendorCreditAppliedAmount || 0), [summary.totalCost, values.paidAmount, values.vendorCreditAppliedAmount]);
   const selectedAccount = referenceData?.settlementAccounts.find((account) => account.id === values.settlementAccountId);
   const currentCredit = selectedSource?.id === invoice.sourcePartnerId ? invoice.vendorCreditAppliedAmount || 0 : 0;
   const vendorCreditAvailable = selectedSource?.partnerType === "vendor" ? (selectedSource.returnCreditBalance || 0) + currentCredit : 0;
-  const canSubmit = formState.isDirty && (fullMode ? parsePurchaseOrderValues(values, vendorCreditAvailable).success && Boolean(selectedSource) : values.expressNo.length <= 120 && values.remarks.length <= 1000);
-  const mutation = useMutation({mutationFn: (submitted: PurchaseFormValues) => purchaseApi.update(invoice.id, submitted, selectedAccount, invoice.recordVersion || 1, fullMode ? "full" : "metadata")});
+  const canSubmit = formState.isDirty && (fullMode ? parsePurchaseOrderValues(values, vendorCreditAvailable).success && Boolean(selectedSource) && settlementEntry.ready : values.expressNo.length <= 120 && values.remarks.length <= 1000);
+  const quantityError = fullMode ? purchaseQuantityError(filledPurchaseLines(values.items || [])) : undefined;
+  const mutation = useMutation({mutationFn: (submitted: PurchaseFormValues) => purchaseApi.update(invoice.id, submitted, selectedAccount, editVersion, fullMode ? "full" : "metadata")});
   const {tabId} = useWorkspaceTabActivity();
   useWorkspaceTabDirty(tabId || "purchase_list", formState.isDirty);
 
@@ -172,6 +181,7 @@ function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, 
   const submit = async (submitted: PurchaseFormValues) => {
     setServerError(undefined);
     if (fullMode) {
+      if (!settlementEntry.ready) {setServerError(settlementEntry.reason); return;}
       const parsed = parsePurchaseOrderValues(submitted, vendorCreditAvailable);
       if (!parsed.success) {
         setServerError(parsed.error.issues[0]?.message || "请完善采购单信息");
@@ -184,6 +194,7 @@ function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, 
     }
     try {
       const result = await mutation.mutateAsync(submitted);
+      setEditVersion(result.invoice.recordVersion || 1);
       blocker.markSaved();
       // The save response is the authoritative snapshot. Reset RHF before
       // navigating so the edit tab is no longer marked dirty, including when
@@ -211,9 +222,11 @@ function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, 
     <Card className="border-[var(--erp-color-border-strong)]"><CardContent className="p-3"><ErpPageHeader title={`编辑采购单 ${invoice.invoiceNo}`} subtitle={policy.summary} actions={<Button type="button" variant="secondary" onClick={leave}><ArrowLeft className="h-4 w-4" />返回详情</Button>} /></CardContent></Card>
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
       {serverError && <Card role="alert" className="border-[var(--erp-color-danger)] bg-[var(--erp-color-danger-soft)]"><CardContent className="p-4 text-sm text-[var(--erp-color-danger)]">{serverError}</CardContent></Card>}
+      <ErpMobileWorkflow resetKey={invoice.id} pending={mutation.isPending} steps={[{label: "编辑信息"}, {label: "核对与保存"}]} summary={fullMode ? `${summary.totalCount} 件 · ${formatCurrency(summary.totalCost)}` : "仅修改物流与备注"} errorStep={serverError ? 1 : undefined}>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {void handleSubmit(submit)(event);}}>
         <ErpTransactionColumns>
           <ErpTransactionPrimary>
+            <ErpMobileWorkflowSection step={0}>
             <Card><CardContent><div className="grid items-start gap-4 md:grid-cols-12">
               <div className="md:col-span-2"><p className="text-sm font-semibold">单据编号</p><div className="mt-2 flex h-10 items-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 erp-data-number text-xs font-semibold">{invoice.invoiceNo}</div></div>
               <div className="md:col-span-2"><p className="text-sm font-semibold">采购日期</p>{fullMode ? <Controller control={control} name="date" render={({field}) => <ErpDatePicker className="mt-2" value={field.value} onChange={field.onChange} disabled={mutation.isPending} aria-label="采购日期" />} /> : <div className="mt-2 flex h-10 items-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 text-sm">{invoice.date}</div>}</div>
@@ -224,13 +237,17 @@ function PurchaseEditForm({detail, policy, referenceData: initialReferenceData, 
             {fullMode ? <PurchaseLineItemsTable control={control} fields={fields} items={values.items || []} products={referenceData?.products || []} canEnterCost showProfit canCreateProduct={false} disabled={mutation.isPending} productsLoading={Boolean(productKeyword.trim()) && (productKeyword.trim() !== debouncedProductKeyword || productSearchQuery.isFetching)} onProductKeywordChange={setProductKeyword} onProductSelect={selectProduct} onProductClear={clearProduct} onAdd={() => append(createPurchaseLineDefaults())} onRemove={remove} /> : <Card><CardContent><div className="mb-3 flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[var(--erp-color-warning)]" /><h2 className="text-sm font-semibold">商品与结算已锁定</h2></div><p className="text-xs leading-5 text-[var(--erp-color-text-secondary)]">{policy.reasons.join("；") || "该采购单已形成关联业务事实。"}</p><div className="mt-4 grid gap-2 sm:grid-cols-2">{invoice.items.slice(0, 8).map((item) => <div key={item.tempId} className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] px-3 py-2 text-xs"><span className="font-semibold">{item.productName}</span><span className="ml-2 text-[var(--erp-color-text-muted)]">{formatCurrency(item.buyPrice)}</span></div>)}</div></CardContent></Card>}
 
             <ErpFormSection title="采购备注" description="可补充谈价、包装、物流和核对说明；已有采购图片保持不变。"><Textarea {...register("remarks")} className="min-h-32" maxLength={1000} disabled={mutation.isPending} placeholder="补充采购单说明" /><p className="mt-2 text-xs text-[var(--erp-color-text-muted)]">已有图片 {invoice.images?.length || 0} 张，本次编辑不会删除。</p></ErpFormSection>
+            </ErpMobileWorkflowSection>
           </ErpTransactionPrimary>
 
           <ErpTransactionSecondary>
-            <Card><CardContent className="space-y-4 p-4"><div className="flex items-start gap-3"><span className="rounded-full bg-[var(--erp-color-success-soft)] p-2 text-[var(--erp-color-success)]"><ShieldCheck className="h-4 w-4" /></span><div><h2 className="text-sm font-semibold">{fullMode ? "完整编辑" : "受限编辑"}</h2><p className="mt-1 text-xs leading-5 text-[var(--erp-color-text-secondary)]">保存时会检查单据版本，避免覆盖其他人的修改。</p></div></div>{fullMode && <><PurchasePaymentSection embedded compact control={control} setValue={setValue} totalCost={summary.totalCost} sourcePartnerType={values.sourcePartnerType} vendorCreditAvailable={vendorCreditAvailable} accounts={referenceData?.settlementAccounts || []} accountsLoading={false} onRetryAccounts={() => undefined} canEnterCost /><div className="border-t border-[var(--erp-color-border)] pt-3"><PurchaseAmountSummary embedded summary={summary} settlement={settlement} canEnterCost showProfit /></div></>}<ErpSubmitBar embedded compact showCancel={false} dirty={formState.isDirty} canSubmit={canSubmit} blockedReason={formState.isDirty ? "请完善当前可编辑字段" : "尚未修改采购单"} submitting={mutation.isPending} onCancel={leave} submitLabel="保存采购单修改"><span>开单人：{invoice.handleBy}</span></ErpSubmitBar></CardContent></Card>
+            <ErpMobileWorkflowSection step={1}>
+            <Card><CardContent className="space-y-4 p-4"><div className="flex items-start gap-3"><span className="rounded-full bg-[var(--erp-color-success-soft)] p-2 text-[var(--erp-color-success)]"><ShieldCheck className="h-4 w-4" /></span><div><h2 className="text-sm font-semibold">{fullMode ? "完整编辑" : "受限编辑"}</h2><p className="mt-1 text-xs leading-5 text-[var(--erp-color-text-secondary)]">保存时会检查单据版本，避免覆盖其他人的修改。</p></div></div>{fullMode && <><PurchasePaymentSection embedded compact control={control} setValue={setValue} totalCost={summary.totalCost} sourcePartnerType={values.sourcePartnerType} vendorCreditAvailable={vendorCreditAvailable} accounts={referenceData?.settlementAccounts || []} accountsLoading={false} onRetryAccounts={() => undefined} canEnterCost onReadinessChange={setSettlementEntry} /><div className="border-t border-[var(--erp-color-border)] pt-3"><PurchaseAmountSummary embedded summary={summary} settlement={settlement} canEnterCost showProfit /></div></>}<ErpSubmitBar embedded compact showCancel={false} dirty={formState.isDirty} canSubmit={canSubmit} blockedReason={quantityError || (fullMode ? settlementEntry.reason : undefined) || (formState.isDirty ? "请完善当前可编辑字段" : "尚未修改采购单")} submitting={mutation.isPending} onCancel={leave} submitLabel="保存采购单修改"><span>开单人：{invoice.handleBy}</span></ErpSubmitBar></CardContent></Card>
+            </ErpMobileWorkflowSection>
           </ErpTransactionSecondary>
         </ErpTransactionColumns>
       </form>
+      </ErpMobileWorkflow>
       <ErpUnsavedChangesDialog open={blocker.status === "blocked"} onStay={() => blocker.reset?.()} onLeave={() => blocker.proceed?.()} />
     </ErpPageContent>
   </ErpTransactionPageFrame>;

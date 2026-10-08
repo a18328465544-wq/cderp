@@ -54,6 +54,50 @@ test("purchase request quantities 1, 2 and 5 always expand to physical rows", ()
   }
 });
 
+test("incomplete purchase quantities never contribute a fabricated physical unit or amount", () => {
+  const values = validPurchaseValues();
+  for (const quantity of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    values.items[0]!.quantity = quantity;
+    assert.deepEqual(calculatePurchaseSummary(values.items), {totalCount: 0, totalCost: 0, estTotalSell: 0, estTotalProfit: 0});
+    assert.equal(parsePurchaseOrderValues(values).success, false);
+    assert.throws(() => expandPurchaseLines(values.items), /数量必须为正整数/);
+  }
+  values.items[0]!.quantity = 2;
+  assert.equal(calculatePurchaseSummary(values.items).totalCost, 2000);
+  assert.equal(values.items[0]!.buyPrice, 1000);
+});
+
+test("purchase form limits total physical units rather than the number of editor rows", () => {
+  const values = validPurchaseValues();
+  values.items[0]!.quantity = 500;
+  assert.equal(parsePurchaseOrderValues(values).success, true);
+  assert.equal(expandPurchaseLines(values.items).length, 500);
+  values.items.push({...values.items[0]!, tempId: "second", quantity: 1});
+  const result = parsePurchaseOrderValues(values);
+  assert.equal(result.success, false);
+  if (!result.success) assert.ok(result.error.issues.some((issue) => /不能超过 500 件/.test(issue.message)));
+  assert.throws(() => expandPurchaseLines(values.items), /不能超过 500 件/);
+});
+
+test("unused spare rows follow the same filled-line boundary as summary and expansion", () => {
+  const values = validPurchaseValues();
+  const spare = {...createPurchaseDefaults("测试员").items[1]!, quantity: 0};
+  values.items.push(spare);
+  assert.equal(parsePurchaseOrderValues(values).success, true);
+  assert.equal(calculatePurchaseSummary(values.items).totalCount, 2);
+  assert.equal(expandPurchaseLines(values.items).length, 2);
+
+  for (const fields of [{productId: "P-1"}, {buyPrice: 10}, {remarks: "需要采购"}]) {
+    values.items[1] = {...spare, ...fields};
+    const result = parsePurchaseOrderValues(values);
+    assert.equal(result.success, false);
+    if (!result.success) assert.ok(result.error.issues.some((issue) => issue.path.join(".") === "items.1.quantity"));
+  }
+  const empty = createPurchaseDefaults("测试员");
+  empty.items.forEach((item) => { item.quantity = 0; });
+  assert.equal(parsePurchaseOrderValues(empty).success, false);
+});
+
 test("purchase settlement keeps vendor credit separate from cash", () => {
   const settlement = calculatePurchaseSettlement(1000, 400, 200);
   assert.deepEqual(settlement, {paidAmount: 400, vendorCreditAppliedAmount: 200, unpaidAmount: 400, isPaid: false, paymentStatus: "部分付款", overpaid: false});

@@ -16,7 +16,7 @@ export function purchaseMediaFormUrls(items: readonly {status: string; assetUrl?
 }
 
 export function hasBlockingPurchaseMedia(items: readonly {status: string}[]): boolean {
-  return items.some((item) => item.status === "compressing" || item.status === "uploading" || item.status === "failed");
+  return items.some((item) => item.status === "local" || item.status === "compressing" || item.status === "uploading" || item.status === "failed");
 }
 
 export {IMAGE_MAX_COUNT};

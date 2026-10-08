@@ -1,4 +1,4 @@
-import {inventoryCategories, type InventoryFilters, type InventorySortDirection, type InventorySortKey, type InventoryRisk} from "@/src/types/inventory";
+import {inventoryCategories, type InventoryFilters, type InventorySortDirection, type InventorySortKey, type InventoryRisk, type InventoryView} from "@/src/types/inventory";
 import {readDateRange} from "@/src/lib/dateRangePickerUtils";
 
 export const defaultInventoryFilters: InventoryFilters = {
@@ -100,4 +100,10 @@ export function inventoryFiltersToSearch(filters: InventoryFilters) {
 
 export function inventorySummaryFilters(filters: InventoryFilters): InventoryFilters {
   return {...filters, page: 1, pageSize: 20, sortKey: "entryTime", sortDirection: "desc"};
+}
+
+/** Detail URLs and refetches can create equivalent filter objects. Selection
+ * belongs to the visible result scope, not to those objects' identities. */
+export function inventorySelectionScope(filters: InventoryFilters, view: InventoryView) {
+  return JSON.stringify([view, Object.entries(filters).sort(([left], [right]) => left.localeCompare(right))]);
 }

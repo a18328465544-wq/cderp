@@ -18,6 +18,7 @@ export interface SalesItem {
 export interface SalesInvoice {
   id: string;
   invoiceNo: string;
+  recordVersion?: number;
   accountingStatus?: AccountingDocumentStatus;
   accountingEventId?: string;
   date: string;
@@ -101,6 +102,7 @@ export interface SalesListLine {
 export interface SalesListItem {
   id: string;
   invoiceNo: string;
+  recordVersion?: number;
   date: string;
   customerId?: string;
   customerPartnerType?: SalesPartnerType;

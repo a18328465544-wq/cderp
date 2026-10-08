@@ -6,6 +6,8 @@ import {runStateCommand} from "../stateCommand.ts";
 import {compactStateMerge, statePatchResponse, type StateMergePatch} from "../statePatch.ts";
 import type {AppState, createStoreActions} from "../store.ts";
 import type {InspectionRecord, SystemUserAccount} from "../../src/types.ts";
+import {purchaseInvoicesForInventory} from "../purchaseRecordVersion.ts";
+import {publicStateMergeForUser} from "../publicState.ts";
 
 type InspectionRequest = AuthenticatedRequest<SystemUserAccount>;
 
@@ -40,6 +42,7 @@ function inspectionMerge(state: AppState, record: InspectionRecord): StateMergeP
   return compactStateMerge({
     inspections: [record],
     inventory,
+    purchaseInvoices: purchaseInvoicesForInventory(state.purchaseInvoices, inventory),
     products: relatedProducts(state, inventory),
     logs: state.logs.slice(0, 1),
   });
@@ -62,7 +65,7 @@ export function registerInspectionMutationRoutes(app: Express, dependencies: Ins
         },
         (client, record) => appendInspectionVersionInTransaction(client, record, authRequest.tenantId, dependencies.actorForRequest(authRequest)),
       );
-      res.status(201).json(okMerge(created, stateMerge));
+      res.status(201).json(okMerge(created, publicStateMergeForUser(dependencies.getState(), stateMerge, authRequest.authUser)));
     }),
   );
 
@@ -95,7 +98,7 @@ export function registerInspectionMutationRoutes(app: Express, dependencies: Ins
         },
         (client, record) => appendInspectionVersionInTransaction(client, record, authRequest.tenantId, dependencies.actorForRequest(authRequest)),
       );
-      res.json(okMerge(updated, stateMerge));
+      res.json(okMerge(updated, publicStateMergeForUser(dependencies.getState(), stateMerge, authRequest.authUser)));
     }),
   );
 }

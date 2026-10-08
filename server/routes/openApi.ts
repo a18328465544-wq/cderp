@@ -160,7 +160,7 @@ export function registerOpenApiRoutes(app: Express, dependencies: OpenApiDepende
   }));
 
   const scan = (mode: "入库" | "出库" | "移库") => dependencies.asyncRoute(async (req, res) => {
-    await dependencies.reloadStateCollections(["inventory", "products", "salesInvoices", "logs"]);
+    await dependencies.reloadStateCollections(["inventory", "products", "purchaseInvoices", "salesInvoices", "logs"]);
     const command = parseHttpDto(inventoryScanFlowDto, {...(req.body && typeof req.body === "object" ? req.body : {}), mode});
     const result = dependencies.actions({role: "财务", actor: "OpenAPI"}).scanInventoryFlow({
       ...command,

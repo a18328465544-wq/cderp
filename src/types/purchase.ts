@@ -2,6 +2,10 @@ import type {CardInventory, ProductCategory, SourceType} from "./core";
 import type {CustomerLevel, CustomerPickerOption, CustomerPartnerType} from "./customer";
 import type {AccountingDocumentStatus} from "./accounting";
 
+/** A purchase document is bounded by physical units, not collapsed editor rows. */
+export const PURCHASE_MAX_PHYSICAL_ITEMS = 500;
+export const PURCHASE_PHYSICAL_LIMIT_MESSAGE = `单张进货单商品不能超过 ${PURCHASE_MAX_PHYSICAL_ITEMS} 件`;
+
 export interface PurchaseItem {
   tempId: string;
   productId: string;

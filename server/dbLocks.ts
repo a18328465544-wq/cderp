@@ -68,7 +68,9 @@ export function createDatabaseLocks({
       await acquireAdvisoryLock(client, signal, stateLockKey);
       processWriteLockDepth += 1;
     } catch (error) {
-      client.release();
+      // A lock query/abort cleanup can fail after PostgreSQL acquired the
+      // session lock. Discard this session instead of pooling uncertain locks.
+      client.release(true);
       throw error;
     }
 
@@ -76,11 +78,16 @@ export function createDatabaseLocks({
     return async () => {
       if (released) return;
       released = true;
+      let unlockFailed = false;
       try {
         await client.query("SELECT pg_advisory_unlock(hashtext($1))", [stateLockKey]);
+      } catch (error) {
+        unlockFailed = true;
+        throw error;
       } finally {
         processWriteLockDepth = Math.max(0, processWriteLockDepth - 1);
-        client.release();
+        if (unlockFailed) client.release(true);
+        else client.release();
       }
     };
   }
@@ -92,7 +99,7 @@ export function createDatabaseLocks({
     try {
       await acquireAdvisoryLock(client, signal, authLockKey);
     } catch (error) {
-      client.release();
+      client.release(true);
       throw error;
     }
 
@@ -100,10 +107,15 @@ export function createDatabaseLocks({
     return async () => {
       if (released) return;
       released = true;
+      let unlockFailed = false;
       try {
         await client.query("SELECT pg_advisory_unlock(hashtext($1))", [authLockKey]);
+      } catch (error) {
+        unlockFailed = true;
+        throw error;
       } finally {
-        client.release();
+        if (unlockFailed) client.release(true);
+        else client.release();
       }
     };
   }

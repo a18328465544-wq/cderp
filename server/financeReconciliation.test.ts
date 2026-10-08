@@ -204,3 +204,32 @@ test("audit persistence can receive the complete issue set while the UI remains 
   assert.equal(report.issues.length, 1);
   assert.ok((report.allIssues?.length || 0) > report.issues.length);
 });
+
+for (const type of ["进货退货", "销售退货"] as const) {
+  for (const status of ["已完成", "待处理", "已作废"] as const) {
+    test(`${type} ${status} uses only completed returns when reconciling net paid amounts`, () => {
+      const state = cleanState();
+      const purchase = type === "进货退货";
+      const invoice = {id: "DOC-1", invoiceNo: "DOC-1", totalCost: 60, totalAmount: 60, paidAmount: 60, unpaidAmount: 0};
+      if (purchase) {
+        state.purchaseInvoices = [{...createInitialState().purchaseInvoices[0]!, ...invoice}];
+        state.paymentOutRecords = [{...state.paymentOutRecords[0], amount: 100, relatedDocNo: "DOC-1", businessType: "采购付款"}];
+      } else {
+        state.salesInvoices = [{...createInitialState().salesInvoices[0]!, ...invoice}];
+        state.paymentInRecords = [{...state.paymentInRecords[0], amount: 100, relatedDocNo: "DOC-1", businessType: "销售收款"}];
+      }
+      state.returnOrders = [{id: "RET-1", returnNo: "RET-1", relatedDocNo: "DOC-1", type, status,
+        settlementMode: "原路退款", cashReleasedAmount: 40} as AppState["returnOrders"][number]];
+      const invoiceIssues = inspectFinanceReconciliation(state).issues.filter((item) => item.domain === "invoices");
+      assert.equal(invoiceIssues.length, status === "已完成" ? 0 : 1);
+    });
+  }
+}
+
+test("direct reversal already removes the original payment and must not subtract it twice", () => {
+  const state = cleanState();
+  state.purchaseInvoices = [{id: "DOC-1", invoiceNo: "DOC-1", totalCost: 0, paidAmount: 0, unpaidAmount: 0} as AppState["purchaseInvoices"][number]];
+  state.paymentOutRecords = [];
+  state.returnOrders = [{id: "RET-1", returnNo: "RET-1", relatedDocNo: "DOC-1", type: "进货退货", status: "已完成", settlementMode: "直接冲销", cashReleasedAmount: 100} as AppState["returnOrders"][number]];
+  assert.equal(inspectFinanceReconciliation(state).issues.filter((item) => item.domain === "invoices").length, 0);
+});

@@ -39,7 +39,11 @@ export function purchaseSubmitErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     if (error.isUnauthorized) return "登录状态已失效，请重新登录后再提交采购单。";
     if (error.isForbidden) return "服务器拒绝了采购开单或关联数据访问（403），请检查采购、商品、客户、供应商和结算账户权限。";
-    if (error.status === 409) return `提交发生并发或余额冲突：${error.message || "相关数据已变化"}。表单内容已保留，请重新核对后重试。`;
+    if (error.status === 409) {
+      const details = record(record(record(error.payload).error).details);
+      if (details.kind === "STALE_PURCHASE_RECORD") return `${error.message}。当前输入已保留；请先复制需保留的修改，再重新打开采购单核对后保存。`;
+      return `提交发生并发或余额冲突：${error.message || "相关数据已变化"}。表单内容已保留，请重新核对后重试。`;
+    }
     if (error.status === 400 || error.status === 422) return error.message || "采购单字段校验失败，请检查后重试。";
     if (error.status >= 500) return "服务器暂时无法处理采购单，请稍后重试；当前表单内容已保留。";
     return error.message || "采购单提交失败，请稍后重试。";

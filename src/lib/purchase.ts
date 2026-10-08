@@ -1,4 +1,7 @@
 import type {PurchaseFormValues, PurchaseLineFormValue, PurchaseSettlement, PurchaseSummary} from "@/src/types/purchase";
+import {purchaseQuantity, purchaseQuantityError} from "@/src/utils/purchaseQuantity";
+
+export {purchaseQuantity} from "@/src/utils/purchaseQuantity";
 
 const MONEY_SCALE = 100;
 
@@ -8,11 +11,6 @@ type PurchaseLineCalculationInput = Pick<PurchaseLineFormValue, "productId" | "p
 export function normalizePurchaseMoney(value: number | null | undefined): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? Math.round(parsed * MONEY_SCALE) / MONEY_SCALE : 0;
-}
-
-export function purchaseQuantity(value: number | null | undefined): number {
-  const parsed = Number(value ?? 1);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.max(1, Math.floor(parsed)) : 1;
 }
 
 export function isPurchaseLineFilled(item: Pick<PurchaseLineFormValue, "productId" | "productName" | "buyPrice" | "estSellPrice" | "remarks">): boolean {
@@ -39,7 +37,10 @@ export function calculatePurchaseSummary(items: readonly PurchaseLineCalculation
 
 /** Expand a draft line into the physical-unit rows expected by the existing API. */
 export function expandPurchaseLines(items: readonly PurchaseLineFormValue[]): PurchaseLineFormValue[] {
-  return filledPurchaseLines(items).flatMap((item) => {
+  const filledItems = filledPurchaseLines(items);
+  const error = purchaseQuantityError(filledItems);
+  if (error) throw new RangeError(error);
+  return filledItems.flatMap((item) => {
     const quantity = purchaseQuantity(item.quantity);
     return Array.from({length: quantity}, (_, copyIndex) => ({
       ...item,

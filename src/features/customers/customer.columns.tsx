@@ -5,7 +5,7 @@ import {ErpStatusBadge} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
 import type {CustomerDirectoryItem} from "@/src/types/customer";
 
-function levelTone(level: string) {
+export function customerLevelTone(level: string) {
   if (level === "R级") return "danger" as const;
   if (level === "S级" || level === "A级") return "info" as const;
   if (level === "B级") return "success" as const;
@@ -18,7 +18,7 @@ export function createCustomerColumns({showProfit, canEdit, canDelete, onEdit, o
     {id: "name", accessorKey: "name", header: "客户档案", size: 250, cell: ({row}) => <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate font-semibold" title={row.original.name}>{row.original.name}</span>{row.original.isCoreCustomer && <ErpStatusBadge label="核心" tone="info" />}</div><p className="mt-1 erp-data-number text-xs text-[var(--erp-color-text-muted)]">{row.original.id}</p></div>},
     {id: "contact", accessorKey: "contact", header: "联系方式", size: 160, cell: ({row}) => <div className="text-xs"><p className="erp-data-number font-semibold">{row.original.contact || "未记录"}</p>{row.original.phone && row.original.wechat && row.original.phone !== row.original.wechat && <p className="mt-1 text-[var(--erp-color-text-muted)]">微信 {row.original.wechat}</p>}</div>},
     {id: "type", accessorKey: "type", header: "类型 / 来源", size: 180, cell: ({row}) => <div className="space-y-1"><ErpStatusBadge label={row.original.type} tone="neutral" /><p className="text-xs text-[var(--erp-color-text-muted)]">{row.original.source}</p></div>},
-    {id: "level", accessorKey: "level", header: "客户等级", size: 140, cell: ({row}) => <div className="space-y-1"><ErpStatusBadge label={row.original.level} tone={levelTone(row.original.level)} />{!row.original.isCoreCustomer && row.original.suggestedLevel && row.original.suggestedLevel !== row.original.level && <p className="text-xs text-[var(--erp-color-text-muted)]">建议 {row.original.suggestedLevel}</p>}</div>},
+    {id: "level", accessorKey: "level", header: "客户等级", size: 140, cell: ({row}) => <div className="space-y-1"><ErpStatusBadge label={row.original.level} tone={customerLevelTone(row.original.level)} />{!row.original.isCoreCustomer && row.original.suggestedLevel && row.original.suggestedLevel !== row.original.level && <p className="text-xs text-[var(--erp-color-text-muted)]">建议 {row.original.suggestedLevel}</p>}</div>},
     {id: "crmStatus", accessorKey: "crmStatus", header: "CRM 状态", size: 150, cell: ({row}) => <div className="space-y-1"><ErpStatusBadge label={row.original.crmStatus} tone={row.original.crmStatus === "已成交" ? "success" : row.original.crmStatus === "流失" ? "danger" : "info"} /><p className="text-xs text-[var(--erp-color-text-muted)]">{row.original.owner || "未分配"}</p></div>},
     {id: "totalAmount", accessorKey: "totalAmount", header: "累计交易", size: 150, cell: ({row}) => <div><p className="erp-data-number font-semibold">{formatCurrency(row.original.totalAmount)}</p><p className="mt-1 text-xs text-[var(--erp-color-text-muted)]">买 {row.original.buyCount} · 回收 {row.original.recycleCount}</p></div>},
     ...(showProfit ? [{id: "totalProfit", accessorKey: "totalProfit", header: "累计利润", size: 130, cell: ({row}: {row: {original: CustomerDirectoryItem}}) => <span className="erp-data-number font-semibold text-[var(--erp-color-success)]">{formatCurrency(row.original.totalProfit || 0)}</span>}] as ColumnDef<CustomerDirectoryItem, unknown>[] : []),
