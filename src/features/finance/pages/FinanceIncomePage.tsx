@@ -348,13 +348,6 @@ function FinanceIncomeContent({
           icon={<Landmark className="h-4 w-4" />}
           tone="neutral"
         />
-        <FinanceEntryMetric
-          label="业务流水隔离"
-          value="已启用"
-          detail="采购退款不计入其他收入"
-          icon={<ShieldCheck className="h-4 w-4" />}
-          tone="warning"
-        />
       </MetricsRegion>}
       filters={<ErpFilterBar
         compact

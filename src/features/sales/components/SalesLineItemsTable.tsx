@@ -12,6 +12,7 @@ import type {SalesFormValues, SalesProductCandidate} from "@/src/types/sales";
 import {calculateSalesLineTotal, calculateSalesUnitPrice, isSalesLineFilled} from "@/src/features/sales/sales.calculations";
 import {focusNextLineItemControl} from "@/src/lib/lineItemFocus";
 import {editableQuantityValue, quantityFromInput} from "@/src/lib/lineItemQuantity";
+import {transactionTableLayout} from "@/src/lib/transactionTableLayout";
 
 export function SalesLineItemsTable({
   control,
@@ -103,14 +104,9 @@ export function SalesLineItemsTable({
       <CardContent>
         <div data-erp-region="line-items-table" className="erp-transaction-line-items-table overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)]">
           <div className="erp-scrollbar max-h-[420px] overflow-auto">
-            <table className="w-full min-w-[984px] table-fixed border-collapse text-sm">
+            <table className="w-full table-fixed border-collapse text-sm" style={{minWidth: transactionTableLayout.minWidth}}>
               <colgroup>
-                <col className="w-[320px]" />
-                <col className="w-[96px]" />
-                <col className="w-[132px]" />
-                <col className="w-[132px]" />
-                <col className="w-[220px]" />
-                <col className="w-[84px]" />
+                {transactionTableLayout.sales.map((width, index) => <col key={index} style={{width: `${width}%`}} />)}
               </colgroup>
               <thead className="erp-refresh-indicator-layer sticky top-0 bg-[var(--erp-color-surface-muted)]">
                 <tr className="text-xs text-[var(--erp-color-text-secondary)]">

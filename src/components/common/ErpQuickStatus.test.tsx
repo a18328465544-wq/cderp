@@ -53,3 +53,10 @@ test("QuickStatusItem accepts the canonical tone and action aliases", () => {
   assert.match(markup, /text-\[var\(--erp-color-danger\)\]/);
   assert.match(markup, /type="button"/);
 });
+
+test("quick status preserves complete date ranges rather than truncating their value", () => {
+  const markup = renderToStaticMarkup(<QuickStatusItem item={{icon: "i", label: "期间", value: "2026-10-01 至 2026-10-08"}} />);
+  assert.match(markup, /2026-10-01 至 2026-10-08/);
+  assert.match(markup, /erp-data-number shrink-0/);
+  assert.doesNotMatch(markup, /erp-data-number min-w-0 truncate/);
+});

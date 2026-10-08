@@ -15,6 +15,7 @@ import {focusNextLineItemControl} from "@/src/lib/lineItemFocus";
 import {editableQuantityValue, quantityFromInput} from "@/src/lib/lineItemQuantity";
 import {purchaseQuantity, purchaseQuantityError} from "@/src/utils/purchaseQuantity";
 import {PURCHASE_MAX_PHYSICAL_ITEMS} from "@/src/types/purchase";
+import {transactionTableLayout} from "@/src/lib/transactionTableLayout";
 import {isPurchaseLineFilled} from "@/src/lib/purchase";
 
 export function PurchaseLineItemsTable({control, fields, items, products, canEnterCost, showProfit, canCreateProduct, disabled, productsLoading, onProductKeywordChange, onProductSelect, onProductClear, onAdd, onRemove, onOpenCreateProduct}: {
@@ -93,8 +94,8 @@ export function PurchaseLineItemsTable({control, fields, items, products, canEnt
     {!hasProducts ? <div className="rounded-[var(--erp-radius-md)] border border-dashed border-[var(--erp-color-warning)] bg-[var(--erp-color-warning-soft)] px-4 py-3 text-sm text-[var(--erp-color-warning)]">当前没有可用商品规格，或当前账号没有商品读取权限。请先建立商品模板并确认 products 权限。</div> : null}
     <div data-erp-region="line-items-table" className={`${!hasProducts ? "mt-3 " : ""}erp-transaction-line-items-table overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)]`}>
       <div className="erp-scrollbar max-h-[420px] overflow-auto">
-      <table className="w-full min-w-[1076px] table-fixed border-collapse text-sm">
-        <colgroup><col className="w-[300px]" /><col className="w-[132px]" /><col className="w-[132px]" /><col className="w-[96px]" /><col className="w-[112px]" /><col className="w-[220px]" /><col className="w-[84px]" /></colgroup>
+      <table className="w-full table-fixed border-collapse text-sm" style={{minWidth: transactionTableLayout.minWidth}}>
+        <colgroup>{transactionTableLayout.purchase.map((width, index) => <col key={index} style={{width: `${width}%`}} />)}</colgroup>
         <thead className="sticky top-0 erp-refresh-indicator-layer bg-[var(--erp-color-surface-muted)]"><tr className="text-xs text-[var(--erp-color-text-secondary)]"><th className="sticky left-0 erp-table-sticky-edge-layer border-b border-r border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 py-3 text-center font-semibold">商品型号</th><th className="border-b border-r border-[var(--erp-color-border)] px-3 py-3 text-center font-semibold">进货价(元)</th><th className="border-b border-r border-[var(--erp-color-border)] px-3 py-3 text-center font-semibold">预估售价(元)</th><th className="border-b border-r border-[var(--erp-color-border)] px-3 py-3 text-center font-semibold">数量</th><th className="border-b border-r border-[var(--erp-color-border)] px-3 py-3 text-center font-semibold">预计利润</th><th className="border-b border-r border-[var(--erp-color-border)] px-3 py-3 text-center font-semibold">备注</th><th className="sticky right-0 erp-table-sticky-edge-layer border-b border-[var(--erp-color-border)] bg-[var(--erp-color-surface-muted)] px-3 py-3 text-center font-semibold">操作</th></tr></thead>
         <tbody>{fields.map((field, index) => {
           const item = items[index] || field;

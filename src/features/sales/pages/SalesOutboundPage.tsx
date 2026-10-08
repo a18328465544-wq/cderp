@@ -4,6 +4,7 @@ import {useNavigate} from "@tanstack/react-router";
 import {AlertTriangle, CheckCircle2, Database, PackageCheck, RefreshCw, ScanLine, ShieldAlert, Truck} from "lucide-react";
 import {ErpMobileSummary, ErpSearchInput} from "@/src/components/common";
 import {useErpPhone, ERP_PHONE_QUERY} from "@/src/hooks/useErpViewport";
+import {usePhoneBackLayer} from "@/src/hooks/usePhoneBack";
 import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, Input, Textarea} from "@/src/components/ui";
@@ -52,6 +53,11 @@ function SalesOutboundContent({session, query, outboundState, commitOutboundStat
   const {keyword, invoiceId, page} = outboundState;
   const phone = useErpPhone();
   const [phoneReview, setPhoneReview] = useState(Boolean(invoiceId));
+  usePhoneBackLayer(active && phone && phoneReview, () => {
+    setPhoneReview(false);
+    setCameraScope(null);
+    commitOutboundState({...outboundState, invoiceId: null});
+  }, 50);
   const setKeyword = (value: string) => commitOutboundState({...outboundState, keyword: value, page: 1, invoiceId: null});
   const setInvoiceId = (value: string | null) => commitOutboundState({...outboundState, invoiceId: value});
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -164,7 +170,7 @@ function SalesOutboundContent({session, query, outboundState, commitOutboundStat
     return () => cancelAnimationFrame(frame);
   }, [active, selectedInvoice?.id]);
 
-  return <ErpWarehousePageFrame>
+  return <ErpWarehousePageFrame data-phone-task={phone && phoneReview ? "true" : undefined}>
     <ErpPageHeader title="销售出库" subtitle="仓库核验库存 ID / SN 后完成实物出库；服务端负责最终匹配、扣减和审计。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="secondary" onClick={() => void navigate({to: "/sales"})}>销售单据</Button></>} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <ErpMobileSummary label="出库统计" summary={`${query.data?.meta?.total ?? invoices.length} 单待出库`}><MetricsRegion>

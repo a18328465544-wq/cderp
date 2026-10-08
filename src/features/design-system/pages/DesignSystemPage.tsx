@@ -1,7 +1,7 @@
-import {ArrowUpRight, Boxes, ClipboardList, PackageCheck, TrendingUp, Warehouse} from "lucide-react";
-import {useState} from "react";
+import {Boxes, ClipboardList, PackageCheck, TrendingUp, Warehouse} from "lucide-react";
+import {useEffect, useState} from "react";
 import {Avatar, Badge, Button, Card, CardContent, CardHeader, Select, Separator, Skeleton, Textarea} from "@/src/components/ui";
-import {DashboardSection, ErpDashboardPageFrame, ErpAmountInput, ErpDataTable, ErpDatePicker, ErpEmptyState, ErpFilterBar, ErpFormSection, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpSearchInput, ErpStatusBadge, MetricsRegion, QuickStatusGroup, type QuickStatusItemData} from "@/src/components/common";
+import {DashboardSection, ErpDashboardPageFrame, ErpAmountInput, ErpDataTable, ErpDatePicker, ErpDateRangePicker, ErpSubmitBar, ErpEmptyState, ErpFilterBar, ErpFormSection, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpSearchInput, ErpStatusBadge, MetricsRegion, QuickStatusGroup, type QuickStatusItemData} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
 
 type DemoRow = {id: string; name: string; status: string; amount: number};
@@ -25,6 +25,8 @@ export function DesignSystemPage() {
   const [selectValue, setSelectValue] = useState("inventory");
   const [entityValue, setEntityValue] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [stressFilter, setStressFilter] = useState("");
+  const [stressDate, setStressDate] = useState({startDate: "2026-10-01", endDate: "2026-10-08"});
   const isDevelopment = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
   if (!isDevelopment) return <ErpPageError title="组件展示页不可用" description="该页面仅在本地开发环境开放，不进入生产菜单。" />;
@@ -42,7 +44,7 @@ export function DesignSystemPage() {
   ];
 
   return <ErpDashboardPageFrame>
-    <ErpPageHeader title="组件展示与验收" subtitle="Frontend V2 Design System · 仅开发环境可见" quickStatus={quickStatus} dateContent={<span className="text-xs text-[var(--erp-color-text-muted)]">最后更新：现在</span>} actions={<Button variant="primary" size="sm"><ArrowUpRight className="h-4 w-4" />验收记录</Button>} />
+    <ErpPageHeader title="组件展示与验收" subtitle="Frontend V2 Design System · 仅开发环境可见" quickStatus={quickStatus} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <DashboardSection title="Quick Status v2" description="Compact 是默认状态摘要；只有真实流程场景才使用 Workflow 变体。">
       <div className="grid gap-4 lg:grid-cols-3">
@@ -62,7 +64,7 @@ export function DesignSystemPage() {
         <TokenSwatch name="净额 / 中性汇总" value="--erp-color-net" className="bg-[var(--erp-color-net)]" dark />
         <TokenSwatch name="待处理 / 风险" value="--erp-color-risk" className="bg-[var(--erp-color-risk)]" dark />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><Metric label="页面标题" value="28px" /><Metric label="正文" value="14px" /><Metric label="默认控件" value="40px" /><Metric label="卡片圆角" value="18px" /></div>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><Metric label="页面标题" token="--erp-font-page-title" /><Metric label="正文" token="--erp-font-body" /><Metric label="默认控件" token="--erp-control-height" /><Metric label="卡片圆角" token="--erp-radius-card" /></div>
     </DashboardSection>
     <MetricsRegion>
       <ErpMetricCard label="Metric Card" value="¥406,721" detail="昨日 ¥360,000" compare={12.6} icon={<TrendingUp className="h-4 w-4" />} tone="success" />
@@ -70,6 +72,16 @@ export function DesignSystemPage() {
       <Card><CardContent className="p-4"><p className="text-xs text-[var(--erp-color-text-secondary)]">Avatar</p><div className="mt-3 flex items-center gap-3"><Avatar src={avatarSrc} alt="郭鑫" /><span className="text-sm font-semibold">郭鑫 · 老板账号</span></div></CardContent></Card>
       <Card><CardContent className="p-4"><p className="text-xs text-[var(--erp-color-text-secondary)]">Loading</p><div className="mt-3 space-y-2"><Skeleton className="h-4 w-28" /><Skeleton className="h-8 w-full" /></div></CardContent></Card>
     </MetricsRegion>
+    <DashboardSection title="桌面收口压力验收" description="仅本地合成样例：长金额、负余额、默认全部、完整日期与未修改编辑反馈。">
+      <MetricsRegion data-testid="desktop-stress-metrics">
+        {Array.from({length: 6}, (_, index) => <ErpMetricCard key={index} label={index === 0 ? "长金额（本地样例）" : index === 1 ? "负余额（本地样例）" : `样例指标 ${index + 1}`} value={index === 0 ? "¥1,234,567,890.12" : index === 1 ? "-¥123,456,789.01" : "¥12,345.67"} valueTone={index === 1 ? "danger" : "info"} icon={<Boxes className="h-4 w-4" />} detail="完整数值，不依赖悬停" />)}
+      </MetricsRegion>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Select value={stressFilter} options={[{value: "", label: "全部渠道"}, {value: "store", label: "到店"}]} onValueChange={setStressFilter} aria-label="压力样例渠道" className="w-36" />
+        <ErpDateRangePicker value={stressDate} onChange={setStressDate} triggerClassName="w-36" density="compact" ariaLabel="压力样例日期范围" />
+      </div>
+      <div className="mt-4"><ErpSubmitBar embedded dirty={false} canSubmit={false} blockedReason="尚未修改采购单" submitting={false} onCancel={() => undefined} showCancel={false} submitLabel="本地禁用提交样例" /></div>
+    </DashboardSection>
     <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
       <div className="min-w-0 space-y-5">
       <ErpFormSection title="表单控件" description="统一输入、金额、日期、选择和多行文本的高度、焦点和错误承载。"><div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-semibold">关键字<ErpSearchInput className="mt-2" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索商品、SN 或单号" aria-label="搜索关键字" /></label><label className="text-sm font-semibold">业务模块<Select className="mt-2" value={selectValue} options={[{value: "inventory", label: "库存管理"}, {value: "sales", label: "销售管理"}, {value: "finance", label: "财务管理"}]} onValueChange={setSelectValue} aria-label="业务模块" /></label><label className="text-sm font-semibold">实体搜索选择<Select searchable searchPlaceholder="搜索商品名称或型号" emptyText="没有找到匹配商品" className="mt-2" value={entityValue} options={[{value: "gpu-4090", label: "华硕 RTX 4090 ROG 24G"}, {value: "gpu-4080", label: "微星 RTX 4080 Super 16G"}, {value: "gpu-3090", label: "磐镭 RTX 3090 涡轮 24G"}]} onValueChange={setEntityValue} quickCreateAction={{label: "新建商品", onClick: () => undefined}} aria-label="选择商品模板" /></label><label className="text-sm font-semibold">金额<ErpAmountInput className="mt-2" value={amount} onValueChange={(detail) => setAmount(detail.floatValue || 0)} aria-label="金额" /></label><label className="text-sm font-semibold">日期<ErpDatePicker className="mt-2" value={date} onChange={setDate} aria-label="日期" /></label><label className="text-sm font-semibold md:col-span-2">备注<Textarea className="mt-2" placeholder="补充说明（可选）" /></label></div></ErpFormSection>
@@ -86,6 +98,8 @@ function TokenSwatch({name, value, className, dark = false}: {name: string; valu
   return <div className="overflow-hidden rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)]"><div className={`h-12 ${className}`} /><div className="p-3"><p className="text-sm font-semibold">{name}</p><p className={`mt-1 erp-data-number text-xs ${dark ? "text-[var(--erp-color-text-secondary)]" : "text-[var(--erp-color-text-muted)]"}`}>{value}</p></div></div>;
 }
 
-function Metric({label, value}: {label: string; value: string}) {
+function Metric({label, token}: {label: string; token: string}) {
+  const [value, setValue] = useState("—");
+  useEffect(() => {setValue(getComputedStyle(document.documentElement).getPropertyValue(token).trim());}, [token]);
   return <div className="rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] p-3"><p className="text-xs text-[var(--erp-color-text-muted)]">{label}</p><p className="mt-1 erp-data-number text-sm font-semibold">{value}</p></div>;
 }

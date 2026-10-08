@@ -82,7 +82,7 @@ function FinanceLedgerContent({session, filters, onFiltersChange, ledgerQuery, a
     <FinanceLedgerHeader reconciliation={reconciliation} loading={ledgerQuery.isFetching} onRefresh={() => void ledgerQuery.refetch()} onExport={exportCurrentPage} hasRows={rows.length > 0} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_232px]">
-      <main className="min-w-0 space-y-4">
+      <section aria-label="账户流水明细" className="min-w-0 space-y-4">
         <SummaryCards openingBalance={openingBalance} income={summary.income} expense={summary.expense} closingBalance={closingBalance} />
         <ErpPageToolbar>
         <ErpFilterBar className="bg-[var(--erp-color-surface)]" actions={<><Button type="button" size="sm" variant="ghost" onClick={() => onFiltersChange(defaultFinanceLedgerFilters)}><RotateCcw className="h-4 w-4" />重置</Button><Button type="button" size="sm" variant={advancedOpen ? "secondary" : "ghost"} onClick={() => setAdvancedOpen((value) => !value)}><SlidersHorizontal className="h-4 w-4" />更多筛选</Button></>}>
@@ -97,7 +97,7 @@ function FinanceLedgerContent({session, filters, onFiltersChange, ledgerQuery, a
         {activeFilters > 0 && <div className="flex flex-wrap items-center gap-2 px-1 text-xs text-[var(--erp-color-text-secondary)]"><span>已应用 {activeFilters} 项筛选</span><Button type="button" size="xs" variant="ghost" className="h-auto px-0 font-semibold text-[var(--erp-color-primary)] hover:underline" onClick={() => onFiltersChange(defaultFinanceLedgerFilters)}>清空全部</Button></div>}
         <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]"><TrendCard rows={trendRows} range={trendRange} onRangeChange={setTrendRange} /><ExpenseShareCard rows={expenses} /></div>
         <LedgerTableCard rows={rows} summary={summary} total={ledgerQuery.data?.total || 0} page={ledgerQuery.data?.page || filters.page} pageSize={ledgerQuery.data?.pageSize || filters.pageSize} query={ledgerQuery} columns={columns} columnVisibility={columnVisibility} onColumnVisibilityChange={setColumnVisibility} density={density} onDensityChange={setDensity} onPageChange={(page) => update({page})} onPageSizeChange={(pageSize) => update({page: 1, pageSize})} activeFilters={activeFilters} onRowClick={setDetail} />
-      </main>
+      </section>
       <LedgerAside account={account} accounts={accounts} accountDistribution={accountDistribution} navigate={navigate} onAccountChange={(accountId) => update({accountId})} />
     </div>
     <p className="px-1 text-xs text-[var(--erp-color-text-muted)]">注：概览、趋势与分类统计均按当前筛选结果计算；账户余额以服务端账户账面余额为准。</p>

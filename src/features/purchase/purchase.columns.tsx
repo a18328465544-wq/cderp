@@ -5,6 +5,7 @@ import {ErpStatusBadge} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
 import type {PurchaseListItem} from "@/src/types/purchase";
 import {formatStoreDateTime} from "@/src/utils/storeTime";
+import {prioritizeTableColumns} from "@/src/lib/tableLayout";
 
 function statusTone(value: string) {
   if (/已付款|已退款/.test(value)) return "success" as const;
@@ -31,11 +32,11 @@ export function createPurchaseListColumns({showCost, showProfit, canDelete, canP
   ];
   if (showCost) columns.push({accessorKey: "totalCost", header: "采购金额", size: 120, cell: ({row}) => <span className="erp-data-number font-semibold">{row.original.totalCost === undefined ? "—" : formatCurrency(row.original.totalCost)}</span>});
   if (showProfit) columns.push({accessorKey: "estTotalSell", header: "预计销售额", size: 120, enableSorting: false, cell: ({row}) => <span className="erp-data-number">{row.original.estTotalSell === undefined ? "—" : formatCurrency(row.original.estTotalSell)}</span>});
-  if (showCost && showProfit) columns.push({accessorKey: "estTotalProfit", header: "预计利润", size: 110, enableSorting: false, cell: ({row}) => <span className="erp-data-number font-semibold text-[var(--erp-color-success)]">{row.original.estTotalProfit === undefined ? "—" : formatCurrency(row.original.estTotalProfit)}</span>});
+  if (showCost && showProfit) columns.push({accessorKey: "estTotalProfit", header: "预计利润", size: 110, enableSorting: false, cell: ({row}) => <span className={`erp-data-number font-semibold ${row.original.estTotalProfit !== undefined && row.original.estTotalProfit < 0 ? "text-[var(--erp-color-expense)]" : "text-[var(--erp-color-income)]"}`}>{row.original.estTotalProfit === undefined ? "—" : formatCurrency(row.original.estTotalProfit)}</span>});
   columns.push(
     {accessorKey: "paymentStatus", header: "付款状态", size: 105, cell: ({getValue}) => <ErpStatusBadge label={String(getValue() || "未付款")} tone={statusTone(String(getValue() || ""))} />},
     {accessorKey: "handleBy", header: "经办人", size: 100, cell: ({getValue}) => String(getValue() || "—")},
     {id: "actions", header: "操作", enableSorting: false, enableResizing: false, enableHiding: false, size: canDelete || canPay ? 220 : 82, cell: ({row}) => <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}><Button type="button" size="sm" variant="ghost" onClick={() => onDetail(row.original)}><Eye className="h-3.5 w-3.5" />详情</Button>{canPay && (row.original.unpaidAmount || 0) > 0 && onPay && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-warning)] hover:text-[var(--erp-color-warning)]" title={`补录 ${row.original.invoiceNo} 付款`} onClick={() => onPay(row.original)}><CircleDollarSign className="h-3.5 w-3.5" />待付款</Button>}{canDelete && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-danger)] hover:text-[var(--erp-color-danger)]" title="删除采购单" aria-label={`删除${row.original.invoiceNo}`} onClick={() => onDelete(row.original)}><Trash2 className="h-3.5 w-3.5" />删除</Button>}</div>},
   );
-  return columns;
+  return prioritizeTableColumns(columns, ["invoiceNo", "supplierName", "totalCost", "paymentStatus", "totalCount", "date"]);
 }

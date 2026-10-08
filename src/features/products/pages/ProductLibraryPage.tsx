@@ -116,9 +116,9 @@ function ProductLibraryContent({session, query, filters, sorting, onSortingChang
   const activeFilters = Number(Boolean(filters.keyword)) + Number(filters.category !== "all") + Number(filters.brand !== "all");
 
   return <ErpListPageFrame>
-    <ErpPageHeader title="商品库" subtitle="统一维护采购、检测、库存和行情共用的商品规格模板；商品身份和历史关联仍由服务端负责。" quickStatus={quickStatus} actions={<><input ref={importRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => {const file = event.target.files?.[0]; if (file) void onImportFile(file); event.target.value = "";}} /><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="primary" onClick={openCreate}><Plus className="h-4 w-4" />新建模板</Button></>} />
+    <ErpPageHeader title="商品库" subtitle="维护采购、检测、库存与行情共用的商品规格模板。" quickStatus={quickStatus} actions={<><input ref={importRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => {const file = event.target.files?.[0]; if (file) void onImportFile(file); event.target.value = "";}} /><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button><Button type="button" size="sm" variant="primary" onClick={openCreate}><Plus className="h-4 w-4" />新建模板</Button></>} />
     <ErpMobileSummary><MetricsRegion>
-      <MetricCard label="商品模板" value={`${total} 款`} detail="当前筛选的服务端汇总" icon={<Boxes className="h-4 w-4" />} />
+      <MetricCard label="商品模板" value={`${total} 款`} detail="按当前筛选" icon={<Boxes className="h-4 w-4" />} />
       <MetricCard label="有库存规格" value={`${stockedTemplates} 款`} detail={`${stockUnits} 件物理库存`} icon={<PackageCheck className="h-4 w-4" />} tone="success" />
       <MetricCard label="品类覆盖" value={`${query.data?.categories.length || 0} 类`} detail={`${query.data?.brands.length || 0} 个品牌`} icon={<Layers3 className="h-4 w-4" />} />
       <MetricCard label="当前筛选" value={`${total} 款`} detail={activeFilters ? `${activeFilters} 项筛选生效` : "全部商品模板"} icon={<Filter className="h-4 w-4" />} tone={activeFilters ? "warning" : "neutral"} />

@@ -6,7 +6,8 @@ import {ProfitDisplay} from "@/src/components/domain";
 import {formatCurrency} from "@/src/lib/format";
 import type {InventoryModelSummary} from "@/src/types/inventory";
 import {formatStoreDateTime} from "@/src/utils/storeTime";
-import {productDisplayName, productIdentityParts} from "@/src/lib/productName";
+import {productDisplayName} from "@/src/lib/productName";
+import {prioritizeTableColumns} from "@/src/lib/tableLayout";
 
 const amount = (value: number | undefined) => value === undefined ? "—" : formatCurrency(value);
 
@@ -17,10 +18,10 @@ export function createInventoryModelColumns({showCost, showProfit, onOpenCards, 
       header: "商品型号",
       accessorFn: (row) => row.productName,
       size: 270,
-      cell: ({row}) => { const displayName = productDisplayName({name: row.original.productName, ...row.original}); return <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-info-soft)] text-[var(--erp-color-primary)]"><Boxes className="h-4 w-4" /></span><div className="min-w-0"><p className="truncate font-semibold text-[var(--erp-color-text)]">{displayName}</p><p className="truncate text-xs text-[var(--erp-color-text-muted)]">{productIdentityParts(row.original).join(" · ") || "型号信息待补充"}</p></div></div>; },
+      cell: ({row}) => { const displayName = productDisplayName({name: row.original.productName, ...row.original}); return <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--erp-radius-md)] bg-[var(--erp-color-info-soft)] text-[var(--erp-color-primary)]"><Boxes className="h-4 w-4" /></span><div className="min-w-0"><p className="truncate font-semibold text-[var(--erp-color-text)]">{displayName}</p></div></div>; },
     },
     {id: "category", accessorKey: "category", header: "分类", size: 100, enableSorting: false, cell: ({row}) => <ErpStatusBadge label={row.original.category} tone="info" />},
-    {id: "totalCount", header: "总数量", accessorKey: "totalCount", size: 100, cell: ({row}) => <span className="erp-data-number text-base font-semibold">{row.original.totalCount} 张</span>},
+    {id: "totalCount", header: "总数量", accessorKey: "totalCount", size: 100, cell: ({row}) => <span className="erp-data-number text-base font-semibold">{row.original.totalCount} 件</span>},
     {id: "availableCount", header: "在库", accessorKey: "availableCount", size: 88, cell: ({row}) => <span className="erp-data-number font-semibold text-[var(--erp-color-success)]">{row.original.availableCount}</span>},
     {id: "pendingCount", header: "待检测", accessorKey: "pendingCount", size: 92, cell: ({row}) => row.original.pendingCount > 0 ? <ErpStatusBadge label={`${row.original.pendingCount}`} tone="warning" /> : <span className="text-[var(--erp-color-text-muted)]">0</span>},
     {id: "lockedCount", header: "已锁定", accessorKey: "lockedCount", size: 92, cell: ({row}) => row.original.lockedCount > 0 ? <ErpStatusBadge label={`${row.original.lockedCount}`} tone="info" /> : <span className="text-[var(--erp-color-text-muted)]">0</span>},
@@ -38,5 +39,5 @@ export function createInventoryModelColumns({showCost, showProfit, onOpenCards, 
     {id: "lastEntryTime", header: "最近入库", accessorKey: "lastEntryTime", size: 120, cell: ({row}) => <span className="text-xs text-[var(--erp-color-text-secondary)]">{row.original.lastEntryTime ? formatStoreDateTime(row.original.lastEntryTime).slice(0, 10) : "—"}</span>},
     {id: "actions", header: "操作", enableSorting: false, enableResizing: false, size: 220, enableHiding: false, cell: ({row}) => <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}><Button type="button" size="sm" variant="ghost" onClick={() => onOpenLedger(row.original)}><ArrowDownUp className="h-3.5 w-3.5" />出入明细</Button><Button type="button" size="sm" variant="ghost" onClick={() => onOpenCards(row.original)}><ArrowUpRight className="h-3.5 w-3.5" />查看单卡</Button></div>},
   );
-  return columns;
+  return prioritizeTableColumns(columns, ["product", "totalCount", "availableCount", "pendingCount", "inventoryValue", "estimatedSell", "category"]);
 }

@@ -27,7 +27,7 @@ import {createPurchaseListColumns} from "../purchase.columns";
 import {countActivePurchaseListFilters, defaultPurchaseListFilters, parsePurchaseListFilters, purchaseListFiltersToSearch, selectPurchaseList} from "../purchase.filters";
 
 const permissionDefaults = {showCost: false, showProfit: false, canDelete: false, canEditHistory: false, allowedMenus: [] as string[]};
-const emptyVisibility: VisibilityState = {};
+const emptyVisibility: VisibilityState = {sourceType: false, inventoryCount: false, estTotalSell: false, estTotalProfit: false, handleBy: false};
 const sourceOptions = [
   {value: "", label: "全部采购来源"},
   ...sourceTypeValues.map((value) => ({value, label: value})),
@@ -155,7 +155,7 @@ function PurchaseListContent({filters, commitFilters, session, query, filterPend
 
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <ErpTableResultsBar summary={<span className="flex items-center gap-2"><Filter className="h-4 w-4 text-[var(--erp-color-primary)]" />共 {selection.meta.total} 条</span>} actions={<>
-        <ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} onVisibilityChange={setColumnVisibility} />
+        <ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} defaultVisibility={emptyVisibility} onVisibilityChange={setColumnVisibility} />
         <div className="inline-flex rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-0.5"><Button type="button" size="sm" variant={density === "comfortable" ? "secondary" : "ghost"} onClick={() => setDensity("comfortable")}>舒适</Button><Button type="button" size="sm" variant={density === "compact" ? "secondary" : "ghost"} onClick={() => setDensity("compact")}>紧凑</Button></div>
     </>} />
 

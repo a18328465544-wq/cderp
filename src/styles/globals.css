@@ -600,6 +600,7 @@ input[inputmode="numeric"] {
 }
 [data-erp-component="metric-card"] {
   overflow: hidden;
+  container-type: inline-size;
 }
 [data-erp-component="metric-card"] [data-erp-region="metric-label"] {
   letter-spacing: 0.01em;
@@ -607,18 +608,13 @@ input[inputmode="numeric"] {
 [data-erp-component="metric-card"] [data-erp-region="metric-value"] {
   max-width: 100%;
   line-height: 1.15;
-  white-space: nowrap;
-  overflow-wrap: normal;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 [data-erp-component="metric-card"] [data-erp-region="metric-detail"] {
-  display: -webkit-box;
   max-width: 100%;
   min-height: var(--erp-annotation-height);
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 [data-erp-component="dashboard-section"] > [data-erp-region="section-header"] {
   align-items: center;
@@ -903,8 +899,8 @@ input[inputmode="numeric"] {
     padding: var(--erp-space-3) !important;
   }
   [data-erp-component="metrics-region"] [data-erp-component="metric-card"] > div > span {
-    height: 2rem;
-    width: 2rem;
+    height: 1.25rem;
+    width: 1.25rem;
   }
 
   [data-erp-component="filter-bar"] {
@@ -1053,16 +1049,16 @@ input[inputmode="numeric"] {
      deliberate three-up layout for even groups and four-up for seven/eight
      cards so every row stays balanced before the full desktop breakpoint. */
   [data-erp-component="metrics-region"][data-metric-count="6"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   [data-erp-component="metrics-region"][data-metric-count="7"],
   [data-erp-component="metrics-region"][data-metric-count="8"] {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (min-width: 1280px) {
   [data-page-frame="analytics"] [data-erp-region="analytics-toolbar"] [data-erp-component="filter-bar"] > div:first-child {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 }
 
@@ -1136,6 +1132,9 @@ input[inputmode="numeric"] {
     --erp-mobile-action-offset: calc(var(--erp-mobile-bottom-offset) + var(--erp-phone-keyboard-inset));
   }
   [data-erp-shell][data-phone-keyboard="open"] { --erp-mobile-bottom-offset: 0px; }
+  body:has([data-erp-component="mobile-workflow"], [data-phone-task="true"]) [data-erp-shell] {
+    --erp-mobile-bottom-offset: env(safe-area-inset-bottom, 0px);
+  }
   [data-sidebar-navigation] { display: none; }
   [data-erp-header-action="tablet-menu"], [data-erp-header-action="desktop-ai"], [data-erp-header-action="desktop-management"] { display: none; }
   .erp-tab-navigation { background: var(--erp-color-surface); backdrop-filter: none; }
@@ -1181,6 +1180,7 @@ input[inputmode="numeric"] {
   .erp-mobile-bottom-nav .erp-mobile-nav-create { color: var(--erp-color-primary); }
   .erp-mobile-create-icon { display: flex; align-items: center; justify-content: center; width: var(--erp-space-8); height: var(--erp-space-6); border-radius: var(--erp-radius-md); color: white; background: var(--erp-color-primary); }
   [data-phone-keyboard="open"] .erp-mobile-bottom-nav,
+  body:has([data-erp-component="mobile-workflow"], [data-phone-task="true"]) .erp-mobile-bottom-nav,
   body:has([role="dialog"][data-open]:not([data-mobile-presentation="tab"]), .erp-option-popup[data-open], .erp-popover-surface[data-open]) .erp-mobile-bottom-nav { display: none; }
   [data-erp-component="page-frame"] { padding-bottom: var(--erp-space-3); }
   [data-erp-region="page-identity"] .erp-annotation-slot { display: none; }
@@ -1223,6 +1223,52 @@ input[inputmode="numeric"] {
     border-radius: 0;
     background: var(--erp-color-surface);
     box-shadow: none;
+  }
+  body:has([data-erp-component="mobile-workflow"], [data-phone-task="true"]) :is(.erp-mobile-workflow-actions, [data-erp-component="mobile-workflow"][data-mobile-final="true"] [data-erp-component="submit-bar"], [data-erp-component="mobile-workflow"][data-mobile-final="true"] .erp-inspection-submit) {
+    bottom: var(--erp-phone-keyboard-inset, 0px);
+    padding-bottom: max(var(--erp-space-3), env(safe-area-inset-bottom));
+  }
+  .erp-phone-scroll-top {
+    position: fixed;
+    right: var(--erp-space-4);
+    bottom: calc(var(--erp-mobile-bottom-offset) + var(--erp-space-4));
+    z-index: var(--erp-layer-content-sticky);
+    border-radius: var(--erp-radius-pill);
+    box-shadow: var(--erp-shadow-popover);
+    border: 1px solid var(--erp-color-border-soft);
+    background: var(--erp-color-surface);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: opacity var(--erp-motion-normal) ease, transform var(--erp-motion-normal) ease;
+  }
+  .erp-phone-scroll-top:active {
+    transform: scale(0.92);
+  }
+  .erp-phone-selection-bar {
+    position: fixed;
+    inset-inline: var(--erp-space-3);
+    bottom: calc(var(--erp-mobile-bottom-offset) + var(--erp-space-3));
+    z-index: var(--erp-layer-content-sticky);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--erp-space-2) var(--erp-space-3);
+    border-radius: var(--erp-radius-lg);
+    background: var(--erp-color-surface);
+    border: 1px solid var(--erp-color-border-strong);
+    box-shadow: var(--erp-phone-card-shadow);
+  }
+  .erp-phone-selection-bar strong {
+    color: var(--erp-color-primary);
+  }
+  .erp-phone-pagination {
+    padding-block: var(--erp-space-1);
+  }
+  .erp-phone-pagination button {
+    min-height: var(--erp-mobile-touch-size);
+    border-radius: var(--erp-radius-md);
+    font-size: var(--erp-text-sm);
+    font-weight: var(--erp-font-medium);
   }
   .erp-mobile-workflow-summary { font-size: var(--erp-text-sm); font-weight: var(--erp-font-medium); }
   [data-erp-region="mobile-workflow-section"] > * + * { margin-top: var(--erp-space-3); }

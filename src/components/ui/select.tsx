@@ -175,7 +175,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
   }
   return <BaseSelect.Root<string>
     items={options}
-    value={value || null}
+    value={value === undefined || (value === "" && !options.some((option) => option.value === "")) ? null : value}
     onValueChange={(nextValue) => {if (!disabled) onValueChange(nextValue ?? "");}}
     open={selectOpen && !disabled}
     onOpenChange={(nextOpen) => setSelectOpen(nextOpen && !disabled)}
@@ -192,7 +192,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
       aria-describedby={ariaDescribedBy}
       aria-invalid={ariaInvalid}
     >
-      <BaseSelect.Value className="min-w-0 truncate" placeholder={placeholder} />
+      <BaseSelect.Value className="min-w-0 truncate" placeholder={placeholder}>{(selectedValue) => options.find((option) => option.value === selectedValue)?.label ?? placeholder}</BaseSelect.Value>
       <BaseSelect.Icon className="shrink-0 text-[var(--erp-color-text-muted)]">
         <ChevronDown className="h-4 w-4" aria-hidden="true" />
       </BaseSelect.Icon>

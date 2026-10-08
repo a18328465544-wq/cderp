@@ -36,3 +36,11 @@ test("manual sorting preserves server row order rather than sorting just the loa
   const markup = renderToStaticMarkup(<ErpDataTable columns={columns} data={[{id: "low", amount: 10}, {id: "high", amount: 30}]} sorting={[{id: "amount", desc: true}]} manualSorting />);
   assert.ok(markup.indexOf(">10<") < markup.indexOf(">30<"));
 });
+
+test("short tables derive their minimum width from visible columns, not a global 1180px floor", () => {
+  const markup = renderToStaticMarkup(<ErpDataTable columns={[{accessorKey: "amount", header: "金额", size: 120}]} data={[{id: "row", amount: 100}]} mobileMode="table" enableColumnResizing />);
+  assert.match(markup, /min-width:120px/);
+  assert.doesNotMatch(markup, /1180/);
+  assert.match(markup, /aria-label="调整金额列宽"/);
+  assert.match(markup, /Shift 加速，Home 恢复默认/);
+});

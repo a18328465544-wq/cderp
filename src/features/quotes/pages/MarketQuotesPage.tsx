@@ -68,17 +68,17 @@ function MarketQuotesContent({session, query, filters, onFiltersChange, onAuthEx
     const url = URL.createObjectURL(new Blob([quoteCsv(rows)], {type: "text/csv;charset=utf-8"})); const link = document.createElement("a"); link.href = url; link.download = "行情参考.csv"; link.click(); URL.revokeObjectURL(url);
   };
   const quickStatus: QuickStatusItemData[] = [
-    {icon: <ArrowUpRight className="h-4 w-4" />, label: "价格上调", value: `${upCount} 款`, description: "服务端真实状态", tone: upCount ? "success" : "neutral"},
+    {icon: <ArrowUpRight className="h-4 w-4" />, label: "价格上调", value: `${upCount} 款`, description: "当前价格记录", tone: upCount ? "success" : "neutral"},
     {icon: <ArrowDownRight className="h-4 w-4" />, label: "价格下调", value: `${downCount} 款`, description: "需关注库存压力", tone: downCount ? "warning" : "neutral"},
     {icon: <LockKeyhole className="h-4 w-4" />, label: "价格权限", value: fullPriceAccess ? "完整" : "受限", description: fullPriceAccess ? "可录入与更新" : "价格已按权限裁剪", tone: fullPriceAccess ? "success" : "warning"},
   ];
 
   return <ErpAnalyticsPageFrame>
-    <ErpPageHeader title="行情参考" subtitle="维护回收与销售参考价；价格更新由服务端追加真实历史并同步关联库存。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button>{fullPriceAccess && <Button type="button" size="sm" variant="secondary" onClick={() => setPasteOpen(true)}><Upload className="h-4 w-4" />批量粘贴</Button>}{fullPriceAccess && <Button type="button" size="sm" variant="primary" onClick={openCreate}><Plus className="h-4 w-4" />新增参考价</Button>}</>} />
+    <ErpPageHeader title="行情参考" subtitle="维护回收与销售参考价，查看价格变化与更新时间。" quickStatus={quickStatus} actions={<><Button type="button" size="sm" variant="secondary" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />刷新</Button>{fullPriceAccess && <Button type="button" size="sm" variant="secondary" onClick={() => setPasteOpen(true)}><Upload className="h-4 w-4" />批量粘贴</Button>}{fullPriceAccess && <Button type="button" size="sm" variant="primary" onClick={openCreate}><Plus className="h-4 w-4" />新增参考价</Button>}</>} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <AnalyticsKpiRegion primary={<>
       <ErpMetricCard label="行情型号" value={`${quotes.length} 款`} detail={`${query.data?.brands.length || 0} 个品牌`} icon={<LineChart className="h-4 w-4" />} tone="info" />
-      <ErpMetricCard label="上调型号" value={`${upCount} 款`} detail="服务端记录为上涨" icon={<ArrowUpRight className="h-4 w-4" />} tone="success" />
+      <ErpMetricCard label="上调型号" value={`${upCount} 款`} detail="参考价格上涨" icon={<ArrowUpRight className="h-4 w-4" />} tone="success" />
       <ErpMetricCard label="下调型号" value={`${downCount} 款`} detail="建议关注库存风险" icon={<ArrowDownRight className="h-4 w-4" />} tone="warning" />
       <ErpMetricCard label="关联在库" value={`${linkedStock} 件`} detail="按现有 active 库存汇总" icon={<TrendingUp className="h-4 w-4" />} tone="info" />
     </>} />
@@ -90,7 +90,7 @@ function MarketQuotesContent({session, query, filters, onFiltersChange, onAuthEx
     <AnalyticsMainRegion variant="full">
       <AnalyticsMainRegion.Visualization size="expanded">
         {!fullPriceAccess && <div className="mb-3 rounded-[var(--erp-radius-md)] bg-[var(--erp-color-warning-soft)] px-4 py-3 text-xs text-[var(--erp-color-warning)]">当前账号缺少完整成本或利润权限：相关价格与历史点已隐藏，录入和编辑入口已禁用，避免覆盖不可见数据。</div>}
-        <DashboardSection title="行情参考明细" description="现有读取接口返回真实整库快照；本页仅对已加载集合执行 URL 可恢复的筛选、排序和分页，不伪装服务端分页。" actions={<ErpStatusBadge label={activeFilters ? `${activeFilters} 项筛选` : "全部行情"} tone={activeFilters ? "info" : "neutral"} />}><ErpDataTable ariaLabel="行情参考明细" surface="plain" columns={columns} data={pageRows} getRowId={(row) => row.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="行情加载失败" emptyTitle="暂无匹配行情" emptyDescription={activeFilters ? "请调整筛选条件。" : "当前服务端尚无行情记录。"} onRetry={() => void query.refetch()} onRowClick={setDetail} manualSorting sorting={sorting} onSortingChange={setSorting} page={filters.page} pageSize={filters.pageSize} total={filtered.length} onPageChange={(page) => onFiltersChange({...filters, page})} onPageSizeChange={(pageSize) => onFiltersChange({...filters, page: 1, pageSize})} enableColumnResizing density="compact" stickyHeader /></DashboardSection>
+        <DashboardSection title="行情参考明细" description="按当前条件查看行情记录与价格变化。" actions={<ErpStatusBadge label={activeFilters ? `${activeFilters} 项筛选` : "全部行情"} tone={activeFilters ? "info" : "neutral"} />}><ErpDataTable ariaLabel="行情参考明细" surface="plain" columns={columns} data={pageRows} getRowId={(row) => row.id} loading={query.isPending} fetching={query.isFetching} error={query.error as Error | null} errorTitle="行情加载失败" emptyTitle="暂无匹配行情" emptyDescription={activeFilters ? "请调整筛选条件。" : "当前服务端尚无行情记录。"} onRetry={() => void query.refetch()} onRowClick={setDetail} manualSorting sorting={sorting} onSortingChange={setSorting} page={filters.page} pageSize={filters.pageSize} total={filtered.length} onPageChange={(page) => onFiltersChange({...filters, page})} onPageSizeChange={(pageSize) => onFiltersChange({...filters, page: 1, pageSize})} enableColumnResizing density="compact" stickyHeader /></DashboardSection>
       </AnalyticsMainRegion.Visualization>
     </AnalyticsMainRegion>
     <MarketQuoteDialog open={dialogOpen} quote={editing} pending={saveMutation.isPending} error={saveMutation.error instanceof Error ? saveMutation.error.message : undefined} onOpenChange={(open) => {setDialogOpen(open); if (!open) setEditing(null);}} onSubmit={async (values) => {await saveMutation.mutateAsync({values, quote: editing});}} />

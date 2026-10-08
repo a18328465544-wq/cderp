@@ -20,6 +20,8 @@ test("ErpDateRangePicker exposes one unified range trigger and visible error", (
   assert.doesNotMatch(markup, /grid-cols-\[minmax\(0,1fr\)_auto_minmax\(0,1fr\)\]/);
   assert.match(markup, /sm:w-32/);
   assert.doesNotMatch(markup, /sm:min-w-56/);
+  assert.match(markup, /lg:min-w-64/);
+  assert.doesNotMatch(markup, /erp-data-number truncate/);
   assert.match(markup, /role="alert"/);
   assert.match(markup, /开始日期不能晚于结束日期/);
 });

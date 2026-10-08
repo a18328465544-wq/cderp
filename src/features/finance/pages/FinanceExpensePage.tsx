@@ -348,13 +348,13 @@ function FinanceExpenseContent({
           icon={<Landmark className="h-4 w-4" />}
           tone="neutral"
         />
-        <FinanceEntryMetric
+        {collection.items.some((item) => !item.editable) && <FinanceEntryMetric
           label="受限历史记录"
           value={`${collection.items.filter((item) => !item.editable).length} 笔`}
           detail="必须从原业务流程调整"
           icon={<ShieldCheck className="h-4 w-4" />}
           tone="warning"
-        />
+        />}
       </MetricsRegion>}
       filters={<ErpFilterBar
         compact

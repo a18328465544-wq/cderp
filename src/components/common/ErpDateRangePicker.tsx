@@ -1,7 +1,7 @@
 import {CalendarRange} from "lucide-react";
 import {useState} from "react";
 import {Button, Input} from "@/src/components/ui";
-import {cn, hasBaseWidthUtilityClass, hasWidthUtilityClass} from "@/src/lib/cn";
+import {cn, hasBaseWidthUtilityClass} from "@/src/lib/cn";
 import {formatDateKey, getDateRangePreset, isDateKey, parseDateKey, parseNaturalDateInput, validateDateRange, type DateRangePreset, type DateRangeValue} from "@/src/lib/dateRangePickerUtils";
 import {ErpCalendar} from "./ErpCalendar";
 import {ErpDateOverlay} from "./ErpDateOverlay";
@@ -214,7 +214,6 @@ export function ErpDateRangePicker({
         : "选择日期范围";
   const resolvedTriggerClassName = triggerClassName || fieldClassName;
   const hasCustomWidth = hasBaseWidthUtilityClass(resolvedTriggerClassName);
-  const hasExplicitWidth = hasWidthUtilityClass(resolvedTriggerClassName);
   const controlHeight = density === "compact" ? "h-[var(--erp-control-height-compact)]" : "h-[var(--erp-control-height)]";
   const trigger = (
     <button
@@ -224,7 +223,7 @@ export function ErpDateRangePicker({
       className={cn(
         "erp-focus-ring flex min-w-0 items-center justify-between gap-2 rounded-[var(--erp-radius-control)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-left text-sm text-[var(--erp-color-text)] transition-[border-color,box-shadow] hover:border-[var(--erp-color-border-strong)] data-popup-open:border-[var(--erp-color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--erp-color-surface-muted)] disabled:text-[var(--erp-color-text-muted)]",
         controlHeight,
-        !hasExplicitWidth && "lg:min-w-56",
+        "lg:min-w-64",
         visibleError && "border-[var(--erp-color-danger)]",
         hasCustomWidth ? undefined : "w-full",
         resolvedTriggerClassName,
@@ -234,7 +233,7 @@ export function ErpDateRangePicker({
       aria-invalid={Boolean(visibleError) || undefined}
       aria-describedby={ariaDescribedBy}
     >
-      <span className={cn("erp-data-number truncate", !displayStart && !displayEnd && "font-sans text-[var(--erp-color-text-muted)]")}>
+      <span className={cn("erp-data-number whitespace-nowrap", !displayStart && !displayEnd && "font-sans text-[var(--erp-color-text-muted)]")}>
         {displayValue}
       </span>
       <CalendarRange className="h-4 w-4 shrink-0 text-[var(--erp-color-text-muted)]" aria-hidden="true" />

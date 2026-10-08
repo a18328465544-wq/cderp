@@ -26,3 +26,16 @@ test("embedded submit bars do not add an outer sticky reservation", () => {
   const markup = renderToStaticMarkup(createElement("form", null, createElement(ErpSubmitBar, {embedded: true, compact: true, dirty: true, canSubmit: true, submitting: false, onCancel: () => undefined})));
   assert.doesNotMatch(markup, /erp-submit-bar-reserve/);
 });
+
+test("unchanged edit forms preserve their explicit disabled reason", () => {
+  const markup = renderToStaticMarkup(createElement(ErpSubmitBar, {dirty: false, canSubmit: false, blockedReason: "尚未修改采购单", submitting: false, onCancel: () => undefined}));
+  assert.match(markup, /尚未修改采购单/);
+  assert.doesNotMatch(markup, /尚未填写必填信息/);
+  assert.match(markup, /disabled/);
+});
+
+test("submission feedback takes precedence over a previous blocked reason", () => {
+  const markup = renderToStaticMarkup(createElement(ErpSubmitBar, {dirty: true, canSubmit: false, blockedReason: "尚未修改销售单", submitting: true, onCancel: () => undefined}));
+  assert.match(markup, /正在提交/);
+  assert.doesNotMatch(markup, /尚未修改销售单/);
+});

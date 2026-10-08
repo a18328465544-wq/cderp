@@ -13,7 +13,7 @@ export function FinanceDetailRow({
     <div>
       <p className="text-xs text-[var(--erp-color-text-muted)]">{label}</p>
       <p
-        className={`${small ? "text-sm" : ""} mt-0.5 truncate font-medium`}
+        className={`${small ? "text-sm" : ""} mt-0.5 break-words font-medium`}
       >
         {value}
       </p>

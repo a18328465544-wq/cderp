@@ -11,6 +11,7 @@ export interface ErpColumnVisibilityMenuProps<TData> {
   exclude?: string[];
   label?: string;
   width?: string;
+  defaultVisibility?: VisibilityState;
 }
 
 function columnId<TData>(column: ColumnDef<TData, unknown>) {
@@ -31,13 +32,14 @@ export function ErpColumnVisibilityMenu<TData>({
   exclude = ["actions"],
   label = "列显示",
   width = "w-56",
+  defaultVisibility = {},
 }: ErpColumnVisibilityMenuProps<TData>) {
   const pathname = useRouterState({select: (state) => state.location.pathname});
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [pathname]);
   const options = columns
     .map((column) => ({column, id: columnId(column)}))
-    .filter(({id}) => Boolean(id) && !exclude.includes(id));
+    .filter(({column, id}) => Boolean(id) && column.enableHiding !== false && !exclude.includes(id));
 
   const visibleCount = options.filter(({id}) => visibility[id] !== false).length;
 
@@ -50,7 +52,7 @@ export function ErpColumnVisibilityMenu<TData>({
   };
 
   const handleReset = () => {
-    onVisibilityChange({});
+    onVisibilityChange(defaultVisibility);
   };
 
   return (

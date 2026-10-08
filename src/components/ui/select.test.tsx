@@ -8,6 +8,18 @@ test("Select uses full width by default", () => {
   assert.match(markup, /w-full/);
 });
 
+test("an explicit empty-string filter option keeps its All label", () => {
+  const markup = renderToStaticMarkup(<Select value="" options={[{value: "", label: "全部渠道"}, {value: "online", label: "线上"}]} onValueChange={() => undefined} />);
+  assert.match(markup, /全部渠道/);
+  assert.doesNotMatch(markup, /请选择/);
+});
+
+test("an empty entity without an empty-string option retains its placeholder", () => {
+  const markup = renderToStaticMarkup(<Select value="" options={[{value: "account", label: "现金"}]} placeholder="选择付款账户" onValueChange={() => undefined} />);
+  assert.match(markup, /选择付款账户/);
+  assert.doesNotMatch(markup, />现金<\/span>/);
+});
+
 test("Select respects a compact width supplied by a list filter", () => {
   const markup = renderToStaticMarkup(<Select className="w-36" value="all" options={[{value: "all", label: "全部"}]} onValueChange={() => undefined} />);
   assert.match(markup, /w-36/);

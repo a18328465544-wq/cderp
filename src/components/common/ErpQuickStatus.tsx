@@ -43,13 +43,13 @@ export function QuickStatusItem({item, variant = "compact"}: {item: QuickStatusI
   const compact = variant === "compact";
   const content = compact ? <>
     <span className={cn("flex h-[var(--erp-quick-status-icon-size)] w-[var(--erp-quick-status-icon-size)] shrink-0 items-center justify-center rounded-full", tone.icon)} aria-hidden="true">{item.icon}</span>
-    <span className={cn("erp-data-number min-w-0 truncate text-sm font-semibold", tone.value)}>{item.value}</span>
+    <span className={cn("erp-data-number shrink-0 text-sm font-semibold", tone.value)}>{item.value}</span>
     <span className="min-w-0 truncate text-xs font-medium text-[var(--erp-color-text-secondary)]">{item.label}</span>
   </> : <>
     <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full", tone.icon)} aria-hidden="true">{item.icon}</span>
     <span className="min-w-0 flex-1">
       <span className="block truncate text-xs font-medium text-[var(--erp-color-text-secondary)]">{item.label}</span>
-      <span className={cn("erp-data-number mt-0.5 block truncate text-sm font-semibold", tone.value)}>{item.value}</span>
+      <span className={cn("erp-data-number mt-0.5 block break-words text-sm font-semibold", tone.value)}>{item.value}</span>
       {item.description ? <span className="erp-annotation-slot mt-0.5 text-xs text-[var(--erp-color-text-muted)]">{item.description}</span> : null}
     </span>
     {action ? <ArrowRight className="h-4 w-4 shrink-0 text-[var(--erp-color-text-muted)]" aria-hidden="true" /> : null}

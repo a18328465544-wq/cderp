@@ -37,6 +37,7 @@ import { formatCurrency } from "@/src/lib/format";
 import { FinanceSectionTabs } from "../components/FinanceSectionTabs";
 import { FinanceTableRegion } from "../components/FinanceTableRegion";
 import { isAnyMenuAllowed, isMenuAllowed } from "@/src/utils/menu";
+import {matchesReturnReconcileType} from "../finance-return-reconcile.filters";
 
 const defaultFilters: SalesReturnListFilters & {
   type: "all" | "销售退货" | "进货退货";
@@ -161,7 +162,7 @@ function FinanceReturnReconcileContent({
           reconcileType: "进货退货" as const,
         })),
       ]
-        .filter((item) => !filters.type || item.reconcileType === filters.type)
+        .filter((item) => matchesReturnReconcileType(filters.type, item.reconcileType))
         .sort((a, b) => b.date.localeCompare(a.date)),
     [filters.type, purchases, sales],
   );
@@ -328,7 +329,7 @@ function FinanceReturnReconcileContent({
         <Metric
           label="退货记录"
           value={`${filtered.length} 单`}
-          detail="当前本地合并结果"
+          detail="已加载的退货记录，每类最多 100 条"
         />
         <Metric
           label="退货金额"

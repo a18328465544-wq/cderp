@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {renderToStaticMarkup} from "react-dom/server";
-import {ErpMetricCard, getErpMetricValueSize} from "./ErpMetricCard";
+import {ErpMetricCard, getErpMetricValueSize, metricComparisonTone} from "./ErpMetricCard";
 
 test("ErpMetricCard exposes the shared card anatomy and semantic value tone", () => {
   const markup = renderToStaticMarkup(<ErpMetricCard label="今日收入" value="¥68,800" detail="昨日 ¥61,200" tone="success" valueTone="success" compare={12.4} />);
@@ -12,7 +12,7 @@ test("ErpMetricCard exposes the shared card anatomy and semantic value tone", ()
   assert.match(markup, /data-erp-region="metric-comparison"/);
   assert.match(markup, /12\.4%/);
   assert.match(markup, /text-\[var\(--erp-color-income\)\]/);
-  assert.match(markup, /whitespace-nowrap/);
+  assert.doesNotMatch(markup, /text-ellipsis/);
   assert.match(markup, /title="¥68,800"/);
   assert.match(markup, /data-value-size="medium"/);
 });
@@ -21,7 +21,18 @@ test("ErpMetricCard keeps compact values in the adaptive metric size tier", () =
   const markup = renderToStaticMarkup(<ErpMetricCard label="销售成本" value="¥781,883" variant="compact" />);
   assert.match(markup, /data-density="compact"/);
   assert.match(markup, /text-\[length:var\(--erp-font-metric-compact-medium\)\]/);
-  assert.match(markup, /data-erp-region="metric-value"[^>]*overflow-hidden/);
+  assert.match(markup, /100cqi/);
+  assert.doesNotMatch(markup, /text-ellipsis/);
+});
+
+test("comparison direction does not imply business benefit for spending", () => {
+  assert.equal(metricComparisonTone(12, "neutral"), "info");
+  assert.equal(metricComparisonTone(-12, "lower-is-better"), "success");
+  assert.equal(metricComparisonTone(12, "lower-is-better"), "danger");
+  assert.equal(metricComparisonTone(0, "higher-is-better"), "info");
+  const markup = renderToStaticMarkup(<ErpMetricCard label="支出" value="¥100" compare={12} compareMeaning="neutral" />);
+  assert.match(markup, /上升/);
+  assert.doesNotMatch(markup, /text-\[var\(--erp-color-income\)\]/);
 });
 
 test("ErpMetricCard uses three value typography tiers without changing card geometry", () => {

@@ -47,7 +47,9 @@ test("dense tables can opt out of mobile cards", () => {
   );
 
   assert.doesNotMatch(markup, /mobile-table-cards/);
-  assert.match(markup, /min-w-\[1180px\]/);
+  assert.match(markup, /table-fixed/);
+  assert.match(markup, /min-width:/);
+  assert.doesNotMatch(markup, /min-w-\[1180px\]/);
 });
 
 test("mobile detail action can be disabled when a row has its own action", () => {

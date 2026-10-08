@@ -1,6 +1,7 @@
 import {Children, useState, type HTMLAttributes, type ReactNode} from "react";
 import {cn} from "@/src/lib/cn";
 import {ErpPageFrame} from "./ErpPageFrame";
+import {useBalancedMetricGrid} from "@/src/hooks/useBalancedMetricGrid";
 
 export function ErpDashboardPageFrame({className, children, ...props}: HTMLAttributes<HTMLDivElement> & {children: ReactNode}) {
   return <ErpPageFrame {...props} density="comfortable" className={className}>{children}</ErpPageFrame>;
@@ -9,13 +10,14 @@ export function ErpDashboardPageFrame({className, children, ...props}: HTMLAttri
 /** @deprecated Use ErpDashboardPageFrame; kept as a compatibility alias. */
 export const DashboardShell = ErpDashboardPageFrame;
 
-export function MetricsRegion({className, children, mobileCollapseAfter, mobilePrimaryFullWidth = false, ...props}: HTMLAttributes<HTMLDivElement> & {children: ReactNode; mobileCollapseAfter?: number; mobilePrimaryFullWidth?: boolean}) {
+export function MetricsRegion({className, style, children, mobileCollapseAfter, mobilePrimaryFullWidth = false, ...props}: HTMLAttributes<HTMLDivElement> & {children: ReactNode; mobileCollapseAfter?: number; mobilePrimaryFullWidth?: boolean}) {
   const [expanded, setExpanded] = useState(false);
   const items = Children.toArray(children);
   const shouldCollapse = Boolean(mobileCollapseAfter && items.length > mobileCollapseAfter);
   const visibleItems = shouldCollapse && !expanded ? items.slice(0, mobileCollapseAfter) : items;
+  const grid = useBalancedMetricGrid(visibleItems.length);
   return <>
-    <section {...props} data-erp-component="metrics-region" data-metric-count={visibleItems.length} data-metric-parity={visibleItems.length % 2 === 1 ? "odd" : "even"} data-mobile-collapsed={shouldCollapse && !expanded ? "true" : undefined} data-mobile-primary-full-width={mobilePrimaryFullWidth ? "true" : undefined} className={cn("grid grid-cols-[repeat(auto-fit,minmax(min(100%,var(--erp-metric-min-width)),1fr))] gap-3", className)}>{visibleItems}</section>
+    <section {...props} ref={grid.ref} style={{...grid.style, ...style}} data-erp-component="metrics-region" data-metric-count={visibleItems.length} data-metric-parity={visibleItems.length % 2 === 1 ? "odd" : "even"} data-mobile-collapsed={shouldCollapse && !expanded ? "true" : undefined} data-mobile-primary-full-width={mobilePrimaryFullWidth ? "true" : undefined} className={cn("grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,var(--erp-metric-min-width)),1fr))] gap-3", className)}>{visibleItems}</section>
     {shouldCollapse && <button type="button" data-erp-region="metrics-toggle" className="erp-focus-ring mx-auto inline-flex min-h-[var(--erp-control-height-filter)] items-center rounded-[var(--erp-radius-pill)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-xs font-medium text-[var(--erp-color-primary)] shadow-sm lg:hidden" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>{expanded ? "收起指标" : `展开更多指标（${items.length - (mobileCollapseAfter || 0)}）`}</button>}
   </>;
 }

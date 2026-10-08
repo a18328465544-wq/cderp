@@ -38,11 +38,11 @@ function safeWrite<T>(key: string, value: T, version: number) {
   }
 }
 
-function normalizeVisibility<T extends Record<string, boolean>>(fallback: T, value: unknown): T {
+export function normalizeVisibility<T extends Record<string, boolean>>(fallback: T, value: unknown): T {
   if (!value || typeof value !== "object") return fallback;
   const result = {...fallback};
-  for (const key of Object.keys(fallback)) {
-    const candidate = (value as Record<string, unknown>)[key];
+  for (const [key, candidate] of Object.entries(value)) {
+    if (["__proto__", "prototype", "constructor"].includes(key)) continue;
     if (typeof candidate === "boolean") (result as Record<string, boolean>)[key] = candidate;
   }
   return result;

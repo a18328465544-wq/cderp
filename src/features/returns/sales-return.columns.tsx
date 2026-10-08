@@ -1,8 +1,9 @@
 import type {ColumnDef} from "@tanstack/react-table";
-import {ArrowRight, Ban, CheckCircle2, Edit3, Trash2} from "lucide-react";
+import {ArrowRight, Ban, CheckCircle2, Edit3, Undo2} from "lucide-react";
 import {Button} from "@/src/components/ui";
 import {ErpStatusBadge} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
+import {prioritizeTableColumns} from "@/src/lib/tableLayout";
 import type {SalesReturnListItem} from "@/src/types/returns";
 import {returnDisplayDescription, returnDisplayLabel} from "./return-display";
 
@@ -11,7 +12,7 @@ function statusTone(status: SalesReturnListItem["status"]): "warning" | "success
 }
 
 export function createSalesReturnColumns({onDetail, onComplete, onVoid, onEdit, onDelete, canEdit, canDelete}: {onDetail: (item: SalesReturnListItem) => void; onComplete: (item: SalesReturnListItem) => void; onVoid?: (item: SalesReturnListItem) => void; onEdit?: (item: SalesReturnListItem) => void; onDelete?: (item: SalesReturnListItem) => void; canEdit?: boolean; canDelete?: boolean}): ColumnDef<SalesReturnListItem, unknown>[] {
-  return [
+  return prioritizeTableColumns([
     {accessorKey: "returnNo", header: "退货单号", size: 170, cell: ({row}) => <div><p className="erp-data-number text-xs font-semibold text-[var(--erp-color-primary)]">{row.original.returnNo}</p><p className="mt-1 text-xs text-[var(--erp-color-text-muted)]">{row.original.date || "—"}</p></div>},
     {accessorKey: "relatedDocNo", header: "关联销售单", size: 160, cell: ({getValue}) => <span className="erp-data-number text-xs font-semibold">{String(getValue() || "—")}</span>},
     {accessorKey: "partyName", header: "客户", size: 150, cell: ({row}) => <div><p className="font-semibold">{row.original.partyName || "—"}</p><p className="mt-1 max-w-36 truncate text-xs text-[var(--erp-color-text-muted)]">{row.original.contact || "未填写联系方式"}</p></div>},
@@ -21,6 +22,6 @@ export function createSalesReturnColumns({onDetail, onComplete, onVoid, onEdit, 
     {accessorKey: "inventoryAction", header: "库存处理", size: 120, cell: ({getValue}) => String(getValue() || "—")},
     {accessorKey: "status", header: "状态", size: 100, cell: ({row}) => <ErpStatusBadge label={row.original.status} tone={statusTone(row.original.status)} />},
     {accessorKey: "handler", header: "经办人", size: 100, cell: ({getValue}) => String(getValue() || "—")},
-    {id: "actions", header: "操作", size: 270, enableSorting: false, cell: ({row}) => <div className="flex items-center gap-1"><Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onDetail(row.original);}}>详情<ArrowRight className="h-3.5 w-3.5" /></Button>{row.original.status === "待处理" && <Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onComplete(row.original);}}><CheckCircle2 className="h-3.5 w-3.5" />完成</Button>}{canDelete && onVoid && row.original.status === "待处理" && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-danger)] hover:text-[var(--erp-color-danger)]" onClick={(event) => {event.stopPropagation(); onVoid(row.original);}}><Ban className="h-3.5 w-3.5" />作废</Button>}{canEdit && onEdit && row.original.status !== "已作废" && <Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onEdit(row.original);}}><Edit3 className="h-3.5 w-3.5" />编辑</Button>}{canDelete && onDelete && row.original.status === "已完成" && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-danger)] hover:text-[var(--erp-color-danger)]" onClick={(event) => {event.stopPropagation(); onDelete(row.original);}}><Trash2 className="h-3.5 w-3.5" />冲销</Button>}</div>},
-  ];
+    {id: "actions", header: "操作", size: 270, enableSorting: false, cell: ({row}) => <div className="flex items-center gap-1"><Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onDetail(row.original);}}>详情<ArrowRight className="h-3.5 w-3.5" /></Button>{row.original.status === "待处理" && <Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onComplete(row.original);}}><CheckCircle2 className="h-3.5 w-3.5" />完成</Button>}{canDelete && onVoid && row.original.status === "待处理" && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-danger)] hover:text-[var(--erp-color-danger)]" onClick={(event) => {event.stopPropagation(); onVoid(row.original);}}><Ban className="h-3.5 w-3.5" />作废</Button>}{canEdit && onEdit && row.original.status !== "已作废" && <Button type="button" size="sm" variant="ghost" onClick={(event) => {event.stopPropagation(); onEdit(row.original);}}><Edit3 className="h-3.5 w-3.5" />编辑</Button>}{canDelete && onDelete && row.original.status === "已完成" && <Button type="button" size="sm" variant="ghost" className="text-[var(--erp-color-danger)] hover:text-[var(--erp-color-danger)]" onClick={(event) => {event.stopPropagation(); onDelete(row.original);}}><Undo2 className="h-3.5 w-3.5" />冲销</Button>}</div>},
+  ], ["returnNo", "status", "amount", "settlementMode", "productName", "partyName"]);
 }

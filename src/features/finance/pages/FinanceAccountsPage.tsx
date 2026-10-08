@@ -9,7 +9,7 @@ import {notify} from "@/src/utils/notification";
 import {Button, Card, Input, Select} from "@/src/components/ui";
 import {StackedStructureBar} from "@/src/components/ui/chart-primitives";
 import {ChartMeta} from "@/src/components/ui/chart";
-import {DashboardSection, ErpDataTable, ErpEmptyState, ErpFinancePageFrame, ErpFilterBar, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpStatusBadge, type QuickStatusItemData} from "@/src/components/common";
+import {DashboardSection, ErpDataTable, ErpEmptyState, ErpFinancePageFrame, ErpFilterBar, ErpLoadingState, ErpMetricCard, MetricsRegion, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpStatusBadge, type QuickStatusItemData} from "@/src/components/common";
 import {ApiError, financeAccountsApi, queryKeys} from "@/src/services/api";
 import {invalidateErpDomains} from "@/src/services/api/invalidation";
 import {createCapabilities, useAuth} from "@/src/app/auth";
@@ -117,7 +117,7 @@ function FinanceAccountsContent({session, query, filters, onFiltersChange, onAut
     <FinanceAccountsHeader accounts={accounts} loading={refreshing} onRefresh={() => void refreshAll()} onCreate={openCreate} />
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
     <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <main className="min-w-0 space-y-4">
+      <section aria-label="资金账户列表" className="min-w-0 space-y-4">
         <SummaryCards summary={summary} accountCount={accounts.length} />
         <ErpPageToolbar>
         <ErpFilterBar className="bg-[var(--erp-color-surface)]" actions={<div className="flex flex-wrap items-center gap-2"><Button type="button" size="sm" variant={advancedOpen ? "secondary" : "ghost"} onClick={() => setAdvancedOpen((value) => !value)}><Settings2 className="h-4 w-4" />更多筛选</Button><Button type="button" size="sm" variant="ghost" onClick={() => onFiltersChange(defaultFinanceAccountFilters)}><RefreshCw className="h-4 w-4" />重置</Button></div>}>
@@ -130,7 +130,7 @@ function FinanceAccountsContent({session, query, filters, onFiltersChange, onAut
         {filtered.length !== accounts.length && <div className="flex items-center gap-1 px-1 text-xs text-[var(--erp-color-text-secondary)]">已筛选 {filtered.length} / {accounts.length} 个账户 <Button type="button" size="xs" variant="ghost" className="h-auto px-1 font-semibold text-[var(--erp-color-primary)] hover:underline" onClick={() => onFiltersChange(defaultFinanceAccountFilters)}>清空筛选</Button></div>}
         <AccountCards accounts={filtered} onCreate={openCreate} onView={(account) => setDetailId(account.id)} onCollect={(account) => void navigate({to: "/finance/income", search: {accountId: account.id}})} onTransfer={(account) => void navigate({to: "/finance/transfers", search: {fromAccountId: account.id}})} onLedger={(account) => void navigate({to: "/finance/ledger", search: {accountId: account.id}})} canCollect={canCollect} canTransfer={canTransfer} canViewLedger={canViewLedger} />
         <RecentChangesCard available={canViewLedger} rows={recentLedgerQuery.data?.items || []} loading={canViewLedger && recentLedgerQuery.isPending} error={canViewLedger ? recentLedgerQuery.error : null} onRetry={() => {if (canViewLedger) void recentLedgerQuery.refetch();}} onRowClick={(row) => setDetailId(row.accountId)} onViewAll={() => void navigate({to: "/finance/ledger"})} />
-      </main>
+      </section>
       <aside className="space-y-4 xl:sticky xl:top-20 xl:self-start"><DistributionCard {...distribution} /><AccountStatusCard rows={statusRows} /><ExceptionsCard exceptions={exceptions} pendingCount={statusRows.find((row) => row.key === "pending")?.value || 0} onViewPending={() => updateFilters({status: "pending"})} /><QuickActionsCard onTransfer={canTransfer ? () => void navigate({to: "/finance/transfers"}) : undefined} onCollect={canCollect ? () => void navigate({to: "/finance/income"}) : undefined} onLedger={canViewLedger ? () => void navigate({to: "/finance/ledger"}) : undefined} onReports={exportAccounts} onCreate={openCreate} /></aside>
     </div>
     <p className="px-1 text-xs text-[var(--erp-color-text-muted)]">注：以上余额和流水均来自真实账户接口；账户卡片快捷操作不会绕过服务端权限。</p>
@@ -161,11 +161,11 @@ function FinanceAccountsHeader({accounts = [], loading = false, onRefresh, onCre
 }
 
 function SummaryCards({summary, accountCount}: {summary: ReturnType<typeof summarizeFinanceAccounts>; accountCount: number}) {
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4"><SummaryCard label="总资产" value={summary.bookBalance} detail="当前账面余额" icon={<WalletCards className="h-4 w-4" />} tone="info" /><SummaryCard label="可用资金" value={summary.availableBalance} detail="账面余额减冻结金额" icon={<Banknote className="h-4 w-4" />} tone="success" /><SummaryCard label="冻结资金" value={summary.frozenAmount} detail="暂不可动用的资金" icon={<LockKeyhole className="h-4 w-4" />} tone="warning" /><SummaryCard label="账户数量" value={accountCount} detail={`${summary.enabledCount} 个正常账户`} icon={<Landmark className="h-4 w-4" />} tone="info" count /> </div>;
+  return <MetricsRegion><SummaryCard label="账面余额" value={summary.bookBalance} detail="全部资金账户，包含负余额" icon={<WalletCards className="h-4 w-4" />} tone="info" /><SummaryCard label="可用资金" value={summary.availableBalance} detail="账面余额减冻结金额" icon={<Banknote className="h-4 w-4" />} tone="info" /><SummaryCard label="冻结资金" value={summary.frozenAmount} detail="暂不可动用的资金" icon={<LockKeyhole className="h-4 w-4" />} tone="warning" /><SummaryCard label="账户数量" value={accountCount} detail={`${summary.enabledCount} 个正常账户`} icon={<Landmark className="h-4 w-4" />} tone="info" count /></MetricsRegion>;
 }
 
 function SummaryCard({label, value, detail, icon, tone, count = false}: {label: string; value: number; detail: string; icon: ReactNode; tone: "info" | "success" | "warning"; count?: boolean}) {
-  return <ErpMetricCard label={label} value={count ? `${value} 个` : formatMoney(value)} detail={detail} icon={icon} tone={tone} valueTone={tone === "info" ? "neutral" : tone} />;
+  return <ErpMetricCard label={label} value={count ? `${value} 个` : formatMoney(value)} detail={detail} icon={icon} tone={!count && value < 0 ? "danger" : tone} valueTone={!count && value < 0 ? "danger" : tone} />;
 }
 
 function AccountCards({accounts, onCreate, onView, onCollect, onTransfer, onLedger, canCollect, canTransfer, canViewLedger}: {accounts: FinanceAccountItem[]; onCreate: () => void; onView: (account: FinanceAccountItem) => void; onCollect: (account: FinanceAccountItem) => void; onTransfer: (account: FinanceAccountItem) => void; onLedger: (account: FinanceAccountItem) => void; canCollect: boolean; canTransfer: boolean; canViewLedger: boolean}) {
@@ -196,7 +196,7 @@ function RecentChangesCard({available = true, rows, loading, error, onRetry, onR
 }
 
 function DistributionCard({rows, positiveTotal, netBalance}: ReturnType<typeof buildDistribution>) {
-  return <Card><div className="border-b border-[var(--erp-color-border)] px-4 py-3"><h2 className="text-sm font-semibold">资金分布</h2></div><div className="grid grid-cols-[136px_minmax(0,1fr)] items-center gap-3 p-4">{positiveTotal > 0 ? <><div className="relative flex h-36 items-center"><StackedStructureBar className="w-full" segments={rows.map((row) => ({id: row.id, label: row.name, value: row.value, color: financeChartCategoryColor(row.id)}))} ariaLabel="正余额资金分布图" showLabels={false} /><div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><span className="erp-data-number text-sm font-semibold">{compactMoney(positiveTotal)}</span><span className="text-xs text-[var(--erp-color-text-muted)]">正余额资金</span></div></div><div className="space-y-2">{rows.map((row) => <div key={row.id} className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-1.5 truncate"><span className="h-2 w-2 shrink-0 rounded-full" style={{backgroundColor: financeChartCategoryColor(row.id)}} />{row.name}</span><span className="shrink-0 erp-data-number text-[var(--erp-color-text-secondary)]">{formatPercent(row.value, positiveTotal)}</span></div>)}</div></> : <div className="col-span-2"><ErpEmptyState title="暂无正余额资金" description="启用资金账户并录入余额后会显示分布。" /></div>}</div><ChartMeta className="mx-4 mb-3" summary={`正余额资金 ${formatMoney(positiveTotal)} · 净余额 ${formatMoney(netBalance)}`} updatedAt={storeDate()} /></Card>;
+  return <Card><div className="border-b border-[var(--erp-color-border)] px-4 py-3"><h2 className="text-sm font-semibold">正余额资金分布</h2></div><div className="min-w-0 space-y-3 p-4">{positiveTotal > 0 ? <><p className="text-xs text-[var(--erp-color-text-muted)]">仅统计启用且余额大于 0 的账户，不包含负余额。</p><StackedStructureBar className="w-full" segments={rows.map((row) => ({id: row.id, label: row.name, value: row.value, color: financeChartCategoryColor(row.id)}))} ariaLabel="正余额资金分布图" showLabels={false} /><div className="space-y-2">{rows.map((row) => <div key={row.id} className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{backgroundColor: financeChartCategoryColor(row.id)}} /><span className="break-words">{row.name}</span></span><span className="shrink-0 erp-data-number text-[var(--erp-color-text-secondary)]">{formatPercent(row.value, positiveTotal)}</span></div>)}</div></> : <ErpEmptyState title="暂无正余额资金" description="当前没有启用且余额大于 0 的账户。" />}</div><ChartMeta className="mx-4 mb-3" summary={`正余额资金 ${formatMoney(positiveTotal)} · 净余额 ${formatMoney(netBalance)}`} updatedAt={storeDate()} /></Card>;
 }
 
 function AccountStatusCard({rows}: {rows: StatusRow[]}) {
@@ -264,7 +264,6 @@ function accountIcon(type: FinanceAccountItem["type"]) {
 }
 
 function formatMoney(value: number) {return new Intl.NumberFormat("zh-CN", {style: "currency", currency: "CNY", minimumFractionDigits: 2, maximumFractionDigits: 2}).format(value);}
-function compactMoney(value: number) {return Math.abs(value) >= 10000 ? `¥${(value / 10000).toFixed(1)}万` : formatMoney(value);}
 function formatPercent(value: number, total: number) {return total ? `${((value / total) * 100).toFixed(1)}%` : "0.0%";}
 function formatLedgerDateTime(value: string) {return formatStoreDateTime(value);}
 function csvCell(value: unknown) {const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;}

@@ -1,3 +1,5 @@
+import {ArrowUp} from "lucide-react";
+import {Button} from "@/src/components/ui";
 import {lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode} from "react";
 import {useRouterState} from "@tanstack/react-router";
 import {AppHeader} from "./AppHeader";
@@ -30,7 +32,22 @@ function AppShellContent({children}: {children: ReactNode}) {
   const phone = useErpPhone();
   const [profileVisible, setProfileVisible] = useState(false);
   const [keyboard, setKeyboard] = useState({open: false, inset: 0});
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const {clearNavigationIntent} = useWorkspaceTabRuntime();
+
+  useEffect(() => {
+    setShowScrollTop(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const mainEl = mainRef.current;
+    if (!phone || !mainEl) return;
+    const onScroll = () => {
+      setShowScrollTop(mainEl.scrollTop > 380);
+    };
+    mainEl.addEventListener("scroll", onScroll, {passive: true});
+    return () => mainEl.removeEventListener("scroll", onScroll);
+  }, [phone]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -87,7 +104,7 @@ function AppShellContent({children}: {children: ReactNode}) {
   return <div data-erp-shell="true" data-phone-keyboard={keyboard.open ? "open" : undefined} style={{"--erp-phone-keyboard-inset": `${keyboard.inset}px`} as CSSProperties} className="flex h-[100dvh] min-w-0 overflow-hidden bg-[var(--erp-color-canvas)]">
     <a href="#main-content" hidden={phone && profileVisible} className="erp-skip-link">跳到主要内容</a>
     <AppSidebar />
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><AppHeader /><main id="main-content" inert={phone && profileVisible || undefined} aria-hidden={phone && profileVisible || undefined} ref={mainRef} tabIndex={-1} aria-label="主要内容" className="erp-main-content erp-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 outline-none sm:p-4 lg:p-6"><WorkspaceTabKeepAlive fallback={children} scrollContainerRef={mainRef} /></main>{phone && <AppMobileNavigation onProfileVisibilityChange={setProfileVisible} />}</div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><AppHeader /><main id="main-content" inert={phone && profileVisible || undefined} aria-hidden={phone && profileVisible || undefined} ref={mainRef} tabIndex={-1} aria-label="主要内容" className="erp-main-content erp-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 outline-none sm:p-4 lg:p-6"><WorkspaceTabKeepAlive fallback={children} scrollContainerRef={mainRef} /></main>{phone && showScrollTop && <Button type="button" size="iconTouch" variant="secondary" aria-label="回到顶部" className="erp-phone-scroll-top" onClick={() => mainRef.current?.scrollTo({top: 0, behavior: "smooth"})}><ArrowUp className="h-5 w-5" /></Button>}{phone && <AppMobileNavigation onProfileVisibilityChange={setProfileVisible} />}</div>
     <Suspense fallback={null}><ErpAiDrawer /></Suspense>
   </div>;
 }

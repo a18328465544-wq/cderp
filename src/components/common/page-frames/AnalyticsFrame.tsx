@@ -3,6 +3,7 @@ import {ChevronDown, ChevronUp} from "lucide-react";
 import {cn} from "@/src/lib/cn";
 import {ErpFilterBar} from "../ErpFilterBar";
 import {ErpAnalyticsPageFrame} from "../ErpPageFrames";
+import {useBalancedMetricGrid} from "@/src/hooks/useBalancedMetricGrid";
 
 type RegionProps = HTMLAttributes<HTMLElement> & {children: ReactNode};
 
@@ -30,10 +31,12 @@ export function AnalyticsKpiRegion({primary, secondary, className, ...props}: Om
   const [supportingExpanded, setSupportingExpanded] = useState(false);
   const primaryCount = countRenderableChildren(primary);
   const secondaryCount = secondary ? countRenderableChildren(secondary) : 0;
+  const primaryGrid = useBalancedMetricGrid(primaryCount);
+  const secondaryGrid = useBalancedMetricGrid(secondaryCount);
   return <section {...props} data-erp-region="analytics-kpis" className={cn("analytics-kpi-region min-w-0 space-y-3", className)}>
-    <div data-erp-region-level="primary" data-analytics-tier="core" data-analytics-density="primary" data-analytics-count={primaryCount} data-analytics-parity={primaryCount % 2 === 1 ? "odd" : "even"} className="analytics-kpi-grid analytics-kpi-grid--primary grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-3">{primary}</div>
+    <div ref={primaryGrid.ref} style={primaryGrid.style} data-erp-region-level="primary" data-analytics-tier="core" data-analytics-density="primary" data-analytics-count={primaryCount} data-analytics-parity={primaryCount % 2 === 1 ? "odd" : "even"} className="analytics-kpi-grid analytics-kpi-grid--primary grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-3">{primary}</div>
     {secondary ? <>
-      <div data-erp-region-level="secondary" data-analytics-tier="supporting" data-analytics-density="secondary" data-analytics-count={secondaryCount} data-analytics-parity={secondaryCount % 2 === 1 ? "odd" : "even"} data-mobile-collapsed={!supportingExpanded ? "true" : undefined} className="analytics-kpi-grid analytics-kpi-grid--supporting grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,190px),1fr))] gap-2">{secondary}</div>
+      <div ref={secondaryGrid.ref} style={secondaryGrid.style} data-erp-region-level="secondary" data-analytics-tier="supporting" data-analytics-density="secondary" data-analytics-count={secondaryCount} data-analytics-parity={secondaryCount % 2 === 1 ? "odd" : "even"} data-mobile-collapsed={!supportingExpanded ? "true" : undefined} className="analytics-kpi-grid analytics-kpi-grid--supporting grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,190px),1fr))] gap-2">{secondary}</div>
       <button type="button" data-erp-region="analytics-kpi-toggle" className="erp-focus-ring mx-auto inline-flex min-h-[var(--erp-control-height-filter)] items-center gap-1 rounded-[var(--erp-radius-pill)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-xs font-medium text-[var(--erp-color-primary)] shadow-sm lg:hidden" aria-expanded={supportingExpanded} onClick={() => setSupportingExpanded((current) => !current)}>{supportingExpanded ? <><ChevronUp className="h-3.5 w-3.5" />收起更多指标</> : <><ChevronDown className="h-3.5 w-3.5" />展开更多指标</>}</button>
     </> : null}
   </section>;
