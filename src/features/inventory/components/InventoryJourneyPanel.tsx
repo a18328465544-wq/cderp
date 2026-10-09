@@ -95,7 +95,7 @@ export function InventoryJourneyPanel({item, journey, showCost, showProfit, load
       {sale?.channel && <p className="mt-3 text-xs text-[var(--erp-color-text-secondary)]">渠道：{sale.channel}{sale.paymentMethod ? ` · ${sale.paymentMethod}` : ""}{sale.outboundHandler || sale.handleBy ? ` · 经办：${sale.outboundHandler || sale.handleBy}` : ""}</p>}
     </section>}
 
-    <section className="rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-4" data-testid="journey-timeline">
+    <section data-erp-region="journey-timeline" className="rounded-[var(--erp-radius-lg)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-4" data-testid="journey-timeline">
       <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-semibold text-[var(--erp-color-text)]">商品全链路</h3><p className="mt-1 text-xs text-[var(--erp-color-text-secondary)]">从采购 / 回收到销售、收款和售后，按实际单据还原。</p></div>{journey?.generatedAt && <span className="shrink-0 text-xs text-[var(--erp-color-text-muted)]">更新于 {journey.generatedAt}</span>}</div>
       {loading ? <ErpLoadingState title="正在读取商品全链路" description="正在关联采购、检测、销售和售后记录。" /> : error ? <ErpEmptyState title="全链路加载失败" description={error.message} density="compact" action={<Button type="button" size="sm" variant="secondary" onClick={onRetry}>重试</Button>} /> : events.length === 0 ? <ErpEmptyState title="暂未找到链路记录" description="该库存可能是历史导入数据，或关联单据尚未同步。" density="compact" /> : <ol className="relative mt-5 space-y-4 before:absolute before:bottom-2 before:left-[11px] before:top-2 before:w-px before:bg-[var(--erp-color-border)]">
         {events.map((event) => <li key={event.id} className="relative flex gap-3" data-testid={`journey-event-${event.type}`}>

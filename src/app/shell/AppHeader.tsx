@@ -76,7 +76,7 @@ export function AppHeader() {
           <Popover.Root open={accountOpen} onOpenChange={setAccountOpen}>
             <Popover.Trigger
               type="button"
-              className="erp-focus-ring inline-flex h-9 w-9 items-center justify-center rounded-[var(--erp-radius-md)] text-[var(--erp-color-text-secondary)] transition-colors hover:bg-[var(--erp-color-surface-muted)] hover:text-[var(--erp-color-text)]"
+              className="erp-focus-ring hidden md:inline-flex h-9 w-9 items-center justify-center rounded-[var(--erp-radius-md)] text-[var(--erp-color-text-secondary)] transition-colors hover:bg-[var(--erp-color-surface-muted)] hover:text-[var(--erp-color-text)]"
               aria-label="账号菜单"
               title="账号菜单"
             >

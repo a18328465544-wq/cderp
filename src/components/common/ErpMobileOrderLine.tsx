@@ -45,7 +45,7 @@ export function ErpMobileOrderLine({
   };
 
   return (
-    <article className="erp-mobile-order-line" aria-label={label}>
+    <article data-erp-component="mobile-order-line" className="erp-mobile-order-line" aria-label={label}>
       <div className="erp-mobile-order-line-identity">
         {imageUrl && <img src={imageUrl} alt="" className="erp-phone-order-image" />}
         <div>
@@ -122,4 +122,3 @@ export function ErpMobileOrderLine({
     </article>
   );
 }
-

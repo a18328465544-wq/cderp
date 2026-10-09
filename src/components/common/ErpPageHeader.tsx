@@ -36,7 +36,7 @@ export function ErpPageHeader({title, subtitle, density = "compact", quickStatus
   const primary = actionItems[primaryIndex < 0 ? 0 : primaryIndex];
   const secondary = actionItems.filter((_, index) => index !== (primaryIndex < 0 ? 0 : primaryIndex));
   const hasQuickStatus = Boolean(quickStatus?.length);
-  const showSubtitle = density === "default";
+  const showSubtitle = density === "default" && !phone;
   const rightArea = dateContent || actions ? <ErpPageActions className={hasQuickStatus ? "lg:w-full xl:w-auto" : undefined}>{dateContent}{phone && secondary.length ? <>{primary}<Button type="button" variant="ghost" size="icon" aria-label="更多页面操作" onClick={() => setMoreOpen(true)}><MoreHorizontal className="h-5 w-5" /></Button></> : actions}</ErpPageActions> : null;
   return <><ErpPageTopbar
     data-erp-component="page-header"

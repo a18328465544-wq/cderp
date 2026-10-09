@@ -22,6 +22,8 @@ import {formatCurrency} from "@/src/lib/format";
 import {isPersonalPurchaseSource} from "@/src/utils/purchaseSources";
 import {purchasePaymentStatusValues} from "@/src/types/purchase";
 import type {PurchaseListFilters, PurchaseListItem, PurchaseListSortKey} from "@/src/types/purchase";
+import {useErpPhone} from "@/src/hooks/useErpViewport";
+import {cn} from "@/src/lib/cn";
 import {sourceTypeValues} from "@/src/types/core";
 import {createPurchaseListColumns} from "../purchase.columns";
 import {countActivePurchaseListFilters, defaultPurchaseListFilters, parsePurchaseListFilters, purchaseListFiltersToSearch, selectPurchaseList} from "../purchase.filters";
@@ -93,10 +95,17 @@ function PurchaseListContent({filters, commitFilters, session, query, filterPend
 }) {
   const {active} = useWorkspaceTabActivity();
   const queryClient = useQueryClient();
+  const phone = useErpPhone();
   const [deleting, setDeleting] = useState<PurchaseListItem | null>(null);
   const [settling, setSettling] = useState<PurchaseListItem | null>(null);
   const {columnVisibility, setColumnVisibility, density, setDensity} = useTablePreferences<VisibilityState>({feature: "purchase-list", userId: session.user.id, defaultVisibility: emptyVisibility});
   const selection = useMemo(() => query.data?.selection || selectPurchaseList(query.data?.items || [], filters), [filters, query.data]);
+  const phoneStatusPresets = useMemo(() => [
+    {id: "all", label: "全部", active: !filters.paymentStatus && !filters.sourceType, apply: () => commitFilters({...filters, paymentStatus: "", sourceType: "", page: 1})},
+    {id: "pending_payment", label: "待付款", count: selection.summary.pendingPaymentCount, active: filters.paymentStatus === "未付款" && !filters.sourceType, apply: () => commitFilters({...filters, paymentStatus: "未付款", sourceType: "", page: 1})},
+    {id: "personal", label: "个人回收", active: filters.sourceType === "个人回收", apply: () => commitFilters({...filters, sourceType: "个人回收", paymentStatus: "", page: 1})},
+    {id: "peers", label: "同行拿货", active: filters.sourceType === "同行拿货", apply: () => commitFilters({...filters, sourceType: "同行拿货", paymentStatus: "", page: 1})},
+  ], [commitFilters, filters, selection.summary.pendingPaymentCount]);
   const metricValue = (value: string | number) => displayQueryValue(query, value, filterPending);
   const invalidate = () => invalidateErpDomains(queryClient, ["purchase", "inventory", "finance", "customers", "crm", "state"]);
   const handleMutationError = (error: Error) => {if (error instanceof ApiError && error.isUnauthorized) {onAuthExpired(); return;} notify.error(error.message);};
@@ -147,17 +156,38 @@ function PurchaseListContent({filters, commitFilters, session, query, filterPend
       {session.permissions.showCost && session.permissions.showProfit && <MetricCard label="预计利润" value={metricValue(selection.summary.estimatedProfit === undefined ? "—" : formatCurrency(selection.summary.estimatedProfit))} detail="当前筛选汇总" icon={<CircleDollarSign className="h-4 w-4" />} />}
     </MetricsRegion></ErpMobileSummary>
 
-    <ErpPageToolbar><ErpFilterBar mobileActiveCount={activeFilterCount - Number(Boolean(filters.keyword))} mobilePrimary={<ErpSearchInput className="min-w-[260px] flex-1" value={filters.keyword} onChange={(event) => updateFilters({keyword: event.target.value})} placeholder="搜索采购单号、来源、商品或经办人" aria-label="搜索采购单据" />} actions={<Button type="button" variant="ghost" size="sm" onClick={() => commitFilters(defaultPurchaseListFilters)}><RotateCcw className="h-4 w-4" />重置筛选</Button>}>
+    <ErpPageToolbar>
+      {phone && (
+        <div className="erp-phone-chips-scroll mb-2" role="group" aria-label="快捷状态筛选">
+          {phoneStatusPresets.map((preset) => (
+            <Button
+              key={preset.id}
+              type="button"
+              size="sm"
+              variant={preset.active ? "secondary" : "ghost"}
+              className={cn("erp-phone-chip shrink-0", preset.active && "erp-phone-chip-active font-semibold")}
+              aria-pressed={preset.active}
+              onClick={preset.apply}
+            >
+              <span>{preset.label}</span>
+              {preset.count !== undefined && preset.count > 0 && (
+                <span className="tabular-nums text-xs opacity-80">({preset.count})</span>
+              )}
+            </Button>
+          ))}
+        </div>
+      )}
+      <ErpFilterBar mobileActiveCount={activeFilterCount - Number(Boolean(filters.keyword))} mobilePrimary={<ErpSearchInput className="min-w-[260px] flex-1" value={filters.keyword} onChange={(event) => updateFilters({keyword: event.target.value})} placeholder="搜索采购单号、来源、商品或经办人" aria-label="搜索采购单据" />} actions={<Button type="button" variant="ghost" size="sm" onClick={() => commitFilters(defaultPurchaseListFilters)}><RotateCcw className="h-4 w-4" />重置筛选</Button>}>
       <Select className="w-36" value={filters.sourceType} options={sourceOptions} onValueChange={(value) => updateFilters({sourceType: value as PurchaseListFilters["sourceType"]})} aria-label="采购来源筛选" />
       <Select className="w-36" value={filters.paymentStatus} options={paymentOptions} onValueChange={(value) => updateFilters({paymentStatus: value as PurchaseListFilters["paymentStatus"]})} aria-label="付款状态筛选" />
       <ErpDateRangePicker value={{startDate: filters.dateStart, endDate: filters.dateEnd}} onChange={({startDate, endDate}) => updateFilters({dateStart: startDate, dateEnd: endDate})} triggerClassName="sm:w-36" startAriaLabel="采购开始日期" endAriaLabel="采购结束日期" ariaLabel="采购日期范围" />
     </ErpFilterBar></ErpPageToolbar>
 
     <ErpPageContent className="space-y-[var(--erp-page-gap)]">
-    <ErpTableResultsBar summary={<span className="flex items-center gap-2"><Filter className="h-4 w-4 text-[var(--erp-color-primary)]" />共 {selection.meta.total} 条</span>} actions={<>
+    {!phone && <ErpTableResultsBar summary={<span className="flex items-center gap-2"><Filter className="h-4 w-4 text-[var(--erp-color-primary)]" />共 {selection.meta.total} 条</span>} actions={<>
         <ErpColumnVisibilityMenu columns={columns} visibility={columnVisibility} defaultVisibility={emptyVisibility} onVisibilityChange={setColumnVisibility} />
         <div className="inline-flex rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-0.5"><Button type="button" size="sm" variant={density === "comfortable" ? "secondary" : "ghost"} onClick={() => setDensity("comfortable")}>舒适</Button><Button type="button" size="sm" variant={density === "compact" ? "secondary" : "ghost"} onClick={() => setDensity("compact")}>紧凑</Button></div>
-    </>} />
+    </>} />}
 
     <ErpDataTable
       mobileRow={(item) => <ErpMobileRecordRow title={item.invoiceNo} subtitle={item.supplierName} meta={`${item.totalCount} 件 · ${item.date} · ${item.handleBy}`} amount={item.totalCost !== undefined ? formatCurrency(item.totalCost) : undefined} status={<span>{item.paymentStatus}</span>} onOpen={() => onDetail(item)} />}

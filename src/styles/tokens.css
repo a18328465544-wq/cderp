@@ -164,6 +164,13 @@
   --erp-mobile-search-action-height: calc(var(--erp-mobile-touch-size) + var(--erp-mobile-primary-height) + var(--erp-space-2) + var(--erp-space-6));
   --erp-mobile-icon-size: var(--erp-space-5);
   --erp-mobile-record-image-size: var(--erp-mobile-touch-size);
+  /* Four phone presentation templates reuse the same existing scale. */
+  --erp-mobile-page-title: var(--erp-text-2xl);
+  --erp-mobile-section-title: var(--erp-text-lg);
+  --erp-mobile-field-label: var(--erp-text-sm);
+  --erp-mobile-content-inset: var(--erp-space-4);
+  --erp-mobile-section-gap: var(--erp-space-3);
+  --erp-mobile-row-inset: var(--erp-space-3);
   --erp-phone-keyboard-inset: 0px;
   --erp-phone-visible-height: 100dvh;
   --erp-safe-top: env(safe-area-inset-top, 0px);

@@ -51,5 +51,5 @@ test("inventory grid resets the shared flex amount cap to prevent overlap with m
   assert.match(css, /\.erp-inventory-directory \.erp-phone-record-end \{[^}]+grid-template-columns: max-content[^}]+width: max-content; max-width: none;/);
   assert.match(css, /\.erp-inventory-phone-sn \{ overflow-wrap: anywhere;/);
   assert.match(css, /\.erp-inventory-phone-filters label > \.sr-only \{[^}]+clip-path: none;/);
-  assert.match(css, /inventory"\] \[data-erp-component="detail-fact"\] \{ display: grid; grid-template-columns: calc\(var\(--erp-space-16\) \+ var\(--erp-space-4\)\) minmax\(0, 1fr\)/);
+  assert.match(css, /inventory"\] \[data-erp-component="detail-fact"\] \{ display: grid; grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\)/);
 });

@@ -243,15 +243,15 @@ export function ErpDetailDrawer({open, onOpenChange, title, description, childre
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
           ><span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--erp-color-border-strong)] transition-colors group-hover:bg-[var(--erp-color-primary)] group-focus-visible:bg-[var(--erp-color-primary)]" /></div>}
-          <div data-phone-header={phone || undefined} className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--erp-color-border)] px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
+          <div data-erp-region="drawer-header" data-phone-header={phone || undefined} className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--erp-color-border)] px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-base font-semibold text-[var(--erp-color-text)]">{title}</Dialog.Title>
               {description ? <Dialog.Description className="erp-annotation-slot mt-1 text-xs text-[var(--erp-color-text-secondary)]">{description}</Dialog.Description> : null}
             </div>
             <Dialog.Close render={<Button type="button" aria-label="关闭详情" title="关闭详情" size="icon" variant="ghost">{phone ? <ArrowLeft className="h-5 w-5" /> : <X className="h-4 w-4" />}</Button>} />
           </div>
-          <div className="erp-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
-          {footer && <div className="erp-safe-area-bottom shrink-0 border-t border-[var(--erp-color-border)] px-4 py-3 sm:px-5 sm:py-4">{footer}</div>}
+          <div data-erp-region="drawer-body" className="erp-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
+          {footer && <div data-erp-region="drawer-footer" className="erp-safe-area-bottom shrink-0 border-t border-[var(--erp-color-border)] px-4 py-3 sm:px-5 sm:py-4">{footer}</div>}
         </Dialog.Popup>
       </Dialog.Viewport>
     </Dialog.Portal>
