@@ -44,8 +44,50 @@ test("domain list rows have a single padding owner and retain full numeric typog
 });
 
 test("ordinary phone options have touch-sized rows and allow long labels to grow", () => {
-  assert.match(phone, /\.erp-option-popup \[role="option"\] \{ height: auto; min-height: var\(--erp-mobile-primary-height\)/);
+  assert.match(phone, /:is\(\.erp-option-popup, \.erp-phone-selector\) \[role="option"\] \{ height: auto; min-height: var\(--erp-mobile-option-height\)/);
   assert.match(phone, /\.erp-option-popup \[role="option"\] \.truncate \{ white-space: normal; overflow: visible; overflow-wrap: anywhere/);
   assert.match(phone, /\.erp-option-popup \{ min-width: 0/);
   assert.match(phone, /data-erp-component="select"\]:not\(\[data-variant="search"\]\) \{ height: auto; min-height: var\(--erp-mobile-touch-size\)/);
+});
+
+test("mobile shared controls use semantic tokens, including choices outside page chrome", () => {
+  for (const token of ["control-height", "option-height", "input-text", "choice-size", "textarea-height"]) assert.ok(tokens.includes(`--erp-mobile-${token}:`));
+  assert.match(tokens, /--erp-mobile-control-height: var\(--erp-mobile-touch-size\)/);
+  assert.match(tokens, /--erp-mobile-input-text: var\(--erp-text-lg\)/);
+  assert.match(phone, /data-erp-control="button"\] \{ height: auto; min-height: var\(--erp-mobile-control-height\)/);
+  assert.match(phone, /data-erp-component="textarea"\] \{ min-height: var\(--erp-mobile-textarea-height\)/);
+  assert.match(phone, /data-erp-component="radio-field"\]\) > input \{ width: var\(--erp-mobile-choice-size\)/);
+  assert.match(phone, /label > input:is\(\[type="checkbox"\], \[type="radio"\]\) \{ width: var\(--erp-mobile-choice-size\); height: var\(--erp-mobile-choice-size\); flex-shrink: 0/);
+});
+
+test("search toolbar stays outside the scrolling result body and phone selectors do not force a keyboard", () => {
+  const shell = readFileSync(new URL("../components/common/ErpDialogShell.tsx", import.meta.url), "utf8");
+  assert.ok(shell.indexOf('data-erp-region="dialog-toolbar"') < shell.indexOf('data-erp-region="dialog-body"'));
+  assert.match(shell, /data-erp-region="dialog-toolbar" className="shrink-0/);
+  for (const file of ["CustomerPicker", "InventoryItemPicker"]) {
+    const source = readFileSync(new URL(`../components/domain/${file}.tsx`, import.meta.url), "utf8");
+    assert.match(source, /toolbar=\{<ErpSearchInput autoFocus=\{!phone\}/);
+  }
+  const selector = readFileSync(new URL("../components/ui/phone-search-select.tsx", import.meta.url), "utf8");
+  assert.match(selector, /import \{SearchInput\} from "\.\/search-input"/);
+  assert.doesNotMatch(selector, /\bautoFocus\b/);
+  assert.match(phone, /\.erp-phone-selector-header \{[^}]+flex-shrink: 0/);
+  assert.match(phone, /\.erp-phone-selector-query \{ flex-shrink: 0/);
+});
+
+test("sales and purchase payment choices use the same controlled component", () => {
+  for (const domain of ["purchase", "sales"]) {
+    const name = domain === "purchase" ? "Purchase" : "Sales";
+    const source = readFileSync(new URL(`../features/${domain}/components/${name}PaymentSection.tsx`, import.meta.url), "utf8");
+    assert.match(source, /<ErpSegmentedControl/);
+    assert.doesNotMatch(source, /\.map\(\(\[value, label\]\) => <Button/);
+    assert.match(source, /onValueChange=\{chooseMode\}/);
+  }
+});
+
+test("phone calendar uses fluid seven-column widths with a full-height touch area", () => {
+  assert.match(phone, /\.erp-calendar :is\(\.erp-calendar-weekday, \.erp-calendar-day\) \{ flex: 1; min-width: 0; width: auto/);
+  assert.match(phone, /\.erp-calendar \.erp-calendar-day-button \{ width: 100%; min-width: 0; height: var\(--erp-mobile-touch-size\)/);
+  const calendar = readFileSync(new URL("../components/common/ErpCalendar.tsx", import.meta.url), "utf8");
+  assert.match(calendar, /day_button: "erp-calendar-day-button erp-focus-ring inline-flex h-8 w-8/);
 });

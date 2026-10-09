@@ -11,6 +11,8 @@ export interface ErpDialogShellProps {
   open: boolean;
   title: ReactNode;
   description?: ReactNode;
+  /** Pinned search/filter controls; only children belong to the scroll body. */
+  toolbar?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   size?: ErpDialogSize;
@@ -40,7 +42,7 @@ const sizeClasses: Record<ErpDialogSize, string> = {
  * mutations; this component owns the title, close affordance, responsive
  * surface and optional action footer.
  */
-export function ErpDialogShell({open, title, description, children, footer, size = "md", className, pending = false, modal = true, closeLabel = "关闭", showClose = true, mobilePresentation = size === "sm" ? "dialog" : ["xl", "wide", "full"].includes(size) ? "fullscreen" : "sheet", onOpenChange, onOpenChangeComplete}: ErpDialogShellProps) {
+export function ErpDialogShell({open, title, description, toolbar, children, footer, size = "md", className, pending = false, modal = true, closeLabel = "关闭", showClose = true, mobilePresentation = size === "sm" ? "dialog" : ["xl", "wide", "full"].includes(size) ? "fullscreen" : "sheet", onOpenChange, onOpenChangeComplete}: ErpDialogShellProps) {
   const {active} = useWorkspaceTabActivity();
   const phoneFullscreen = useErpPhone() && (mobilePresentation === "fullscreen" || mobilePresentation === "tab");
   return (
@@ -56,6 +58,7 @@ export function ErpDialogShell({open, title, description, children, footer, size
               </div>
               {showClose ? <Dialog.Close render={<Button type="button" size="icon" variant="ghost" aria-label={closeLabel} title={closeLabel} disabled={pending} onClick={() => onOpenChange(false)}>{phoneFullscreen ? <ArrowLeft className="h-5 w-5" /> : <X className="h-4 w-4" />}</Button>} /> : null}
             </div>
+            {toolbar ? <div data-erp-region="dialog-toolbar" className="shrink-0 border-b border-[var(--erp-color-border-soft)] px-4 py-3 sm:px-5">{toolbar}</div> : null}
             <div data-erp-region="dialog-body" className="erp-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
             {footer ? <div data-erp-region="dialog-footer" className="erp-form-actions flex shrink-0 justify-end gap-2 border-t border-[var(--erp-color-border)] p-4 sm:p-5">{footer}</div> : null}
           </Dialog.Popup>

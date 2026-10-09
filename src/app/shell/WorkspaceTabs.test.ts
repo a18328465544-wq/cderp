@@ -18,3 +18,10 @@ test("workspace tabs use a shrinkable browser-like tab contract", () => {
   assert.doesNotMatch(tabsSource, /shrink-0 items-center sm:min-w/);
   assert.match(globalsSource, /flex:\s*1 1 clamp\(72px, 12vw, 180px\)/);
 });
+
+test("the shell confirms active and background dirty closes before releasing the draft", () => {
+  assert.match(workspaceSource, /const closeTab = useCallback\(\(id: string\) => \{[\s\S]*if \(isTabDirty\(id\)\) \{[\s\S]*setPendingDirtyClose\(id\);[\s\S]*return;[\s\S]*completeClose\(id\);/);
+  assert.match(workspaceSource, /const confirmDirtyClose[\s\S]*completeClose\(id, true\)/);
+  assert.match(workspaceSource, /setNavigationIntent\(confirmed \? "close-confirmed" : "close"\)/);
+  assert.match(workspaceSource, /if \(!pendingClose \|\| pathname === pendingClose.startPathname\) return;[\s\S]*transition\(\(previous\) => closeWorkspaceTab\(previous, pendingClose.id\)\)/);
+});

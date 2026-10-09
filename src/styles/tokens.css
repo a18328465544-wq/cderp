@@ -156,6 +156,11 @@
   /* Phone geometry reuses the existing scale; touch size is independent of
      text size, and only final task actions use the taller control tier. */
   --erp-mobile-primary-height: var(--erp-space-12);
+  --erp-mobile-control-height: var(--erp-mobile-touch-size);
+  --erp-mobile-option-height: var(--erp-mobile-primary-height);
+  --erp-mobile-input-text: var(--erp-text-lg);
+  --erp-mobile-choice-size: var(--erp-space-5);
+  --erp-mobile-textarea-height: calc(var(--erp-space-12) * 2);
   --erp-mobile-search-action-height: calc(var(--erp-mobile-touch-size) + var(--erp-mobile-primary-height) + var(--erp-space-2) + var(--erp-space-6));
   --erp-mobile-icon-size: var(--erp-space-5);
   --erp-mobile-record-image-size: var(--erp-mobile-touch-size);

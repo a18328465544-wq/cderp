@@ -23,7 +23,9 @@ test("Apple Home Screen startup uses a standalone same-origin manifest with real
 test("phone safe areas and editable controls are shared, with reduced-motion support", () => {
   assert.match(css, /padding-top: var\(--erp-safe-top\)/);
   assert.match(css, /padding-inline: var\(--erp-safe-left\) var\(--erp-safe-right\)/);
-  assert.match(css, /contenteditable="true"[\s\S]*font-size: var\(--erp-text-lg\)/);
+  assert.match(css, /contenteditable="true"[\s\S]*font-size: var\(--erp-mobile-input-text\)/);
+  const tokens = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8");
+  assert.match(tokens, /--erp-mobile-input-text: var\(--erp-text-lg\)/);
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*animation: none/);
 });
 test("Home Screen metadata does not introduce offline business caches", () => {

@@ -43,7 +43,7 @@ import {
 ### 基础控件（`ui`）
 
 - `Button`：`variant` 表达语义，`size` 只使用实现支持的尺寸；图标按钮必须提供 `aria-label`/`title`。
-- `Input`、`Textarea`、`Select`：统一高度、边框、焦点环和禁用态，不在页面复制基础视觉。
+- `Input`、`Textarea`、`Select`：统一高度、边框、焦点环和禁用态，不在页面复制基础视觉。`SearchInput` 是基础层搜索实现，ERP 页面仍使用兼容出口 `ErpSearchInput`，两者不是两套控件。
 - `Card`、`Badge`、`Separator`、`Skeleton`：只负责基础表面和状态。
 - `Dialog`、`Popover`：第三方能力的唯一适配入口。新页面优先使用 `ErpDialogShell`；复杂表单可以组合 `Dialog`，但必须遵守遮罩、层级、内部滚动和关闭规则。业务图片预览统一使用 `ErpImagePreviewDialog`；底层 `Dialog` 仅保留在 `ErpDialogShell`、全局命令搜索和持续工作抽屉等已登记的复杂交互中。
 
@@ -54,7 +54,7 @@ import {
 | 页面 | `ErpPageFrame`、`ErpPageHeader`、`ErpPageToolbar`、`ErpPageContent`、`ErpPageFrames` |
 | 列表 | `ErpFilterBar`、`ErpSearchInput`、`ErpDataTable`、`ErpColumnVisibilityMenu` |
 | 日期 | `ErpDatePicker`、`ErpDateTimePicker`、`ErpDateRangePicker`、`ErpCalendar`、`ErpDateOverlay` |
-| 表单 | `ErpField`、`ErpAmountInput`、`ErpCheckboxField`、`ErpRadioField`、`ErpRadioGroup`、`ErpUploader`、`ErpSubmitBar` |
+| 表单 | `ErpField`、`ErpAmountInput`、`ErpQuantityStepper`、`ErpSegmentedControl`、`ErpCheckboxField`、`ErpRadioField`、`ErpRadioGroup`、`ErpUploader`、`ErpSubmitBar` |
 | 浮层 | `ErpDialogShell`、`ErpConfirmDialog`、`ErpDocumentDeleteDialog`、`ErpImagePreviewDialog`、`ErpDetailDrawer`、`ErpUnsavedChangesDialog` |
 | 反馈 | `ErpEmptyState`、`ErpLoadingState`、`ErpPageError`、`NotificationToaster`、`notify` |
 | 业务展示 | `ErpMetricCard`、`ErpDetailFact`、`ErpStatusBadge`、`QuickStatusGroup`、`ErpProductLedgerDrawer` |
@@ -73,6 +73,7 @@ import {
 5. 可分页的列表使用 `ErpDataTable`。可编辑的销售、采购、组装明细允许使用专用表格，但必须复用相同的表头、横向滚动、空态和移动端规则。
 6. 日期全部使用 `ErpDatePicker`、`ErpDateTimePicker` 或 `ErpDateRangePicker`，禁止新增原生 `datetime-local` 和页面级日期浮层。
 7. 通知全部调用 `src/utils/notification.ts` 的 `notify`；`sonner` 只允许在 `NotificationToaster` 和通知适配层 `src/utils/notification.ts` 中出现。
+8. 移动控件尺寸遵守 [移动控件全局规则](MOBILE_CONTROL_SYSTEM_20261009.md)：普通触控区至少 44px、底部主操作至少 48px、编辑文字 16px。不得在页面另写手机高度；分段选择用 `ErpSegmentedControl`（示例见采购/销售付款区），数量编辑用 `ErpQuantityStepper`。选择器的固定搜索区通过 `ErpDialogShell.toolbar` 传入，列表放 `children`，不让搜索框随结果滚走。
 
 ## 例外与禁止项
 

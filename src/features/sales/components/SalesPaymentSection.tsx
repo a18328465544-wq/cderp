@@ -1,8 +1,8 @@
 import {useEffect, useRef, useState} from "react";
 import {Controller, useWatch, type Control, type UseFormSetValue} from "react-hook-form";
 import {AccountPicker} from "@/src/components/domain";
-import {ErpAmountInput, ErpFormSection} from "@/src/components/common";
-import {Button, Input, Select} from "@/src/components/ui";
+import {ErpAmountInput, ErpFormSection, ErpSegmentedControl} from "@/src/components/common";
+import {Input, Select} from "@/src/components/ui";
 import {useErpPhone} from "@/src/hooks/useErpViewport";
 import {cn} from "@/src/lib/cn";
 import {formatCurrency} from "@/src/lib/format";
@@ -52,7 +52,7 @@ export function SalesPaymentSection({control, setValue, accounts, accountsLoadin
   const content = <div className={cn("grid gap-3", !compact && "md:grid-cols-2 xl:grid-cols-4", phone && "erp-order-payment")}>
     {phone && <div className="erp-order-payment-total"><span>本单应收</span><strong className="erp-data-number">{formatCurrency(totalAmount)}</strong></div>}
     {!embedded && <label className="block text-sm font-semibold">支付方式<Controller control={control} name="paymentMethod" render={({field}) => <Select disabled={disabled} value={field.value} onValueChange={field.onChange} options={paymentOptions} aria-label="支付方式" className="mt-2" />} /></label>}
-    <div className="erp-order-payment-mode"><p className="text-sm font-medium">本次收款</p><div className="erp-payment-mode-options">{([["full", "全额收款"], ["none", "未收款"], ["partial", "部分收款"]] as const).map(([value, label]) => <Button key={value} disabled={disabled} type="button" size="sm" variant={mode === value ? "primary" : "ghost"} aria-pressed={mode === value} onClick={() => chooseMode(value)}>{label}</Button>)}</div></div>
+    <div className="erp-order-payment-mode"><p className="text-sm font-medium">本次收款</p><ErpSegmentedControl label="本次收款方式" className="erp-payment-mode-options" value={mode} disabled={disabled} onValueChange={chooseMode} options={[{value: "full", label: "全额收款"}, {value: "none", label: "未收款"}, {value: "partial", label: "部分收款"}]} /></div>
     {mode === "partial" && <label className="block text-sm font-medium">本次收款金额<Controller control={control} name="paidAmount" render={({field}) => <ErpAmountInput className="mt-2" value={field.value || ""} disabled={disabled} onBlur={field.onBlur} placeholder="请输入实际收款金额" onValueChange={(values) => {field.onChange(Math.max(0, Math.round(values.floatValue || 0))); if ((values.floatValue || 0) > 0) setValue("paymentMethod", cashMethod(), {shouldDirty: true, shouldValidate: true});}} aria-label="已收款金额" aria-invalid={!feedback.ready} />} />{!feedback.ready && <p role="status" className="mt-2 text-xs text-[var(--erp-color-warning)]">{feedback.reason}</p>}</label>}
     <dl className="erp-order-payment-balance"><div><dt>本次收款</dt><dd className="erp-data-number">{formatCurrency(paidAmount)}</dd></div><div><dt>剩余欠款</dt><dd className="erp-data-number">{formatCurrency(unpaidAmount)}</dd></div></dl>
     {(!phone || mode !== "none") && <label className={cn("block text-sm font-medium", !compact && "md:col-span-2")}>收款账户<Controller control={control} name="settlementAccountId" render={({field}) => <div className="mt-2"><AccountPicker value={field.value} options={accounts} loading={accountsLoading} error={accountsError} onRetry={onRetryAccounts} disabled={disabled || accountDisabled || paidAmount <= 0} onChange={(id) => {field.onChange(id); const type = accounts.find((account) => account.id === id)?.type; if (id) setValue("paymentMethod", type && paymentMethods.includes(type as SalesFormValues["paymentMethod"]) ? type as SalesFormValues["paymentMethod"] : "银行卡", {shouldDirty: true, shouldValidate: true});}} /></div>} /></label>}

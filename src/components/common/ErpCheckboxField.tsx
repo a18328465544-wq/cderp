@@ -14,7 +14,7 @@ export const ErpCheckboxField = forwardRef<HTMLInputElement, ErpCheckboxFieldPro
   const labelClassName = variant === "inline"
     ? "flex min-h-0 cursor-pointer items-start gap-2.5 px-1 py-1.5 text-sm font-medium text-[var(--erp-color-text)] transition-colors hover:bg-[var(--erp-color-surface-muted)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
     : "flex min-h-10 cursor-pointer items-start gap-2.5 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 py-2 text-sm font-medium text-[var(--erp-color-text)] transition-colors hover:bg-[var(--erp-color-surface-muted)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60";
-  return <label htmlFor={id} className={cn(labelClassName, className)}>
+  return <label htmlFor={id} data-erp-component="checkbox-field" data-choice-variant={variant} className={cn(labelClassName, className)}>
     <input {...props} ref={ref} id={id} type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--erp-color-primary)]" />
     <span className="min-w-0">{label}{description ? <span className="mt-0.5 block text-xs font-normal leading-5 text-[var(--erp-color-text-muted)]">{description}</span> : null}</span>
   </label>;
@@ -34,7 +34,7 @@ export const ErpRadioField = forwardRef<HTMLInputElement, ErpRadioFieldProps>(fu
   const labelClassName = variant === "inline"
     ? "flex min-h-0 cursor-pointer items-start gap-2.5 rounded-[var(--erp-radius-md)] px-1 py-1.5 text-sm font-medium text-[var(--erp-color-text)] transition-colors hover:bg-[var(--erp-color-surface-muted)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
     : "flex min-h-10 cursor-pointer items-start gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 py-2 text-sm font-medium text-[var(--erp-color-text)] has-[:checked]:border-[var(--erp-color-primary)] has-[:checked]:bg-[var(--erp-color-info-soft)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60";
-  return <label htmlFor={id} className={cn(labelClassName, className)}>
+  return <label htmlFor={id} data-erp-component="radio-field" data-choice-variant={variant} className={cn(labelClassName, className)}>
     <input {...props} ref={ref} id={id} type="radio" onChange={onChange} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--erp-color-primary)]" />
     <span className="min-w-0 flex-1">{children ? <span className="flex flex-wrap items-center justify-between gap-2"><span>{label}</span>{children}</span> : label}{description ? <span className="mt-0.5 block text-xs font-normal leading-5 text-[var(--erp-color-text-muted)]">{description}</span> : null}</span>
   </label>;

@@ -187,13 +187,9 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
     }
   }, [activate, currentItem, navigate, pathname, recordRoute, searchStr, setNavigationIntent]);
 
-  const closeTab = useCallback((id: string) => {
+  const completeClose = useCallback((id: string, confirmed = false) => {
     const previous = stateRef.current;
     if (previous.activeId !== id) {
-      if (isTabDirty(id)) {
-        setPendingDirtyClose(id);
-        return;
-      }
       transition((value) => closeWorkspaceTab(value, id));
       return;
     }
@@ -205,16 +201,31 @@ export function WorkspaceTabWorkspaceProvider({children}: {children: ReactNode})
       return;
     }
     setPendingClose({id, targetId: next.activeId, startPathname: pathname});
-    setNavigationIntent("close");
-    void navigate({to: targetRoute.pathname, search: targetRoute.search});
-  }, [isTabDirty, navigate, pathname, setNavigationIntent, transition]);
+    // Confirmation is local to this close action, never to ordinary navigation.
+    // Wait for the target route before releasing the current page's draft.
+    setNavigationIntent(confirmed ? "close-confirmed" : "close");
+    void navigate({to: targetRoute.pathname, search: targetRoute.search}).then(
+      () => setNavigationIntent(null),
+      () => {setPendingClose(null); setNavigationIntent(null);},
+    );
+  }, [navigate, pathname, setNavigationIntent, transition]);
+
+  const closeTab = useCallback((id: string) => {
+    // Live entry pages deliberately allow tab switching, so they do not have
+    // a route blocker. The shell must guard active and background closes alike.
+    if (isTabDirty(id)) {
+      setPendingDirtyClose(id);
+      return;
+    }
+    completeClose(id);
+  }, [completeClose, isTabDirty]);
 
   const confirmDirtyClose = useCallback(() => {
     if (!pendingDirtyClose) return;
     const id = pendingDirtyClose;
     setPendingDirtyClose(null);
-    transition((value) => closeWorkspaceTab(value, id));
-  }, [pendingDirtyClose, transition]);
+    completeClose(id, true);
+  }, [completeClose, pendingDirtyClose]);
   const cancelDirtyClose = useCallback(() => setPendingDirtyClose(null), []);
   const confirmDirtySwitch = useCallback(() => {
     if (!pendingDirtySwitch) return;

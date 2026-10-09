@@ -21,6 +21,12 @@ test("tab switching preserves dirty forms while ordinary navigation remains guar
   assert.equal(shouldBlockWorkspaceNavigation(false, "close"), false);
 });
 
+test("an explicitly confirmed tab close does not open a second form confirmation", () => {
+  assert.equal(shouldBlockWorkspaceNavigation(true, "close-confirmed"), false);
+  assert.equal(shouldBlockWorkspaceNavigation(true, "close"), true);
+  assert.equal(shouldBlockWorkspaceNavigation(true, null), true);
+});
+
 test("a server-confirmed save bypasses only the stale dirty snapshot", () => {
   assert.equal(shouldBlockWorkspaceNavigation(true, null, true), false);
   assert.equal(shouldBlockWorkspaceNavigation(true, "close", true), false);

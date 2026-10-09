@@ -3,7 +3,7 @@ import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {useEffect, useRef, useState} from "react";
 import {Button} from "./button";
 import {Dialog} from "./dialog";
-import {Input} from "./input";
+import {SearchInput} from "./search-input";
 import {cn} from "@/src/lib/cn";
 import type {SelectProps} from "./select";
 import {selectOptionLabelText, selectOptionMatches} from "./select-search";
@@ -28,7 +28,7 @@ export function PhoneSearchSelect(props: SelectProps) {
     <Dialog.Root open={active && open && !disabled} onOpenChange={(next) => {if (!next) close();}} onOpenChangeComplete={(next) => {if (!next) {const action = afterClose.current; afterClose.current = null; if (active) action?.(); props.onPhoneOpenChange?.(false);}}}>
       <Dialog.Portal><Dialog.Backdrop className="fixed inset-0 erp-modal-layer bg-[var(--erp-color-backdrop)]" /><Dialog.Viewport className="fixed inset-0 erp-modal-layer flex items-stretch p-0"><Dialog.Popup data-mobile-presentation="fullscreen" data-erp-component="phone-search-select" className="erp-phone-selector">
         <div className="erp-phone-selector-header"><Button type="button" variant="ghost" size="icon" aria-label="返回" onClick={close}><ArrowLeft className="h-5 w-5" /></Button><Dialog.Title>{title}</Dialog.Title></div>
-        <div className="erp-phone-selector-query"><Search className="h-4 w-4" /><Input autoFocus value={query} onChange={(event) => {setQuery(event.target.value); onSearchValueChange?.(event.target.value);}} placeholder={props.searchPlaceholder || "搜索"} aria-label={`查询${title}`} /></div>
+        <div className="erp-phone-selector-query"><SearchInput value={query} onChange={(event) => {setQuery(event.target.value); onSearchValueChange?.(event.target.value);}} placeholder={props.searchPlaceholder || "搜索"} aria-label={`查询${title}`} /></div>
         <div className="erp-phone-selector-results">
           {quickCreateAction && <Button type="button" variant="ghost" className="w-full justify-start" disabled={quickCreateAction.disabled} onClick={(event) => {event.stopPropagation(); const text = query.trim(); afterClose.current = () => quickCreateAction.onClick(text); close();}}><Plus className="h-4 w-4" />{quickCreateAction.label}</Button>}
           {searchLoading ? <p role="status">正在搜索…</p> : results.length === 0 ? <p role="status">{props.emptyText || "没有找到匹配项"}</p> : <div role="listbox" aria-label={title}>{results.map((option) => <Button key={option.value} type="button" variant="ghost" role="option" aria-selected={option.value === value} disabled={option.disabled} className="erp-phone-selector-option" onClick={() => {onValueChange(option.value); close();}}><span><span>{option.label}</span>{option.description && <small>{option.description}</small>}</span>{option.value === value && <Check className="h-4 w-4" />}</Button>)}</div>}

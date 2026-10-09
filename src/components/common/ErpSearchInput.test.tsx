@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {renderToStaticMarkup} from "react-dom/server";
 import {ErpSearchInput} from "./ErpSearchInput";
+import {SearchInput} from "../ui/search-input";
+
+test("ERP and UI selectors share exactly one search primitive", () => {
+  assert.equal(ErpSearchInput, SearchInput);
+});
 
 test("ErpSearchInput owns the shared search shell and compact input contract", () => {
   const markup = renderToStaticMarkup(<ErpSearchInput className="min-w-64 flex-1" density="compact" aria-label="搜索商品" placeholder="搜索商品" />);

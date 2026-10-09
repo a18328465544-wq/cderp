@@ -3,7 +3,7 @@ import {useBlocker} from "@tanstack/react-router";
 import {usePhoneBackBoundary} from "./usePhoneBack";
 import {WORKSPACE_KEEP_ALIVE_ENTRIES, type WorkspaceKeepAliveKey} from "./workspaceTabRuntimeConfig";
 
-export type WorkspaceNavigationIntent = "switch" | "close" | null;
+export type WorkspaceNavigationIntent = "switch" | "close" | "close-confirmed" | null;
 export type {WorkspaceKeepAliveKey} from "./workspaceTabRuntimeConfig";
 
 type DirtyTabs = Record<string, boolean>;
@@ -115,7 +115,7 @@ export function useWorkspaceTabDraft<T>(tabId: string) {
 }
 
 export function shouldBlockWorkspaceNavigation(dirty: boolean, navigationIntent: WorkspaceNavigationIntent, saveCompleted = false) {
-  return dirty && !saveCompleted && navigationIntent !== "switch";
+  return dirty && !saveCompleted && navigationIntent !== "switch" && navigationIntent !== "close-confirmed";
 }
 
 export function useWorkspaceTabBlocker(dirty: boolean) {
