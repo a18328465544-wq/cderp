@@ -1,6 +1,7 @@
 import {Button as BaseButton} from "@base-ui/react/button";
 import type {ButtonHTMLAttributes, ReactNode} from "react";
 import {cn} from "@/src/lib/cn";
+import {LoaderCircle} from "lucide-react";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "warning";
 export type ButtonSize = "xs" | "sm" | "md" | "lg" | "icon" | "iconTouch";
@@ -26,19 +27,22 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   children?: ReactNode;
+  loading?: boolean;
 }
 
-export function Button({variant = "secondary", size = "md", className, children, ...props}: ButtonProps) {
+export function Button({variant = "secondary", size = "md", className, children, loading = false, ...props}: ButtonProps) {
   return (
     <BaseButton
       {...props}
+      disabled={props.disabled || loading}
+      aria-busy={loading || props["aria-busy"]}
       type={props.type ?? "button"}
       data-erp-control="button"
       data-erp-button-size={size}
       data-erp-button-variant={variant}
-      className={cn("erp-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--erp-radius-control)] font-medium transition-[background-color,border-color,color,box-shadow] disabled:pointer-events-none disabled:opacity-50", variants[variant], sizes[size], className)}
+      className={cn("erp-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--erp-radius-control)] font-medium transition-[background-color,border-color,color,box-shadow] disabled:pointer-events-none disabled:opacity-50", loading && "relative", variants[variant], sizes[size], className)}
     >
-      {children}
+      {loading ? <><span className="inline-flex items-center [gap:inherit] opacity-0">{children}</span><LoaderCircle className="absolute h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /></> : children}
       {(size === "icon" || size === "iconTouch") && props.title ? <span className="erp-icon-action-label hidden" aria-hidden="true">{props.title}</span> : null}
     </BaseButton>
   );

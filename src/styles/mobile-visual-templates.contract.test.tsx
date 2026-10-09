@@ -76,3 +76,33 @@ test("order template keeps fixed touch areas and one summary-primary action rhyt
   assert.match(phone, /\.erp-order-entry-page \[data-erp-component="submit-bar"\]\[data-phone-order-submit="true"\] \{[^}]+grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.match(phone, /drawer-footer"\]\) \[data-erp-button-variant="primary"\] \{ min-height: var\(--erp-mobile-primary-height\);/);
 });
+
+test("visual polish uses phone-only tokens, quiet summaries and restrained selection", () => {
+  const polish = blocks.find((block) => block.includes('.erp-entity-thumbnail {'));
+  assert.ok(polish);
+  for (const selector of [".erp-entity-thumbnail {", '.erp-order-checkout input[readonly]', '.erp-detail-hero-amount > strong', 'button[data-erp-button-variant="primary"][aria-pressed="true"]']) {
+    assert.ok(polish.includes(selector), `${selector} must be inside the phone block`);
+    assert.ok(!nonPhone.includes(selector), `${selector} must not affect desktop`);
+  }
+  assert.doesNotMatch(polish, /#[\da-f]{3,8}\b|(?:font-size|height|padding|border-radius):\s*\d+px|\.truncate\s*\{/i);
+  assert.match(polish, /input\[readonly\] \{ border-color: transparent;/);
+  assert.match(polish, /card-content"\] > p \{[^}]+background: transparent;/);
+  assert.match(polish, /primary"\]\[aria-pressed="true"\] \{[^}]+background: var\(--erp-color-primary-soft\);/);
+  assert.match(polish, /badge"\] \{[^}]+height: auto;[^}]+border-radius: var\(--erp-radius-pill\);/);
+  for (const name of polish.matchAll(/var\((--erp-[a-z0-9-]+)\)/g)) assert.ok(tokens.includes(`${name[1]}:`), `undefined token ${name[1]}`);
+});
+
+test("order detail identity and totals are promoted only in phone branches with existing permission gates", () => {
+  const purchase = readFileSync(new URL("../features/purchase/pages/PurchaseDetailPage.tsx", import.meta.url), "utf8");
+  const sales = readFileSync(new URL("../features/sales/pages/SalesListPage.tsx", import.meta.url), "utf8");
+  for (const source of [purchase, sales]) {
+    assert.ok(source.indexOf('data-erp-region="detail-hero"') > source.indexOf("if (phone) return"));
+    assert.match(source, /className="erp-phone-customer-identity"/);
+    assert.match(source, /className="erp-phone-detail-status"/);
+    assert.match(source, /className="erp-detail-hero-amount"/);
+    assert.match(source, /label="经办人"/);
+  }
+  assert.match(purchase, /\{showCost && <div className="erp-detail-hero-amount"/);
+  assert.match(purchase, /formatCurrency\(invoice.totalCost\)/);
+  assert.match(sales, /formatCurrency\(item.totalAmount\)/);
+});

@@ -1,5 +1,12 @@
 import type {SelectOption} from "./select";
 
+/** Prop-driven label synchronization is not a user-entered remote query. */
+export function selectTransientQuery(text: string, reason: string): string | null {
+  if (reason === "input-change") return text;
+  if (["input-clear", "clear-press", "item-press"].includes(reason)) return "";
+  return null;
+}
+
 /** One matcher for desktop and phone presentations. Domain model search can override it. */
 export function selectOptionLabelText(option: SelectOption): string {
   if (option.labelText) return option.labelText;

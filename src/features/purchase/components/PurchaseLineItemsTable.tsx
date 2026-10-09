@@ -76,7 +76,7 @@ export function PurchaseLineItemsTable({control, fields, items, products, canEnt
     <div data-erp-region="line-items-cards">{fields.map((field, index) => {
       const item = items[index] || field;
       if (!isPurchaseLineFilled(item)) return null;
-      return <ErpMobileOrderLine key={field.id} label={`第 ${index + 1} 行商品`} name={item.productName || "请选择商品"} metadata={[item.category, item.vram || item.model].filter(Boolean).join(" · ")} disabled={disabled} total={canEnterCost ? formatCurrency(item.buyPrice * item.quantity) : "—"}
+      return <ErpMobileOrderLine key={field.id} label={`第 ${index + 1} 行商品`} name={item.productName || "请选择商品"} category={item.category} metadata={[item.category, item.vram || item.model].filter(Boolean).join(" · ")} disabled={disabled} total={canEnterCost ? formatCurrency(item.buyPrice * item.quantity) : "—"}
         price={canEnterCost ? <Controller control={control} name={`items.${index}.buyPrice`} render={({field: input}) => <ErpAmountInput value={input.value || ""} placeholder="输入采购价" onBlur={input.onBlur} onValueChange={(value) => input.onChange(value.floatValue || 0)} disabled={disabled} aria-label={`第 ${index + 1} 行进货价`} />} /> : <span>当前不可录入</span>}
         quantity={<Controller control={control} name={`items.${index}.quantity`} render={({field: input}) => <ErpQuantityStepper value={input.value} onChange={input.onChange} max={PURCHASE_MAX_PHYSICAL_ITEMS} disabled={disabled} label={`第 ${index + 1} 行数量`} />} />}
         onReplace={() => openPhonePicker(index)} onRemove={() => onRemove(index)}

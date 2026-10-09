@@ -1,9 +1,14 @@
 import {Boxes, ClipboardList, PackageCheck, TrendingUp, Warehouse} from "lucide-react";
 import {useEffect, useState} from "react";
-import {Avatar, Badge, Button, Card, CardContent, CardHeader, Select, Separator, Skeleton, Textarea} from "@/src/components/ui";
+import {Avatar, Badge, Button, Card, CardContent, CardHeader, Input, Select, Separator, Skeleton, Textarea} from "@/src/components/ui";
 import {DashboardSection, ErpDashboardPageFrame, ErpAmountInput, ErpDataTable, ErpDatePicker, ErpDateRangePicker, ErpSubmitBar, ErpEmptyState, ErpFilterBar, ErpFormSection, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpSearchInput, ErpStatusBadge, MetricsRegion, QuickStatusGroup, type QuickStatusItemData} from "@/src/components/common";
 import {formatCurrency} from "@/src/lib/format";
 import {ErpCheckboxField, ErpRadioGroup, ErpSegmentedControl, ErpQuantityStepper} from "@/src/components/common";
+import {ErpField} from "@/src/components/common/ErpField";
+import {CustomerPicker} from "@/src/components/domain/CustomerPicker";
+import {InventoryItemPicker} from "@/src/components/domain/InventoryItemPicker";
+import type {CustomerPickerOption} from "@/src/types/customer";
+import type {SalesProductCandidate} from "@/src/types/sales";
 
 type DemoRow = {id: string; name: string; status: string; amount: number};
 
@@ -63,6 +68,7 @@ export function DesignSystemPage() {
         <Textarea aria-label="控件尺寸样例备注" placeholder="补充说明（可选）" />
       </div>
     </DashboardSection>
+    <ControlContractDemo />
     <DashboardSection title="Quick Status v2" description="Compact 是默认状态摘要；只有真实流程场景才使用 Workflow 变体。">
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="min-w-0 rounded-[var(--erp-radius-md)] bg-[var(--erp-color-surface-muted)] p-3"><p className="mb-2 text-xs font-semibold text-[var(--erp-color-text-secondary)]">Compact</p><QuickStatusGroup items={quickStatus} /></div>
@@ -109,6 +115,58 @@ export function DesignSystemPage() {
     </div>
     </ErpPageContent>
   </ErpDashboardPageFrame>;
+}
+
+const contractCustomers: CustomerPickerOption[] = [
+  {id: "demo-customer-a", name: "本地客户甲", partnerType: "customer", contact: "LOCAL-A", selectable: true},
+  {id: "demo-customer-b", name: "本地客户乙", partnerType: "customer", contact: "LOCAL-B", selectable: true},
+  {id: "demo-customer-disabled", name: "停用客户", partnerType: "customer", contact: "LOCAL-DISABLED", selectable: false, unavailableReason: "已停用"},
+];
+const contractStock: SalesProductCandidate[] = ["RTX4090", "RTX4080", "RTX3090"].map((model, index) => ({
+  id: `demo-stock-${index}`, productId: `demo-stock-${index}`, productName: `本地测试 ${model} 24G`, category: "显卡", brand: "本地品牌", model, version: "测试版", vram: "24G", condition: "95新", warehouse: "本地测试库位", inventoryStatus: index === 2 ? "待检测" : "已入库", inventoryQuantity: 3, reservedQuantity: 0, availableQuantity: index === 2 ? 0 : 3, availabilityKnown: true, estimatedSellPrice: 100, entryTime: "2026-10-01", inventoryDays: 1, saleable: index !== 2, unavailableReason: index === 2 ? "待检测，不可销售" : undefined,
+}));
+const contractRemoteOptions = [{value: "remote-a", label: "远程已选项甲"}, {value: "remote-b", label: "远程候选乙"}];
+
+/** Synthetic interaction acceptance only. No requests or business mutations. */
+function ControlContractDemo() {
+  const [customer, setCustomer] = useState<CustomerPickerOption | null>(contractCustomers[0]!);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [stock, setStock] = useState<SalesProductCandidate | null>(contractStock[0]!);
+  const [stockQuery, setStockQuery] = useState("");
+  const [remoteValue, setRemoteValue] = useState("remote-a");
+  const [remoteRefresh, setRemoteRefresh] = useState(false);
+  const [remoteQuery, setRemoteQuery] = useState("");
+  const [variant, setVariant] = useState("normal");
+  const [amountDraft, setAmountDraft] = useState<number | string>(0);
+  const [quantity, setQuantity] = useState(1);
+  const [date, setDate] = useState("2026-10-09");
+  const [choice, setChoice] = useState("first");
+  const [requiredValue, setRequiredValue] = useState("");
+  const [pending, setPending] = useState(false);
+  const disabled = variant === "disabled";
+  const loading = variant === "loading";
+  const error = variant === "error" ? "本地模拟搜索失败" : undefined;
+  return <DashboardSection title="控件交互验收" description="仅本地合成数据，可验证更换、取消、远程刷新、键盘、日期手输及提交反馈，不创建业务单据。">
+    <div data-testid="control-contract-demo" className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2"><Select className="w-44" aria-label="验收控件状态" value={variant} onValueChange={setVariant} options={[{value: "normal", label: "正常"}, {value: "disabled", label: "禁用"}, {value: "loading", label: "加载中"}, {value: "error", label: "搜索失败"}]} /><Button type="button" size="sm" onClick={() => setRemoteRefresh((current) => !current)}>刷新远程候选样例</Button><Button type="button" size="sm" onClick={() => setPending((current) => !current)}>切换提交中样例</Button></div>
+      <div className="grid min-w-0 gap-4 md:grid-cols-2">
+        <ErpField label="客户更换样例"><CustomerPicker aria-label="验收客户" value={customer} keyword={customerQuery} onKeywordChange={setCustomerQuery} options={contractCustomers.filter((item) => !customerQuery || `${item.name} ${item.contact}`.includes(customerQuery))} disabled={disabled} loading={loading} error={error} onSelect={setCustomer} onClear={() => setCustomer(null)} onRetry={() => setVariant("normal")} /></ErpField>
+        <ErpField label="商品更换样例"><InventoryItemPicker aria-label="验收商品" value={stock} keyword={stockQuery} onKeywordChange={setStockQuery} options={contractStock} disabled={disabled} loading={loading} error={error} onSelect={setStock} onClear={() => setStock(null)} onRetry={() => setVariant("normal")} /></ErpField>
+        <ErpField label="远程已选项保留"><Select searchable aria-label="验收远程选择" value={remoteValue} options={remoteRefresh ? contractRemoteOptions.slice(1) : contractRemoteOptions} onValueChange={setRemoteValue} onSearchValueChange={setRemoteQuery} disabled={disabled} searchLoading={loading} /></ErpField>
+        <ErpField label="金额：零值与空草稿"><ErpAmountInput aria-label="验收金额" value={amountDraft} disabled={disabled} onValueChange={(detail) => setAmountDraft(detail.floatValue ?? "")} /></ErpField>
+        <ErpField label="只读状态"><Input aria-label="验收只读" value="锁定单据，保持只读" readOnly /></ErpField>
+        <ErpField label="数量上限 3"><ErpQuantityStepper label="验收数量" value={quantity} max={3} disabled={disabled} onChange={setQuantity} /></ErpField>
+        <ErpField label="可手输日期（2026 年 10 月）"><ErpDatePicker aria-label="验收日期" value={date} onChange={setDate} min="2026-10-01" max="2026-10-31" clearable disabled={disabled} /></ErpField>
+        <ErpSegmentedControl label="验收键盘分段" value={choice} onValueChange={setChoice} disabled={disabled} options={[{value: "first", label: "选项一"}, {value: "blocked", label: "不可选", disabled: true}, {value: "last", label: "选项三"}]} />
+      </div>
+      <p role="status" data-testid="contract-selection" className="text-xs text-[var(--erp-color-text-secondary)]">当前客户：{customer?.name || "未选择"}；当前商品：{stock?.model || "未选择"}</p>
+      <output className="sr-only" data-testid="contract-search-query">{remoteQuery}</output>
+      <form onSubmit={(event) => {event.preventDefault(); setPending(true);}} className="space-y-3">
+        <ErpField label="必填定位样例" required error={!requiredValue ? "请填写本地验收字段" : undefined} reserveErrorSpace><Input aria-label="验收必填字段" value={requiredValue} onChange={(event) => setRequiredValue(event.target.value)} /></ErpField>
+        <ErpSubmitBar embedded dirty canSubmit={Boolean(requiredValue)} blockedReason="请填写本地验收字段" submitting={pending} onCancel={() => setPending(false)} submitLabel="本地提交样例" />
+      </form>
+    </div>
+  </DashboardSection>;
 }
 
 function TokenSwatch({name, value, className, dark = false}: {name: string; value: string; className: string; dark?: boolean}) {

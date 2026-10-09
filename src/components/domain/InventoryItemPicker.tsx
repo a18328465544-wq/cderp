@@ -9,6 +9,8 @@ import {formatCurrency} from "@/src/lib/format";
 import {cn} from "@/src/lib/cn";
 import type {SalesProductCandidate} from "@/src/types/sales";
 import {productSearchMatches, productSearchRank} from "@/src/utils/productSearch";
+import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
+import {isComposingKey} from "@/src/lib/controlInteraction";
 
 function nextSaleableIndex(options: SalesProductCandidate[], current: number, direction: 1 | -1) {
   if (!options.length) return -1;
@@ -19,7 +21,12 @@ function nextSaleableIndex(options: SalesProductCandidate[], current: number, di
   return -1;
 }
 
-export function InventoryItemPicker({value, keyword, options, loading, error, disabled, onKeywordChange, onSelect, onClear, onRetry, onFocus, phoneOpenRequest = 0, hidePhoneTrigger = false, onPhoneOpenChange}: {
+export function InventoryItemPicker({id, "aria-label": ariaLabel, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy, "aria-required": ariaRequired, value, keyword, options, loading, error, disabled, onKeywordChange, onSelect, onClear, onRetry, onFocus, phoneOpenRequest = 0, hidePhoneTrigger = false, onPhoneOpenChange}: {
+  id?: string;
+  "aria-label"?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
+  "aria-required"?: boolean;
   value: SalesProductCandidate | null;
   keyword: string;
   options: SalesProductCandidate[];
@@ -36,14 +43,30 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
   onPhoneOpenChange?: (open: boolean) => void;
 }) {
   const phone = useErpPhone();
+  const {active} = useWorkspaceTabActivity();
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = `inventory-picker-${useId().replace(/:/g, "")}`;
-  const panelPosition = useFloatingPanelPosition(rootRef, open && !value && !phone, 320);
+  const panelPosition = useFloatingPanelPosition(rootRef, open && !phone, 320);
   const changeOpen = (next: boolean) => {setOpen(next); if (phone) onPhoneOpenChange?.(next);};
-  useEffect(() => {if (phone && phoneOpenRequest > 0) {onFocus?.(); setOpen(true);}}, [phone, phoneOpenRequest]);
+  useEffect(() => {if (open && (disabled || !active)) {setOpen(false); if (phone) onPhoneOpenChange?.(false);}}, [disabled, active, open, phone, onPhoneOpenChange]);
+  const beginReplacement = () => {
+    if (disabled || !active) return;
+    onFocus?.();
+    if (value) onKeywordChange("");
+    changeOpen(true);
+    inputRef.current?.focus();
+  };
+  const clearSelection = () => {
+    if (disabled || !active) return;
+    onClear();
+    onKeywordChange("");
+    changeOpen(false);
+  };
+  useEffect(() => {if (phone && phoneOpenRequest > 0 && active && !disabled) {onFocus?.(); onKeywordChange(""); setOpen(true);}}, [phone, phoneOpenRequest]);
   const visibleOptions = useMemo(() => options.filter((option) => productSearchMatches(option, keyword)).sort((left, right) => productSearchRank(left, keyword) - productSearchRank(right, keyword)).slice(0, 60), [options, keyword]);
 
   useEffect(() => {
@@ -64,12 +87,12 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
 
   const choose = (index: number) => {
     const option = visibleOptions[index];
-    if (disabled || !option?.saleable) return;
+    if (disabled || !active || loading || error || !option?.saleable) return;
     onSelect(option);
     changeOpen(false);
   };
 
-  const listbox = open && !disabled && (phone || !value) && (phone || panelPosition) ? <div ref={listboxRef} id={listboxId} role="listbox" aria-label="可销售商品" className="erp-picker-listbox fixed erp-popover-layer max-h-80 overflow-y-auto rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-1 shadow-[var(--erp-shadow-popover)]" style={phone ? undefined : {left: panelPosition!.left, top: panelPosition!.top, width: panelPosition!.width, maxHeight: panelPosition!.maxHeight}} data-phone-picker={phone ? "true" : undefined}>
+  const listbox = active && open && !disabled && (phone || panelPosition) ? <div ref={listboxRef} id={listboxId} role="listbox" aria-label="可销售商品" className="erp-picker-listbox fixed erp-popover-layer max-h-80 overflow-y-auto rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] p-1 shadow-[var(--erp-shadow-popover)]" style={phone ? undefined : {left: panelPosition!.left, top: panelPosition!.top, width: panelPosition!.width, maxHeight: panelPosition!.maxHeight}} data-phone-picker={phone ? "true" : undefined}>
       {loading && <div className="flex items-center gap-2 px-3 py-4 text-xs text-[var(--erp-color-text-muted)]"><LoaderCircle className="h-4 w-4 animate-spin" />正在查询可销售商品候选…</div>}
       {error && !loading && <div className="flex items-center justify-between gap-3 px-3 py-3 text-xs text-[var(--erp-color-danger)]"><span>{error}</span>{onRetry && <Button type="button" size="sm" variant="ghost" onClick={onRetry}><RefreshCw className="h-3.5 w-3.5" />重试</Button>}</div>}
       {!loading && !error && !visibleOptions.length && <div className="px-3 py-5 text-center text-xs text-[var(--erp-color-text-muted)]"><Search className="mx-auto mb-2 h-4 w-4" />没有找到可销售商品候选</div>}
@@ -115,11 +138,25 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
   return <div ref={rootRef} className="relative">
     <div className="relative" hidden={phone && hidePhoneTrigger || undefined}>
       <PackageSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-color-text-muted)]" />
-      {phone ? <Button type="button" variant="secondary" className="erp-phone-entity-trigger w-full justify-start whitespace-normal text-left" aria-label="选择销售商品" aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => {onFocus?.(); setOpen(true);}}><span className="min-w-0 break-words">{value?.productName || keyword || "搜索商品名称、型号或品牌"}</span></Button> : <Input
-        value={value ? value.productName : keyword}
+      {phone ? <Button id={id} data-empty={!value || undefined} aria-invalid={ariaInvalid} aria-describedby={ariaDescribedBy} aria-required={ariaRequired} type="button" variant="secondary" className="erp-phone-entity-trigger w-full justify-start whitespace-normal text-left" aria-label={ariaLabel || "选择销售商品"} aria-haspopup="dialog" aria-expanded={active && open && !disabled} disabled={disabled} onClick={beginReplacement}><span className="min-w-0 break-words">{value?.productName || keyword || "搜索商品名称、型号或品牌"}</span></Button> : <Input
+        id={id}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
+        aria-required={ariaRequired}
+        ref={inputRef}
+        data-empty={!value || undefined}
+        value={value && !open ? value.productName : keyword}
         onChange={(event) => { onKeywordChange(event.target.value); setOpen(true); }}
-        onFocus={() => {if (!phone) {onFocus?.(); setOpen(true);}}}
+        onClick={() => {if (!open) beginReplacement();}}
+        onFocus={() => {if (!phone && !value) {onFocus?.(); setOpen(true);}}}
         onKeyDown={(event) => {
+          if (isComposingKey(event.nativeEvent)) return;
+          if (value && !open && ["Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault();
+            beginReplacement();
+            setActiveIndex(event.key === "ArrowUp" ? nextSaleableIndex(visibleOptions, visibleOptions.length, -1) : nextSaleableIndex(visibleOptions, -1, 1));
+            return;
+          }
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setOpen(true);
@@ -128,22 +165,29 @@ export function InventoryItemPicker({value, keyword, options, loading, error, di
             event.preventDefault();
             setOpen(true);
             setActiveIndex((current) => nextSaleableIndex(visibleOptions, current < 0 ? visibleOptions.length : current, -1));
-          } else if (event.key === "Enter" && open && activeIndex >= 0) {
+          } else if (event.key === "Enter" && open) {
             event.preventDefault();
-            choose(activeIndex);
-          } else if (event.key === "Escape") {
+            if (activeIndex >= 0) choose(activeIndex);
+          } else if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
             setOpen(false);
           }
         }}
         placeholder="搜索商品名称、型号或品牌"
-        disabled={disabled || Boolean(value)}
+        disabled={disabled}
+        readOnly={Boolean(value) && !open}
         className="pl-9 pr-20"
-        aria-label="选择销售商品"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={active && open && !disabled}
+        aria-label={ariaLabel || "选择销售商品"}
         aria-autocomplete="list"
-        aria-controls={open && !value ? listboxId : undefined}
+        aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open && activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
       />}
-      {value ? <Button disabled={disabled} type="button" size="icon" variant="ghost" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => { onClear(); setOpen(false); }} aria-label="清除商品候选"><X className="h-4 w-4" /></Button> : <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-color-text-muted)]" />}
+      {value && <Button disabled={disabled} type="button" size="icon" variant="ghost" className={cn("absolute top-1/2 -translate-y-1/2", phone ? "right-1" : "right-7")} onClick={clearSelection} aria-label="清除商品候选" title="清除商品候选"><X className="h-4 w-4" /></Button>}
+      {(!phone || !value) && <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-color-text-muted)]" aria-hidden="true" />}
     </div>
     {phone ? <ErpDialogShell open={open && !disabled} onOpenChange={changeOpen} title="选择商品" mobilePresentation="fullscreen" size="lg" toolbar={<ErpSearchInput autoFocus={!phone} value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="搜索商品名称、型号或品牌" aria-label="查询销售商品" />}>{listbox}</ErpDialogShell> : listbox && typeof document !== "undefined" ? createPortal(listbox, document.body) : null}
   </div>;

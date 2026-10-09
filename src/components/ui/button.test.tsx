@@ -9,6 +9,14 @@ test("Button sm uses the shared compact control height", () => {
   assert.match(markup, /type="button"/);
 });
 
+test("loading Button preserves its content and blocks repeated interaction", () => {
+  const markup = renderToStaticMarkup(<Button loading>保存本地样例</Button>);
+  assert.match(markup, /aria-busy="true"/);
+  assert.match(markup, /disabled=""/);
+  assert.match(markup, /opacity-0">保存本地样例/);
+  assert.match(markup, /motion-reduce:animate-none/);
+});
+
 test("Button xs keeps dense inline actions at the compact row height", () => {
   const markup = renderToStaticMarkup(<Button size="xs">添加</Button>);
   assert.match(markup, /h-7/);

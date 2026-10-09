@@ -3,7 +3,7 @@ import {ErpMobileActionDock} from "@/src/components/common/ErpMobileActionDock";
 import {InventoryMobileRecord} from "@/src/features/inventory/components/InventoryMobileRecord";
 import {keepPreviousData, useQuery, type UseQueryResult} from "@tanstack/react-query";
 import {ArrowDownUp, ArrowRight, Boxes, ImageOff, LockKeyhole, RefreshCw, RotateCcw, ScanLine, ShieldAlert, SlidersHorizontal, Warehouse} from "lucide-react";
-import {ErpCheckboxField, ErpSearchInput} from "@/src/components/common";
+import {ErpCheckboxField, ErpEntityThumbnail, ErpSearchInput} from "@/src/components/common";
 import {useEffect, useMemo, useState, type ReactNode} from "react";
 import {Button, Card, CardContent, Input, Select} from "@/src/components/ui";
 import {ErpBarcodeScannerDialog, ErpDialogShell, ErpMobileSummary, ErpColumnVisibilityMenu, ErpDataTable, ErpDetailDrawer, ErpDetailFact, ErpEmptyState, ErpFilterBar, ErpLoadingState, ErpMetricCard, ErpPageContent, ErpPageError, ErpPageHeader, ErpPageToolbar, ErpProductLedgerDrawer, ErpStatusBadge, ErpTableResultsBar, ErpWarehousePageFrame, MetricsRegion, type ProductLedgerSubject, type QuickStatusItemData} from "@/src/components/common";
@@ -361,8 +361,8 @@ function InventoryDetail({item, journey, journeyLoading, journeyError, onRetryJo
     ["SN / 库存编号", item.serialNumber], ["品牌 / 型号", `${item.brand} ${item.model}`], ["显存 / 版本", `${item.vram || "—"} ${item.version || ""}`.trim()], ["成色", item.condition], ["仓库 / 库位", item.warehouse], ["检测状态", item.inspectionStatus], ["库存状态", item.inventoryStatus], ["入库时间", item.entryTime || "—"], ["库存龄", `${item.inventoryDays} 天`], ["来源", item.sourceType || "—"], ["供应商 / 客户", item.supplierName || item.buyerName || "—"],
   ];
   return <div className="space-y-6" data-phone-detail="inventory">
-    <section className="space-y-3">
-      <div data-phone-image-empty={!item.imageUrl || undefined} className="flex h-36 items-center justify-center overflow-hidden rounded-[var(--erp-radius-lg)] bg-[var(--erp-color-surface-muted)]">{item.imageUrl ? <img src={item.imageUrl} alt={item.productName} className="h-full max-w-full object-contain" /> : <div className="flex flex-col items-center gap-2 text-xs text-[var(--erp-color-text-muted)]"><ImageOff className="h-7 w-7" />{phone ? "暂无商品图片" : "接口未返回商品图片"}</div>}</div>
+    <section className="space-y-3" data-erp-region={phone ? "detail-hero" : undefined}>
+      {phone ? <ErpEntityThumbnail name={item.productName} category={item.category} imageUrl={item.imageUrl} className="erp-inventory-hero-thumbnail" /> : <div className="flex h-36 items-center justify-center overflow-hidden rounded-[var(--erp-radius-lg)] bg-[var(--erp-color-surface-muted)]">{item.imageUrl ? <img src={item.imageUrl} alt={item.productName} className="h-full max-w-full object-contain" /> : <div className="flex flex-col items-center gap-2 text-xs text-[var(--erp-color-text-muted)]"><ImageOff className="h-7 w-7" />接口未返回商品图片</div>}</div>}
       <div className="erp-inventory-detail-identity flex items-start justify-between gap-3"><div className="min-w-0"><p className="erp-inventory-detail-title truncate text-lg font-semibold text-[var(--erp-color-text)]">{item.productName}</p><p className="mt-1 text-xs text-[var(--erp-color-text-muted)]">{item.category}</p></div><InventoryStatus status={item.inventoryStatus} /></div>
       <div className="erp-phone-only"><span className="erp-phone-detail-price erp-data-number">{phonePrice === undefined ? "未设置售价" : formatCurrency(phonePrice)}</span><p className="text-xs text-[var(--erp-color-text-muted)]">{sold ? "实际成交价" : "预计售价"} · {item.condition} · {item.vram}</p></div>
     </section>

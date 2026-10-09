@@ -9,6 +9,15 @@ test("ErpAmountInput uses full width by default", () => {
   assert.match(markup, /data-erp-component="amount-input"/);
 });
 
+test("amount controls distinguish zero and a temporarily empty draft", () => {
+  assert.match(renderToStaticMarkup(<ErpAmountInput value={0} />), /value="¥ 0"/);
+  assert.match(renderToStaticMarkup(<ErpAmountInput value="" />), /value=""/);
+  const locked = renderToStaticMarkup(<ErpAmountInput value={0} readOnly aria-invalid aria-describedby="amount-issue" />);
+  assert.match(locked, /readOnly=""/);
+  assert.match(locked, /aria-invalid="true"/);
+  assert.match(locked, /aria-describedby="amount-issue"/);
+});
+
 test("ErpAmountInput respects a responsive width utility without adding a duplicate base width", () => {
   const markup = renderToStaticMarkup(<ErpAmountInput className="w-full sm:w-36" aria-label="金额" />);
   assert.equal((markup.match(/w-full/g) || []).length, 1);

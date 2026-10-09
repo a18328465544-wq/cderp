@@ -7,6 +7,7 @@ import {SearchInput} from "./search-input";
 import {cn} from "@/src/lib/cn";
 import type {SelectProps} from "./select";
 import {selectOptionLabelText, selectOptionMatches} from "./select-search";
+import {useSelectedOption} from "./use-selected-option";
 
 /** Phone presentation of the shared selector; matching and mutations remain caller-owned. */
 export function PhoneSearchSelect(props: SelectProps) {
@@ -15,14 +16,15 @@ export function PhoneSearchSelect(props: SelectProps) {
   const [open, setOpen] = useState(false);
   const afterClose = useRef<(() => void) | null>(null);
   const [query, setQuery] = useState("");
-  const selected = options.find((option) => option.value === value);
+  const selected = useSelectedOption(value, options, props.selectedOption);
   const title = props.phoneDialogTitle || props["aria-label"] || "选择商品或单据";
   const close = () => {setOpen(false); setQuery(""); onSearchValueChange?.("");};
+  useEffect(() => {if (!active || disabled) {setOpen(false); setQuery(""); afterClose.current = null;}}, [active, disabled]);
   useEffect(() => {if ((props.phoneOpenRequest || 0) > 0) setOpen(true);}, [props.phoneOpenRequest]);
   const results = options.filter((option) => !shouldFilter || (searchFilter ? searchFilter(option, query) : selectOptionMatches(option, query))).slice(0, searchResultLimit);
   return <>
     <div hidden={props.hidePhoneTrigger || undefined} data-erp-component="select" data-variant="search" data-density={props.density || "default"} className={cn("erp-phone-select-trigger", props.className)}>
-      <Button type="button" variant="ghost" disabled={disabled} id={props.id} aria-label={props["aria-label"] || title} aria-describedby={props["aria-describedby"]} aria-invalid={props["aria-invalid"]} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Search className="h-4 w-4" /><span>{selected ? selectOptionLabelText(selected) : props.searchPlaceholder || props.placeholder || "搜索并选择"}</span><ChevronDown className="h-4 w-4" /></Button>
+      <Button type="button" variant="ghost" disabled={disabled} id={props.id} data-empty={!selected || undefined} aria-label={props["aria-label"] || title} aria-describedby={props["aria-describedby"]} aria-invalid={props["aria-invalid"]} aria-required={props.required || props["aria-required"]} aria-haspopup="dialog" aria-expanded={active && open && !disabled} onClick={() => setOpen(true)}><Search className="h-4 w-4" /><span>{selected ? selectOptionLabelText(selected) : props.searchPlaceholder || props.placeholder || "搜索并选择"}</span><ChevronDown className="h-4 w-4" /></Button>
       {selected && <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={`清除${title}`} onClick={() => {if (onClear) onClear(); else onValueChange("");}}><X className="h-4 w-4" /></Button>}
     </div>
     <Dialog.Root open={active && open && !disabled} onOpenChange={(next) => {if (!next) close();}} onOpenChangeComplete={(next) => {if (!next) {const action = afterClose.current; afterClose.current = null; if (active) action?.(); props.onPhoneOpenChange?.(false);}}}>

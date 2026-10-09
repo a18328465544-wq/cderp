@@ -1,6 +1,7 @@
 import {ArrowUp} from "lucide-react";
 import {Button} from "@/src/components/ui";
-import {lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode} from "react";
+import {lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode} from "react";
+import {useQueryClient} from "@tanstack/react-query";
 import {useRouterState} from "@tanstack/react-router";
 import {AppHeader} from "./AppHeader";
 import {AppSidebar} from "./AppSidebar";
@@ -14,6 +15,8 @@ import {resolvePhoneKeyboard} from "./phoneViewport";
 import {PhoneBackProvider} from "@/src/hooks/usePhoneBack";
 import {useAuth} from "@/src/app/auth";
 import {isPathAllowed, navigationItems} from "@/src/config/navigation";
+import {notify} from "@/src/utils/notification";
+import {ErpPullToRefreshIndicator, usePullToRefresh} from "@/src/components/common";
 
 const ErpAiDrawer = lazy(() =>
   import("@/src/components/common/ErpAiDrawer").then((module) => ({default: module.ErpAiDrawer})),
@@ -27,6 +30,7 @@ export function AppShell({children}: {children: ReactNode}) {
 }
 
 function AppShellContent({children}: {children: ReactNode}) {
+  const queryClient = useQueryClient();
   const pathname = useRouterState({select: (state) => state.location.pathname});
   const mainRef = useRef<HTMLElement>(null);
   const phone = useErpPhone();
@@ -34,6 +38,21 @@ function AppShellContent({children}: {children: ReactNode}) {
   const [keyboard, setKeyboard] = useState({open: false, inset: 0});
   const [showScrollTop, setShowScrollTop] = useState(false);
   const {clearNavigationIntent} = useWorkspaceTabRuntime();
+
+  const onPullRefresh = useCallback(async () => {
+    try {
+      await queryClient.refetchQueries({type: "active"});
+      notify.success("数据已更新");
+    } catch {
+      notify.error("刷新失败，请稍后重试");
+    }
+  }, [queryClient]);
+
+  const pullState = usePullToRefresh({
+    containerRef: mainRef,
+    onRefresh: onPullRefresh,
+    enabled: phone && !profileVisible,
+  });
 
   useEffect(() => {
     setShowScrollTop(false);
@@ -104,7 +123,7 @@ function AppShellContent({children}: {children: ReactNode}) {
   return <div data-erp-shell="true" data-phone-keyboard={keyboard.open ? "open" : undefined} style={{"--erp-phone-keyboard-inset": `${keyboard.inset}px`} as CSSProperties} className="flex h-[100dvh] min-w-0 overflow-hidden bg-[var(--erp-color-canvas)]">
     <a href="#main-content" hidden={phone && profileVisible} className="erp-skip-link">跳到主要内容</a>
     <AppSidebar />
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><AppHeader /><main id="main-content" inert={phone && profileVisible || undefined} aria-hidden={phone && profileVisible || undefined} ref={mainRef} tabIndex={-1} aria-label="主要内容" className="erp-main-content erp-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 outline-none sm:p-4 lg:p-6"><WorkspaceTabKeepAlive fallback={children} scrollContainerRef={mainRef} /></main>{phone && showScrollTop && <Button type="button" size="iconTouch" variant="secondary" aria-label="回到顶部" className="erp-phone-scroll-top" onClick={() => mainRef.current?.scrollTo({top: 0, behavior: "smooth"})}><ArrowUp className="h-5 w-5" /></Button>}{phone && <AppMobileNavigation onProfileVisibilityChange={setProfileVisible} />}</div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><AppHeader /><main id="main-content" inert={phone && profileVisible || undefined} aria-hidden={phone && profileVisible || undefined} ref={mainRef} tabIndex={-1} aria-label="主要内容" className="erp-main-content erp-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 outline-none sm:p-4 lg:p-6">{phone && <ErpPullToRefreshIndicator state={pullState} />}<WorkspaceTabKeepAlive fallback={children} scrollContainerRef={mainRef} /></main>{phone && showScrollTop && <Button type="button" size="iconTouch" variant="secondary" aria-label="回到顶部" className="erp-phone-scroll-top" onClick={() => mainRef.current?.scrollTo({top: 0, behavior: "smooth"})}><ArrowUp className="h-5 w-5" /></Button>}{phone && <AppMobileNavigation onProfileVisibilityChange={setProfileVisible} />}</div>
     <Suspense fallback={null}><ErpAiDrawer /></Suspense>
   </div>;
 }

@@ -42,7 +42,7 @@ import {
 
 ### 基础控件（`ui`）
 
-- `Button`：`variant` 表达语义，`size` 只使用实现支持的尺寸；图标按钮必须提供 `aria-label`/`title`。
+- `Button`：`variant` 表达语义，`size` 只使用实现支持的尺寸；图标按钮必须提供 `aria-label`/`title`。`loading` 保留原内容占宽、显示轻量进度并禁用重复操作。
 - `Input`、`Textarea`、`Select`：统一高度、边框、焦点环和禁用态，不在页面复制基础视觉。`SearchInput` 是基础层搜索实现，ERP 页面仍使用兼容出口 `ErpSearchInput`，两者不是两套控件。
 - `Card`、`Badge`、`Separator`、`Skeleton`：只负责基础表面和状态。
 - `Dialog`、`Popover`：第三方能力的唯一适配入口。新页面优先使用 `ErpDialogShell`；复杂表单可以组合 `Dialog`，但必须遵守遮罩、层级、内部滚动和关闭规则。业务图片预览统一使用 `ErpImagePreviewDialog`；底层 `Dialog` 仅保留在 `ErpDialogShell`、全局命令搜索和持续工作抽屉等已登记的复杂交互中。
@@ -57,12 +57,14 @@ import {
 | 表单 | `ErpField`、`ErpAmountInput`、`ErpQuantityStepper`、`ErpSegmentedControl`、`ErpCheckboxField`、`ErpRadioField`、`ErpRadioGroup`、`ErpUploader`、`ErpSubmitBar` |
 | 浮层 | `ErpDialogShell`、`ErpConfirmDialog`、`ErpDocumentDeleteDialog`、`ErpImagePreviewDialog`、`ErpDetailDrawer`、`ErpUnsavedChangesDialog` |
 | 反馈 | `ErpEmptyState`、`ErpLoadingState`、`ErpPageError`、`NotificationToaster`、`notify` |
-| 业务展示 | `ErpMetricCard`、`ErpDetailFact`、`ErpStatusBadge`、`QuickStatusGroup`、`ErpProductLedgerDrawer` |
+| 业务展示 | `ErpMetricCard`、`ErpDetailFact`、`ErpStatusBadge`、`ErpEntityThumbnail`、`QuickStatusGroup`、`ErpProductLedgerDrawer` |
 | 业务辅助 | `ErpBarcodeScannerDialog`、`ErpPartnerQuickCreateDialog`、`ErpProductTemplateDialog`、`ErpAiDrawer` |
 
 ### 领域组件（`domain`）
 
 `CustomerPicker`、`AccountPicker`、`InventoryItemPicker`、`InventoryStatus`、`ProfitDisplay` 负责带业务事实的选择和展示。客户、商品、库存搜索不得改成普通文本搜索，也不得在页面复制其浮层定位和选择规则。
+
+`CustomerPicker` / `InventoryItemPicker` 通过点击原字段或下拉箭头重新选择，不附加「更换」文字按钮；桌面选择与手机全屏查找共享同一个受控 `value`，取消不能清空原对象，X 仅负责明确清除。`Select.selectedOption` 可承载不在当前远程候选页中的已选身份。单日期使用 `ErpDatePicker` 的手输、日历、今天和显式 `clearable`；提交定位、金额聚焦及分段键盘行为见 [全局控件交互规则](UI_DESIGN_RULES.md#控件交互契约2026-10-09)。互动验收入口为本地 `/__design-system`，浏览器回归为 `npm run test:controls-browser`。
 
 ## 选型规则
 

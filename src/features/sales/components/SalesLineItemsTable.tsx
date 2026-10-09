@@ -81,7 +81,7 @@ export function SalesLineItemsTable({
           if (!isSalesLineFilled(item)) return null;
           const selected = selectedCandidates[field.id];
           const label = `第 ${index + 1} 行商品`;
-          return <ErpMobileOrderLine key={field.id} label={label} name={item.productName || "请选择商品"} imageUrl={selected?.imageUrl} metadata={selected ? `${item.vram || item.model} · ${selected.availabilityKnown === false ? "库存提交时核验" : `可售 ${selected.availableQuantity} 件`}` : item.model}
+          return <ErpMobileOrderLine key={field.id} label={label} name={item.productName || "请选择商品"} category={selected?.category} imageUrl={selected?.imageUrl} metadata={selected ? `${item.vram || item.model} · ${selected.availabilityKnown === false ? "库存提交时核验" : `可售 ${selected.availableQuantity} 件`}` : item.model}
             disabled={pickerDisabled} total={formatCurrency(calculateSalesLineTotal(item.quantity, item.sellPrice))}
             price={<Controller control={control} name={`items.${index}.sellPrice`} render={({field: input}) => <ErpAmountInput value={input.value || ""} placeholder="输入售价" disabled={pickerDisabled} onBlur={input.onBlur} onValueChange={(value) => input.onChange(Math.round(value.floatValue || 0))} aria-label={`第 ${index + 1} 行销售单价`} />} />}
             quantity={<Controller control={control} name={`items.${index}.quantity`} render={({field: input}) => <ErpQuantityStepper value={input.value} onChange={input.onChange} max={selected?.availabilityKnown === false ? undefined : selected?.availableQuantity} disabled={pickerDisabled} label={`第 ${index + 1} 行数量`} />} />}

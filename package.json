@@ -37,6 +37,7 @@
     "smoke:browser": "node scripts/browser-smoke.mjs",
     "test:forms-browser": "python3 scripts/browser-form-validation.py && python3 scripts/browser-purchase-draft-media.py && python3 scripts/browser-order-submission.py && python3 scripts/browser-return-submission.py && python3 scripts/browser-return-amounts.py",
     "test:mobile-browser": "python3 scripts/browser-mobile-workbench.py",
+    "test:controls-browser": "python3 scripts/browser-control-contracts.py",
     "test:barcode-browser": "python3 scripts/browser-barcode-scanner.py",
     "test:barcode-browser:production": "BARCODE_SMOKE_PRODUCTION=1 python3 scripts/browser-barcode-scanner.py",
     "check:visual": "node scripts/check-visual-regression.mjs",

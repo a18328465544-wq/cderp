@@ -5,6 +5,7 @@ type FieldControlProps = {
   id?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean | "true" | "false";
+  "aria-required"?: boolean;
 };
 
 type FieldChildProps = FieldControlProps & {
@@ -31,9 +32,10 @@ export function ErpField({label, children, htmlFor, hint, error, required = fals
   const controlId = htmlFor || childProps?.id || `erp-field-${generatedId}`;
   const describedBy = [childProps?.["aria-describedby"], hint ? `${controlId}-hint` : "", error ? `${controlId}-error` : ""].filter(Boolean).join(" ") || undefined;
   const controlProps: FieldControlProps = {
-    id: childProps?.id || controlId,
+    id: controlId,
     "aria-describedby": describedBy,
     "aria-invalid": error ? true : childProps?.["aria-invalid"],
+    "aria-required": required || childProps?.["aria-required"],
   };
   const control = isValidElement(children)
     ? typeof childProps?.render === "function"

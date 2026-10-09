@@ -165,10 +165,20 @@ export function ErpBarcodeScannerDialog({open, onOpenChange, onDetected, title =
     title={<span className="flex items-center gap-2"><Camera className="h-4 w-4 text-[var(--erp-color-primary)]" />{title}</span>}
     description={description}
     size="md"
-    mobilePresentation="fullscreen"
-    footer={<Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>关闭</Button>}
+    mobilePresentation="dialog"
+    className="erp-barcode-scanner-dialog"
   >
-    <div data-erp-component="barcode-scanner-camera" className="relative aspect-video overflow-hidden rounded-[var(--erp-radius-lg)] bg-black"><video ref={videoRef} muted playsInline className="h-full w-full object-cover" />{starting && <div role="status" className="absolute inset-0 flex items-center justify-center text-sm text-white"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在准备扫码</div>}{error && !starting && <div aria-hidden="true" className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-white"><Camera className="h-7 w-7" /><span>摄像头暂不可用</span><span className="text-xs">可从图片识别或手动输入</span></div>}</div>
+    <div data-erp-component="barcode-scanner-camera" className="erp-barcode-camera">
+      <video ref={videoRef} muted playsInline className="erp-barcode-video" aria-label="扫码相机预览" />
+      {/* Aiming aid only: decoding still receives the full frame, including
+          barcode quiet zones and QR codes outside this wide guide. */}
+      {!error && <div data-erp-region="barcode-guide" className="erp-barcode-guide" aria-hidden="true">
+        <span /><span /><span /><span />
+      </div>}
+      {starting && <div role="status" className="erp-barcode-camera-status"><RefreshCw className="h-4 w-4 animate-spin" />正在准备扫码</div>}
+      {error && !starting && <div aria-hidden="true" className="erp-barcode-camera-status"><Camera className="h-5 w-5" /><span>摄像头暂不可用</span></div>}
+    </div>
+    <p className="mt-2 text-center text-xs text-[var(--erp-color-text-secondary)]">将条形码横向放入框内，保留两侧白边</p>
     <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/bmp" className="hidden" aria-label="选择条码图片" onChange={(event) => {const file = event.target.files?.[0]; event.target.value = ""; if (file) void photoScanRef.current?.(file);}} />
     <div className="mt-3 flex flex-wrap gap-2"><Button type="button" variant="secondary" disabled={photoPending} onClick={() => imageInputRef.current?.click()}><ImageUp className="h-4 w-4" />{photoPending ? "正在识别图片…" : "从图片识别"}</Button>{error && <Button type="button" variant="secondary" disabled={starting || photoPending} onClick={() => setAttempt((current) => current + 1)}><RefreshCw className="h-4 w-4" />重试扫码</Button>}</div>
     {phone && <div className="mt-4 space-y-2"><label className="block text-xs font-medium" htmlFor={manualId}>手动输入 SN / 编号</label><div className="flex gap-2"><ErpSearchInput id={manualId} value={manualCode} onChange={(event) => setManualCode(event.target.value)} aria-label="扫码备用输入" placeholder="输入或粘贴序列号" className="min-w-0 flex-1" /><Button type="button" variant="primary" disabled={!manualCode.trim()} onClick={() => deliverCodeRef.current?.(manualCode.trim())}>使用</Button></div></div>}

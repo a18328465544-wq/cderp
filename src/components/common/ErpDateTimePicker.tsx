@@ -77,6 +77,7 @@ function displayDateTime(value?: string): string {
 }
 
 export interface ErpDateTimePickerProps {
+  id?: string;
   /** The API-facing local date-time format remains YYYY-MM-DDTHH:mm. */
   value?: string;
   onChange: (value: string) => void;
@@ -91,6 +92,7 @@ export interface ErpDateTimePickerProps {
   "aria-label"?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean | "true" | "false";
+  "aria-required"?: boolean;
   title?: string;
   description?: string;
   className?: string;
@@ -98,6 +100,7 @@ export interface ErpDateTimePickerProps {
 
 /** A shared date + time field. It deliberately keeps the existing local string contract. */
 export function ErpDateTimePicker({
+  id,
   value,
   onChange,
   density = "default",
@@ -110,6 +113,7 @@ export function ErpDateTimePicker({
   "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
   "aria-invalid": ariaInvalid,
+  "aria-required": ariaRequired,
   title = "选择日期和时间",
   description = "日期和时间按门店时区保存",
   className,
@@ -165,8 +169,10 @@ export function ErpDateTimePicker({
   const trigger = (
     <button
       type="button"
+      id={id}
       data-erp-component="date-time-picker"
       data-density={density}
+      data-empty={!displayValue || undefined}
       data-erp-date-time-picker="true"
       className={cn(
         "erp-focus-ring flex min-w-0 max-w-full items-center justify-between gap-2 rounded-[var(--erp-radius-md)] border border-[var(--erp-color-border)] bg-[var(--erp-color-surface)] px-3 text-left text-sm text-[var(--erp-color-text)] transition-colors hover:border-[var(--erp-color-border-strong)] data-popup-open:border-[var(--erp-color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--erp-color-surface-muted)] disabled:text-[var(--erp-color-text-muted)]",
@@ -177,7 +183,7 @@ export function ErpDateTimePicker({
       )}
       disabled={disabled}
       aria-label={ariaLabel}
-      aria-required={required}
+      aria-required={required || ariaRequired}
       aria-invalid={isInvalid || Boolean(timeError) || undefined}
       aria-describedby={ariaDescribedBy}
     >

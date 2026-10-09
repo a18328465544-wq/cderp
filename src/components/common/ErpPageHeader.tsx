@@ -1,5 +1,5 @@
 import {Children, Fragment, isValidElement, useState, type ReactNode} from "react";
-import {MoreHorizontal} from "lucide-react";
+import {MoreHorizontal, RefreshCw} from "lucide-react";
 import {Button} from "@/src/components/ui";
 import {useErpPhone} from "@/src/hooks/useErpViewport";
 import {ErpDialogShell} from "./ErpDialogShell";
@@ -24,6 +24,18 @@ export interface ErpPageHeaderProps {
   leading?: ReactNode;
 }
 
+export function isRefreshAction(element: ReactNode): boolean {
+  if (!isValidElement(element)) return false;
+  const props = element.props as {children?: ReactNode; "aria-label"?: string; title?: string; "data-erp-action"?: string};
+  if (props["data-erp-action"] === "refresh") return true;
+  if (typeof props["aria-label"] === "string" && props["aria-label"].includes("刷新")) return true;
+  if (typeof props.title === "string" && props.title.includes("刷新")) return true;
+  const text = Children.toArray(props.children).filter((c): c is string => typeof c === "string").join("");
+  if (text.includes("刷新")) return true;
+  const hasRefreshIcon = Children.toArray(props.children).some((c) => isValidElement(c) && (c.type === RefreshCw || (typeof c.type === "function" && c.type.name === "RefreshCw") || (c.type as {displayName?: string})?.displayName === "RefreshCw"));
+  return hasRefreshIcon;
+}
+
 export function resolvePhonePageActions(actions: ReactNode): ReactNode[] {
   return Children.toArray(actions).flatMap((child) => isValidElement<{children?: ReactNode}>(child) && (child.type === Fragment || child.type === "div") ? resolvePhonePageActions(child.props.children) : [child]);
 }
@@ -31,7 +43,8 @@ export function resolvePhonePageActions(actions: ReactNode): ReactNode[] {
 export function ErpPageHeader({title, subtitle, density = "compact", quickStatus, quickStatusVariant = "compact", dateContent, actions, leading}: ErpPageHeaderProps) {
   const phone = useErpPhone();
   const [moreOpen, setMoreOpen] = useState(false);
-  const actionItems = resolvePhonePageActions(actions);
+  const rawActions = resolvePhonePageActions(actions);
+  const actionItems = phone ? rawActions.filter((item) => !isRefreshAction(item)) : rawActions;
   const primaryIndex = actionItems.findIndex((item) => isValidElement<{variant?: string}>(item) && item.props.variant === "primary");
   const primary = actionItems[primaryIndex < 0 ? 0 : primaryIndex];
   const secondary = actionItems.filter((_, index) => index !== (primaryIndex < 0 ? 0 : primaryIndex));

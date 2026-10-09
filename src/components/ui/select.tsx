@@ -3,13 +3,15 @@ import {Combobox as BaseCombobox} from "@base-ui/react/combobox";
 import {Check, ChevronDown, Plus, Search, X} from "lucide-react";
 import {useEffect, useState, type ReactNode} from "react";
 import {Button} from "./button";
-import {selectOptionLabelText, selectOptionMatches} from "./select-search";
+import {selectOptionLabelText, selectOptionMatches, selectTransientQuery} from "./select-search";
 export {selectOptionLabelText, normalizeSelectSearchText, selectOptionMatches} from "./select-search";
 import {PhoneSearchSelect} from "./phone-search-select";
+import {useSelectedOption} from "./use-selected-option";
 import {useErpPhone} from "@/src/hooks/useErpViewport";
 import {usePhoneBackLayer} from "@/src/hooks/usePhoneBack";
 import {useWorkspaceTabActivity} from "@/src/hooks/useWorkspaceTabRuntime";
 import {cn, hasBaseWidthUtilityClass} from "@/src/lib/cn";
+import {isComposingKey} from "@/src/lib/controlInteraction";
 
 export interface SelectOption {
   value: string;
@@ -26,6 +28,8 @@ export interface SelectOption {
 export interface SelectProps {
   value?: string;
   options: readonly SelectOption[];
+  /** Explicit identity for a restored value outside the current remote result page. */
+  selectedOption?: SelectOption | null;
   onValueChange: (value: string) => void;
   placeholder?: ReactNode;
   disabled?: boolean;
@@ -35,6 +39,7 @@ export interface SelectProps {
   "aria-label"?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
   className?: string;
   /** Compact controls are intended for filter/tool-bar contexts (36px). */
   density?: "default" | "compact";
@@ -77,7 +82,7 @@ export function shouldShowQuickCreateAction({hasSelection, searchLoading}: {
  * Keep option data at the feature boundary and keep popup styling here so
  * business pages never fall back to browser-native selects.
  */
-export function Select({value, options, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchFilter, searchResultLimit = 60, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}: SelectProps) {
+export function Select({value, options, selectedOption, onValueChange, placeholder = "请选择", disabled, required, name, id, "aria-label": ariaLabel, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid, "aria-required": ariaRequired, className, density = "default", size = "md", searchable = false, searchPlaceholder, emptyText = "没有找到匹配项", searchLoading = false, onSearchValueChange, shouldFilter = true, searchFilter, searchResultLimit = 60, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}: SelectProps) {
   const phone = useErpPhone();
   const hasCustomWidth = hasBaseWidthUtilityClass(className);
   const compact = density === "compact" || size === "sm";
@@ -86,16 +91,16 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
   const [searchText, setSearchText] = useState("");
   const [selectOpen, setSelectOpen] = useState(false);
   const {active} = useWorkspaceTabActivity();
+  const selected = useSelectedOption(value, options, selectedOption);
   usePhoneBackLayer(active && !searchable && selectOpen && !disabled, () => setSelectOpen(false), 400);
   useEffect(() => {
-    if (!disabled) return;
+    if (!disabled && active) return;
     setSearchOpen(false);
     setSelectOpen(false);
     setSearchText("");
-  }, [disabled]);
-  if (searchable && phone) return <PhoneSearchSelect {...{value, options, onValueChange, placeholder, disabled, required, name, id, className, density, size, searchPlaceholder, emptyText, searchLoading, onSearchValueChange, shouldFilter, searchFilter, searchResultLimit, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}} aria-label={ariaLabel} aria-describedby={ariaDescribedBy} aria-invalid={ariaInvalid} />;
+  }, [disabled, active]);
+  if (searchable && phone) return <PhoneSearchSelect {...{value, options, onValueChange, placeholder, disabled, required, name, id, className, density, size, searchPlaceholder, emptyText, searchLoading, onSearchValueChange, shouldFilter, searchFilter, searchResultLimit, onClear, quickCreateAction, phoneDialogTitle, phoneOpenRequest, hidePhoneTrigger, onPhoneOpenChange}} selectedOption={selected} aria-label={ariaLabel} aria-describedby={ariaDescribedBy} aria-invalid={ariaInvalid} aria-required={ariaRequired} />;
   if (searchable) {
-    const selected = options.find((option) => option.value === value) || null;
     const inputPlaceholder = searchPlaceholder || (typeof placeholder === "string" ? placeholder : "搜索并选择");
     const showQuickCreateAction = Boolean(quickCreateAction && shouldShowQuickCreateAction({hasSelection: Boolean(selected), searchLoading}));
     return <BaseCombobox.Root<SelectOption>
@@ -103,15 +108,15 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
       limit={searchResultLimit}
       filter={shouldFilter ? (option, query) => searchFilter ? searchFilter(option, query) : selectOptionMatches(option, query) : null}
       value={selected}
-      onValueChange={(option) => {
-        if (disabled) return;
+      onValueChange={(option, details) => {
+        if (disabled || !active || option && searchLoading) {details.cancel(); return;}
         if (!option && onClear) onClear();
         else onValueChange(option?.value ?? "");
       }}
       itemToStringLabel={selectOptionLabelText}
       itemToStringValue={(option) => option.value}
       isItemEqualToValue={(option, current) => option.value === current.value}
-      open={searchOpen && !disabled}
+      open={active && searchOpen && !disabled}
       onOpenChange={(nextOpen) => {
         setSearchOpen(nextOpen && !disabled);
         if (!nextOpen) {
@@ -120,7 +125,8 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
         }
       }}
       onInputValueChange={(nextSearchText, {reason}) => {
-        const nextQuery = reason === "item-press" ? "" : nextSearchText;
+        const nextQuery = selectTransientQuery(nextSearchText, reason);
+        if (nextQuery === null) {setSearchText(""); return;}
         setSearchText(nextQuery);
         onSearchValueChange?.(nextQuery);
       }}
@@ -133,9 +139,12 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
         <Search className="pointer-events-none absolute left-3 h-4 w-4 shrink-0 text-[var(--erp-color-text-muted)]" aria-hidden="true" />
         <BaseCombobox.Input
           id={id}
+          data-empty={!selected || undefined}
           aria-label={ariaLabel}
           aria-describedby={ariaDescribedBy}
           aria-invalid={ariaInvalid}
+          aria-required={required || ariaRequired}
+          onKeyDown={(event) => {if (isComposingKey(event.nativeEvent)) event.preventBaseUIHandler();}}
           placeholder={inputPlaceholder}
           className="h-full min-w-0 flex-1 border-0 bg-transparent py-0 pl-9 pr-16 text-sm text-[var(--erp-color-text)] outline-none placeholder:text-[var(--erp-color-text-muted)] disabled:cursor-not-allowed disabled:text-[var(--erp-color-text-muted)]"
         />
@@ -177,7 +186,7 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
     items={options}
     value={value === undefined || (value === "" && !options.some((option) => option.value === "")) ? null : value}
     onValueChange={(nextValue) => {if (!disabled) onValueChange(nextValue ?? "");}}
-    open={selectOpen && !disabled}
+    open={active && selectOpen && !disabled}
     onOpenChange={(nextOpen) => setSelectOpen(nextOpen && !disabled)}
     disabled={disabled}
     required={required}
@@ -191,8 +200,9 @@ export function Select({value, options, onValueChange, placeholder = "请选择"
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
       aria-invalid={ariaInvalid}
+      aria-required={required || ariaRequired}
     >
-      <BaseSelect.Value className="min-w-0 truncate" placeholder={placeholder}>{(selectedValue) => options.find((option) => option.value === selectedValue)?.label ?? placeholder}</BaseSelect.Value>
+      <BaseSelect.Value className="min-w-0 truncate" placeholder={placeholder}>{(selectedValue) => selected && selected.value === selectedValue ? selected.label : options.find((option) => option.value === selectedValue)?.label ?? placeholder}</BaseSelect.Value>
       <BaseSelect.Icon className="shrink-0 text-[var(--erp-color-text-muted)]">
         <ChevronDown className="h-4 w-4" aria-hidden="true" />
       </BaseSelect.Icon>

@@ -1,5 +1,5 @@
 import {useMemo, useState} from "react";
-import {ArrowRight, ClipboardList, PackageCheck, RefreshCw, ScanLine, UserRound, Warehouse} from "lucide-react";
+import {ArrowRight, ClipboardList, PackageCheck, ScanLine, UserRound, Warehouse} from "lucide-react";
 import {Link} from "@tanstack/react-router";
 import {Button, Card, CardContent} from "@/src/components/ui";
 import {ErpPageContent, ErpStatusBadge} from "@/src/components/common";
@@ -21,7 +21,7 @@ function periodStart(period: Period) {
 }
 
 /** The server snapshot owns amounts and visibility. This view only groups authorized records by period. */
-export function DashboardMobileWorkbench({session, stats, invoices = [], onRefresh}: {session: AuthSession; stats: WorkbenchStats; invoices?: SalesInvoice[]; onRefresh?: () => void}) {
+export function DashboardMobileWorkbench({session, stats, invoices = []}: {session: AuthSession; stats: WorkbenchStats; invoices?: SalesInvoice[]; onRefresh?: () => void}) {
   const {tabs, navigateToTab} = useWorkspaceTabWorkspace();
   const {getDraft, isTabDirty} = useWorkspaceTabRuntime();
   const [period, setPeriod] = useState<Period>("today");
@@ -42,7 +42,7 @@ export function DashboardMobileWorkbench({session, stats, invoices = [], onRefre
   const hour = storeHour();
   const greeting = hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 19 ? "下午好" : "晚上好";
   return <ErpPageContent className="erp-phone-home" data-mobile-workbench="true">
-    <div className="erp-phone-home-heading"><h1>{greeting}，{session.user.displayName || session.user.username}</h1>{onRefresh && <Button type="button" size="iconTouch" variant="ghost" aria-label="刷新工作台" onClick={onRefresh}><RefreshCw className="h-4 w-4" /></Button>}</div>
+    <div className="erp-phone-home-heading"><h1>{greeting}，{session.user.displayName || session.user.username}</h1></div>
     <div className="erp-phone-period" role="group" aria-label="经营数据日期范围">{([["today", "今日"], ["week", "本周"], ["month", "本月"]] as const).map(([value, label]) => <Button key={value} type="button" variant="ghost" aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</Button>)}</div>
     <Card className="erp-phone-sales-summary"><CardContent><span className="erp-phone-hero-label">销售额</span><p className="erp-data-number erp-phone-home-value">{formatCurrency(revenue)}</p><div className="erp-phone-home-summary-line">{session.permissions.showProfit && <span>毛利 <strong>{formatCurrency(profit)}</strong></span>}<span>单据 <strong>{visibleInvoices.length}</strong></span><span>库存 <strong>{stats.activeInventoryCount}</strong></span></div></CardContent></Card>
     <section><h2 className="erp-phone-section-title">待处理</h2><div className="erp-phone-task-grid">{tasks.map(({item, label, count, unit, icon: Icon}) => <Link key={item.id} to={item.path} onClick={(event) => navigateToTab(item, event)} className="erp-focus-ring erp-phone-task"><Icon className="h-4 w-4" /><span>{label}</span><strong className="erp-data-number">{count}<span className="text-xs font-normal"> {unit}</span></strong></Link>)}</div></section>

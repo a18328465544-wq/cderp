@@ -187,6 +187,14 @@
      these values in one place so narrow-window behavior does not drift by
      component or feature. */
   --erp-overlay-gutter: 12px;
+  /* Scanner geometry stays compact at every viewport; the guide is an
+     aiming aid, never a crop of the frame passed to the decoder. */
+  --erp-scanner-preview-ratio: 16 / 9;
+  --erp-scanner-guide-ratio: 3 / 1;
+  --erp-scanner-guide-width: 82%;
+  --erp-scanner-camera-bg: var(--erp-color-text);
+  --erp-scanner-camera-text: var(--erp-color-surface);
+  --erp-scanner-guide-corner-size: var(--erp-space-5);
   --erp-overlay-mobile-height: calc(100dvh - var(--erp-workspace-bar-height) - (var(--erp-overlay-gutter) * 2));
   --erp-drawer-mobile-width: min(22rem, calc(100vw - 1rem));
   --erp-drawer-max-width: 880px;

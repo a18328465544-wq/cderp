@@ -4,7 +4,7 @@ import {keepPreviousData, useMutation, useQuery, useQueryClient} from "@tanstack
 import {useNavigate} from "@tanstack/react-router";
 import type {ColumnDef, SortingState, VisibilityState} from "@tanstack/react-table";
 import {Banknote, CircleDollarSign, FileText, Filter, ListFilter, LockKeyhole, PackageCheck, Plus, RefreshCw, RotateCcw, ShoppingCart, Truck} from "lucide-react";
-import {ErpSearchInput} from "@/src/components/common";
+import {ErpEntityThumbnail, ErpSearchInput} from "@/src/components/common";
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from "react";
 import {notify} from "@/src/utils/notification";
 import {Button, Card, CardContent, Select} from "@/src/components/ui";
@@ -229,7 +229,7 @@ export function SalesSnapshotDetail({item, showCost, showProfit}: {item: SalesLi
     return result;
   }, [showCost, showProfit]);
   if (phone) return <div className="erp-phone-document" data-phone-detail="document">
-    <section><DetailFact label="客户" value={item.customerName || "—"} /><DetailFact label="下单日期" value={item.date} /><DetailFact label="经办人" value={item.handleBy || "—"} /><DetailFact label="状态" value={`${item.paymentStatus} · ${item.outboundStatus}`} /></section>
+    <section data-erp-region="detail-hero"><div className="erp-phone-customer-identity"><ErpEntityThumbnail kind="customer" name={item.customerName || ""} /><div><h2>{item.customerName || "未关联客户"}</h2><p className="erp-phone-detail-status">{item.paymentStatus} · {item.outboundStatus}</p></div></div><div className="erp-detail-hero-amount"><span>销售金额</span><strong className="erp-data-number">{formatCurrency(item.totalAmount)}</strong></div><DetailFact label="下单日期" value={item.date} /><DetailFact label="经办人" value={item.handleBy || "—"} /></section>
     <section><h2>商品明细</h2><ErpDataTable mobileSorting={false} mobileRow={(line) => <div className="erp-phone-line-fact"><div><strong>{line.productName}</strong><small>{line.condition} · {line.quantity} 件 · SN {line.sn || "待出库绑定"}</small>{showCost && line.costPrice !== undefined && <small>成本 {formatCurrency(line.costPrice)}</small>}{showProfit && line.profit !== undefined && <small>利润 {formatCurrency(line.profit)}</small>}</div><span className="erp-data-number">{formatCurrency(line.sellPrice)}</span></div>} ariaLabel="销售单商品明细" columns={columns} data={item.lines} getRowId={(line) => line.id} surface="plain" emptyTitle="该销售单没有商品明细" /></section>
     <section><h2>结算</h2><DetailFact label="销售金额" value={formatCurrency(item.totalAmount)} /><DetailFact label="已收款" value={formatCurrency(item.paidAmount)} /><DetailFact label="未收款" value={formatCurrency(item.unpaidAmount)} />{showProfit && item.totalProfit !== undefined && <DetailFact label="销售利润" value={formatCurrency(item.totalProfit)} />}</section>
     <details><summary>物流与补充信息</summary><DetailFact label="联系方式" value={item.contact || "—"} /><DetailFact label="渠道" value={item.channel} /><DetailFact label="物流" value={item.freeShipping ? "客户自提 / 无需物流" : [item.expressCompany, item.expressNo].filter(Boolean).join(" · ") || "未填写"} /><DetailFact label="需要发票" value={item.needInvoice ? "是" : "否"} /><DetailFact label="售后条款" value={item.aftersalesTerms || "—"} /><DetailFact label="备注" value={item.remarks || "—"} /></details>

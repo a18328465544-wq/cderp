@@ -1,6 +1,7 @@
 import {useState, type ReactNode} from "react";
 import {ChevronDown, MoreHorizontal, Trash2} from "lucide-react";
 import {Button} from "@/src/components/ui";
+import {ErpEntityThumbnail} from "./ErpEntityThumbnail";
 
 /** One presentation row; its feature supplies the original RHF controllers. */
 export function ErpMobileOrderLine({
@@ -8,6 +9,7 @@ export function ErpMobileOrderLine({
   name,
   metadata,
   imageUrl,
+  category,
   price,
   quantity,
   total,
@@ -23,6 +25,7 @@ export function ErpMobileOrderLine({
   name: string;
   metadata?: ReactNode;
   imageUrl?: string;
+  category?: string;
   price: ReactNode;
   quantity: ReactNode;
   total: ReactNode;
@@ -47,7 +50,7 @@ export function ErpMobileOrderLine({
   return (
     <article data-erp-component="mobile-order-line" className="erp-mobile-order-line" aria-label={label}>
       <div className="erp-mobile-order-line-identity">
-        {imageUrl && <img src={imageUrl} alt="" className="erp-phone-order-image" />}
+        <ErpEntityThumbnail name={name} category={category} imageUrl={imageUrl} />
         <div>
           <Button
             type="button"

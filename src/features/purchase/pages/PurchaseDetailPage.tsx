@@ -10,7 +10,7 @@ import {useEffect, useMemo, useState} from "react";
 import {notify} from "@/src/utils/notification";
 import {Link, useNavigate} from "@tanstack/react-router";
 import {Button, Card, CardContent, CardHeader} from "@/src/components/ui";
-import {ErpDataTable, ErpDetailPageFrame, ErpDocumentDeleteDialog, ErpEmptyState, ErpLoadingState, ErpMetricCard, ErpOutstandingSettlementDialog, ErpPageContent, ErpPageError, ErpPageHeader, ErpStatusBadge, type QuickStatusItemData} from "@/src/components/common";
+import {ErpDataTable, ErpDetailPageFrame, ErpDocumentDeleteDialog, ErpEmptyState, ErpEntityThumbnail, ErpLoadingState, ErpMetricCard, ErpOutstandingSettlementDialog, ErpPageContent, ErpPageError, ErpPageHeader, ErpStatusBadge, type QuickStatusItemData} from "@/src/components/common";
 import {ApiError, apiDownload, financeAccountsApi, financeSettlementApi, invalidateErpDomains, purchaseApi, queryKeys} from "@/src/services/api";
 import {useAuth} from "@/src/app/auth";
 import type {AuthSession} from "@/src/services/api";
@@ -140,7 +140,7 @@ function PurchaseDetailContent({detail, session, onRefresh, refreshing, onDelete
   if (phone) return <ErpDetailPageFrame>
     <ErpPageHeader title={invoice.invoiceNo || invoice.id} quickStatus={[]} leading={<Button type="button" variant="ghost" size="iconTouch" aria-label="返回采购单据" onClick={phoneBack}><ArrowLeft className="h-5 w-5" /></Button>} />
     <div className="erp-phone-document" data-phone-detail="document">
-      <section><InfoRow label="来源对象" value={invoice.supplierName || "—"} /><InfoRow label="采购日期" value={invoice.date} /><InfoRow label="经办人" value={invoice.handleBy || "—"} /><InfoRow label="状态" value={`${invoice.paymentStatus || (invoice.isPaid ? "已付款" : "未付款")} · ${stageLabel}`} /></section>
+      <section data-erp-region="detail-hero"><div className="erp-phone-customer-identity"><ErpEntityThumbnail kind="customer" name={invoice.supplierName || ""} /><div><h2>{invoice.supplierName || "未关联来源"}</h2><p className="erp-phone-detail-status">{invoice.paymentStatus || (invoice.isPaid ? "已付款" : "未付款")} · {stageLabel}</p></div></div>{showCost && <div className="erp-detail-hero-amount"><span>采购总额</span><strong className="erp-data-number">{formatCurrency(invoice.totalCost)}</strong></div>}<InfoRow label="采购日期" value={invoice.date} /><InfoRow label="经办人" value={invoice.handleBy || "—"} /></section>
       <section><h2>商品明细</h2><PurchaseLineTable invoice={invoice} showCost={showCost} showProfit={showProfit} /></section>
       <section><h2>结算</h2><InfoRow label="商品数量" value={`${invoice.totalCount} 件`} />{showCost && <InfoRow label="采购总额" value={formatCurrency(invoice.totalCost)} />}{showProfit && <InfoRow label="预计销售" value={formatCurrency(invoice.estTotalSell)} />}{canReadPayments && <><InfoRow label="现金已付" value={formatCurrency(invoice.paidAmount)} /><InfoRow label="供应商抵扣" value={formatCurrency(invoice.vendorCreditAppliedAmount || 0)} /><InfoRow label="未付金额" value={formatCurrency(invoice.unpaidAmount)} /></>}</section>
       <details><summary>关联库存 · {detail.inventory.length} 件</summary><PurchaseInventoryFacts items={detail.inventory} /></details>

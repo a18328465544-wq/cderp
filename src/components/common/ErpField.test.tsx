@@ -5,6 +5,14 @@ import {Controller, useForm} from "react-hook-form";
 import {Input} from "@/src/components/ui";
 import {ErpField} from "./ErpField";
 
+test("an explicit field association takes precedence over a conflicting child id", () => {
+  const markup = renderToStaticMarkup(<ErpField label="金额" htmlFor="amount-label" required><input id="old-id" /></ErpField>);
+  assert.match(markup, /for="amount-label"/);
+  assert.match(markup, /id="amount-label"/);
+  assert.match(markup, /aria-required="true"/);
+  assert.doesNotMatch(markup, /id="old-id"/);
+});
+
 test("ErpField associates generated ids, hints and errors with its control", () => {
   const markup = renderToStaticMarkup(<ErpField label="商品名称" required hint="用于生成标准名称" error="商品名称不能为空"><Input /></ErpField>);
   const id = markup.match(/<input[^>]* id="([^"]+)"/)?.[1];
